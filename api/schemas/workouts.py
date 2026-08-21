@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 WorkoutSource = Literal["free", "split_day", "plan"]
-WorkoutStatus = Literal["active", "finished"]
+WorkoutStatus = Literal["active", "paused", "finished"]
 WorkoutSetType = Literal["normal", "warmup", "drop"]
 
 WorkoutEffortLevel = Literal[
@@ -163,6 +163,8 @@ class WorkoutSessionDetailResponse(BaseModel):
     session_rpe: float | None = None
     volume_targets: Optional[Dict[str, MuscleVolumeTarget]] = None
     started_at: datetime
+    paused_at: datetime | None = None
+    paused_duration_seconds: int = Field(default=0, ge=0)
     finished_at: datetime | None = None
     updated_at: datetime
 

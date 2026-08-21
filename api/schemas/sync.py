@@ -137,6 +137,8 @@ class SyncWorkoutSnapshot(BaseModel):
     session_rpe: float | None = Field(default=None, ge=0, le=10)
     volume_targets: dict | None = None
     started_at: datetime
+    paused_at: datetime | None = None
+    paused_duration_seconds: int = Field(default=0, ge=0)
     finished_at: datetime | None = None
     deleted: bool = False
     exercises: list[SyncExerciseSnapshot] = []

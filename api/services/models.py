@@ -338,6 +338,10 @@ class WorkoutSession(Base):
     import_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    paused_duration_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -351,7 +355,10 @@ class WorkoutSession(Base):
 
     __table_args__ = (
         CheckConstraint("source IN ('free', 'split_day', 'plan')", name="ck_workout_sessions_source"),
-        CheckConstraint("status IN ('active', 'finished')", name="ck_workout_sessions_status"),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'finished')",
+            name="ck_workout_sessions_status",
+        ),
     )
 
 
