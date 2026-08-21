@@ -32,6 +32,10 @@ from api.services.models import (
     WorkoutSessionExercise, AppUserMesocycle, Mesocycle, AppUserProfile, WorkoutPlan, AppUserMicrocycle,
     WorkoutSessionSet, UserCalendarDay, Exercise,
 )
+from api.services.workout_lifecycle import (
+    effective_duration_seconds,
+    finish as finish_workout_session,
+)
 from api.schemas.workout_center import (
     WorkoutCenterContextRead,
     WorkoutCenterSplitRead,
@@ -87,7 +91,7 @@ async def get_active_workout(
         select(WorkoutSession)
         .where(
             WorkoutSession.app_user_id == app_user_id,
-            WorkoutSession.status == "active",
+            WorkoutSession.status.in_(("active", "paused")),
         )
         .order_by(WorkoutSession.started_at.desc())
     )
@@ -678,7 +682,7 @@ async def finish_workout(
         .where(
             WorkoutSession.id == workout_id,
             WorkoutSession.app_user_id == current_app_user.id,
-            WorkoutSession.status == "active",
+            WorkoutSession.status.in_(("active", "paused", "finished")),
         )
         .options(
             selectinload(WorkoutSession.exercises).selectinload(WorkoutSessionExercise.exercise),
@@ -696,8 +700,7 @@ async def finish_workout(
         )
 
     finished_at = datetime.now(timezone.utc)
-    workout.status = "finished"
-    workout.finished_at = finished_at
+    finish_workout_session(workout, finished_at)
 
     # P0-09: календарь запоминает факт. guarded() изолирует падение в
     # SAVEPOINT — учёт adherence это надстройка, и она не имеет права
@@ -795,7 +798,7 @@ async def finish_workout(
             )
         )
 
-    duration_seconds = int((workout.finished_at - workout.started_at).total_seconds())
+    duration_seconds = effective_duration_seconds(workout, workout.finished_at)
 
     # P0-08, Задача 13, Шаг 6 брифа: свежая сессия меняет и усталость, и
     # картину плато — пересчитываем предложения сразу, чтобы карточка

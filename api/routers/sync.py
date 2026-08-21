@@ -38,6 +38,7 @@ from api.services.progression.records_repository import rebuild_records
 from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
 from api.services.readiness.types import CheckinSignals
+from api.services.workout_lifecycle import apply_snapshot
 
 router = APIRouter(tags=["sync"])
 
@@ -210,12 +211,13 @@ async def _apply_snapshot(
         workout = WorkoutSession(
             app_user_id=app_user_id,
             client_uuid=payload.client_uuid,
+            status="active",
+            paused_duration_seconds=0,
         )
         db.add(workout)
 
     # 4. Скалярные поля (клиент-авторитетно).
     workout.source = payload.source
-    workout.status = payload.status
     workout.split_day_id = payload.split_day_id
     workout.plan_id = payload.plan_id
     workout.notes = payload.notes
@@ -227,7 +229,14 @@ async def _apply_snapshot(
         workout.session_rpe_at = datetime.now(timezone.utc)
     workout.volume_targets = payload.volume_targets
     workout.started_at = payload.started_at
-    workout.finished_at = payload.finished_at
+    apply_snapshot(
+        workout,
+        status=payload.status,
+        paused_at=payload.paused_at,
+        paused_duration_seconds=payload.paused_duration_seconds,
+        finished_at=payload.finished_at,
+        now=datetime.now(timezone.utc),
+    )
     await db.flush()
 
     id_map: dict[str, int] = {payload.client_uuid: workout.id}
@@ -579,7 +588,7 @@ async def sync_changes(
         # локально нужны незавершённая сессия и недавний контекст.
         stmt = stmt.where(
             or_(
-                WorkoutSession.status == "active",
+                WorkoutSession.status.in_(("active", "paused")),
                 WorkoutSession.updated_at > now - INITIAL_PULL_WINDOW,
             )
         )

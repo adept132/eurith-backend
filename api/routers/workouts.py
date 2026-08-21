@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +23,11 @@ from api.services.progression.engine import plan_exercise
 from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
 from api.services.workout_superset_service import WorkoutSupersetService
+from api.services.workout_lifecycle import (
+    InvalidWorkoutTransition,
+    pause as pause_workout_session,
+    resume as resume_workout_session,
+)
 from api.services.models import WorkoutSession, WorkoutSessionExercise, Exercise, WorkoutSessionSet, AppUser, \
     AppUserProfile
 
@@ -57,6 +64,77 @@ async def get_active_workout(
         )
 
     return workout
+
+
+async def _load_owned_workout(
+    db: AsyncSession, workout_id: int, app_user_id: int
+) -> WorkoutSession | None:
+    stmt = (
+        select(WorkoutSession)
+        .where(
+            WorkoutSession.id == workout_id,
+            WorkoutSession.app_user_id == app_user_id,
+        )
+        .options(_workout_session_options())
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def _apply_owned_transition(
+    db: AsyncSession,
+    workout_id: int,
+    app_user_id: int,
+    transition,
+) -> WorkoutSession:
+    workout = await _load_owned_workout(db, workout_id, app_user_id)
+    if workout is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workout not found",
+        )
+    try:
+        transition(workout, datetime.now(timezone.utc))
+    except InvalidWorkoutTransition as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    await db.commit()
+    return workout
+
+
+@router.post(
+    "/workouts/{workout_id}/pause",
+    response_model=WorkoutSessionDetailResponse,
+)
+async def pause_workout(
+    workout_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_app_user=Depends(get_current_app_user),
+):
+    return await _apply_owned_transition(
+        db,
+        workout_id,
+        current_app_user.id,
+        pause_workout_session,
+    )
+
+
+@router.post(
+    "/workouts/{workout_id}/resume",
+    response_model=WorkoutSessionDetailResponse,
+)
+async def resume_workout(
+    workout_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_app_user=Depends(get_current_app_user),
+):
+    return await _apply_owned_transition(
+        db,
+        workout_id,
+        current_app_user.id,
+        resume_workout_session,
+    )
 
 @router.get(
     "/workouts/{workout_id}",
@@ -482,7 +560,7 @@ async def get_active_workout_for_user(
         select(WorkoutSession)
         .where(
             WorkoutSession.app_user_id == app_user_id,
-            WorkoutSession.status == "active",
+            WorkoutSession.status.in_(("active", "paused")),
         )
         .options(
             _workout_session_options()
