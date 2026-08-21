@@ -100,6 +100,11 @@ async def _apply_owned_transition(
             detail=str(exc),
         ) from exc
     await db.commit()
+    # updated_at is server-generated and may remain expired after COMMIT even
+    # with expire_on_commit=False. Refresh before FastAPI/Pydantic serializes
+    # the ORM object, otherwise attribute access can trigger async lazy IO
+    # outside greenlet_spawn (MissingGreenlet).
+    await db.refresh(workout)
     return workout
 
 

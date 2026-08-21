@@ -130,12 +130,17 @@ class FakeSession:
     def __init__(self, workout):
         self.workout = workout
         self.committed = False
+        self.refreshed = False
 
     async def execute(self, _stmt):
         return FakeResult(self.workout)
 
     async def commit(self):
         self.committed = True
+
+    async def refresh(self, workout):
+        assert workout is self.workout
+        self.refreshed = True
 
 
 def test_pause_endpoint_mutates_owned_workout(workout):
@@ -152,6 +157,7 @@ def test_pause_endpoint_mutates_owned_workout(workout):
     assert result.status == "paused"
     assert result.paused_at is not None
     assert session.committed is True
+    assert session.refreshed is True
 
 
 def test_resume_endpoint_returns_not_found_without_owned_workout():
