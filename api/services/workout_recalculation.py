@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,6 +20,7 @@ from api.services.progression import repository as progression_repository
 from api.services.progression.engine import plan_exercise
 from api.services.progression.records_repository import rebuild_records
 from api.services.progression.resolve import override_for
+from app.database import SessionLocal
 
 
 RecalculationResultStatus = Literal["completed", "already_completed"]
@@ -140,17 +142,15 @@ async def _mark_failed(
     revision: int,
     error: Exception,
 ) -> None:
-    await db.execute(
-        update(WorkoutRecalculationOperation)
-        .where(
-            WorkoutRecalculationOperation.workout_id == workout_id,
-            WorkoutRecalculationOperation.revision == revision,
-        )
-        .values(
-            status="failed",
-            attempts=WorkoutRecalculationOperation.attempts + 1,
-            last_error=str(error)[:4000],
-        )
+    operation = await _load_operation(db, workout_id, revision)
+    if operation is None:
+        return
+    operation.status = "failed"
+    operation.attempts += 1
+    operation.last_error = str(error)[:4000]
+    delay_seconds = min(30 * (2 ** max(operation.attempts - 1, 0)), 3600)
+    operation.next_attempt_at = datetime.now(timezone.utc) + timedelta(
+        seconds=delay_seconds
     )
     await db.commit()
 
@@ -200,6 +200,7 @@ async def recalculate_workout_revision(
 
     operation.status = "processing"
     operation.last_error = None
+    operation.next_attempt_at = None
     try:
         await _refresh_progression(db, workout.app_user_id, exercise_ids)
         await rebuild_records(db, workout.app_user_id, exercise_ids)
@@ -221,3 +222,72 @@ async def recalculate_workout_revision(
         revision=revision,
         exercise_ids=exercise_ids,
     )
+
+
+async def run_pending_recalculations(limit: int = 20) -> int:
+    """Process a bounded durable batch, including retryable/stale operations."""
+
+    now = datetime.now(timezone.utc)
+    stale_before = now - timedelta(minutes=5)
+    async with SessionLocal() as db:
+        keys = list(
+            (
+                await db.execute(
+                    select(
+                        WorkoutRecalculationOperation.workout_id,
+                        WorkoutRecalculationOperation.revision,
+                    )
+                    .where(
+                        or_(
+                            WorkoutRecalculationOperation.status == "pending",
+                            and_(
+                                WorkoutRecalculationOperation.status == "failed",
+                                or_(
+                                    WorkoutRecalculationOperation.next_attempt_at.is_(None),
+                                    WorkoutRecalculationOperation.next_attempt_at <= now,
+                                ),
+                            ),
+                            and_(
+                                WorkoutRecalculationOperation.status == "processing",
+                                WorkoutRecalculationOperation.updated_at < stale_before,
+                            ),
+                        )
+                    )
+                    .order_by(
+                        WorkoutRecalculationOperation.created_at,
+                        WorkoutRecalculationOperation.id,
+                    )
+                    .limit(limit)
+                )
+            ).all()
+        )
+
+    processed = 0
+    for workout_id, revision in keys:
+        try:
+            async with SessionLocal() as db:
+                await recalculate_workout_revision(db, workout_id, revision)
+        except Exception as exc:  # noqa: BLE001 - durable row records the failure
+            print(
+                "[workout-recalculation] operation failed "
+                f"workout={workout_id} revision={revision}: {exc}"
+            )
+        processed += 1
+    return processed
+
+
+async def workout_recalculation_worker(
+    stop: asyncio.Event,
+    interval_seconds: int = 10,
+) -> None:
+    """Restart-safe sweeper for durable workout history recalculations."""
+
+    while not stop.is_set():
+        try:
+            await run_pending_recalculations()
+        except Exception as exc:  # noqa: BLE001 - one sweep must not kill the worker
+            print(f"[workout-recalculation] worker iteration failed: {exc}")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+        except asyncio.TimeoutError:
+            pass

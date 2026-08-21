@@ -499,6 +499,9 @@ class WorkoutRecalculationOperation(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint(

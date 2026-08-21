@@ -66,6 +66,7 @@ class WorkoutHistoryExerciseDraft(StrictHistoryModel):
 
 
 class WorkoutHistoryDraft(StrictHistoryModel):
+    client_uuid: ClientUuid
     base_revision: int = Field(ge=0)
     entry_mode: WorkoutEntryMode
     started_at: datetime
@@ -113,4 +114,3 @@ class WorkoutHistorySaveResponse(BaseModel):
 
 class WorkoutHistoryListResponse(BaseModel):
     workouts: list[WorkoutHistoryListItem]
-

@@ -47,6 +47,7 @@ def history_body(
     weight: str = "80.00",
 ) -> dict:
     return {
+        "client_uuid": "history-workout-1",
         "base_revision": base_revision,
         "entry_mode": entry_mode,
         "started_at": T0.isoformat(),
@@ -142,6 +143,31 @@ async def test_manual_create_is_finished(client, history_exercise: Exercise):
 
 
 @pytest.mark.asyncio
+async def test_manual_create_replay_is_idempotent(
+    client, db: AsyncSession, test_user: AppUser, history_exercise: Exercise
+):
+    body = history_body(history_exercise.id)
+
+    first = await client.post("/workouts/history", json=body)
+    second = await client.post("/workouts/history", json=body)
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert second.json()["workout"]["id"] == first.json()["workout"]["id"]
+    rows = list(
+        (
+            await db.execute(
+                select(WorkoutSession).where(
+                    WorkoutSession.app_user_id == test_user.id,
+                    WorkoutSession.client_uuid == body["client_uuid"],
+                )
+            )
+        ).scalars()
+    )
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
 async def test_history_list_returns_completed_owned_workouts(
     client, history_exercise: Exercise
 ):
@@ -218,6 +244,74 @@ async def test_patch_preserves_immutable_prescription_entry_mode_and_hidden_set_
     assert exercise.recommended_rir == 2
     assert exercise.sets[0].is_max_reps is True
     assert float(exercise.sets[0].weight) == 82.5
+
+
+@pytest.mark.asyncio
+async def test_patch_legacy_null_uuids_preserves_immutable_and_hidden_fields(
+    client, db: AsyncSession, test_user: AppUser, history_exercise: Exercise
+):
+    workout = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    loaded = (
+        await db.execute(
+            select(WorkoutSession)
+            .where(WorkoutSession.id == workout.id)
+            .options(selectinload(WorkoutSession.exercises).selectinload(WorkoutSessionExercise.sets))
+        )
+    ).scalar_one()
+    original_exercise = loaded.exercises[0]
+    original_set = original_exercise.sets[0]
+    original_exercise.client_uuid = None
+    original_set.client_uuid = None
+    original_set.superset_round = 1
+    original_set.is_anomalous = True
+    await db.commit()
+
+    body = history_body(
+        history_exercise.id,
+        base_revision=workout.revision,
+        entry_mode="live",
+        weight="82.50",
+    )
+    body["exercises"][0]["client_uuid"] = f"server-exercise-{original_exercise.id}"
+    body["exercises"][0]["sets"][0]["client_uuid"] = f"server-set-{original_set.id}"
+
+    response = await client.patch(f"/workouts/{workout.id}/history", json=body)
+
+    assert response.status_code == 200, response.text
+    refreshed = (
+        await db.execute(
+            select(WorkoutSessionExercise)
+            .where(WorkoutSessionExercise.workout_session_id == workout.id)
+            .options(selectinload(WorkoutSessionExercise.sets))
+        )
+    ).scalar_one()
+    assert refreshed.id == original_exercise.id
+    assert refreshed.prescription == {"target_reps": 8}
+    assert refreshed.live_prescription == {"target_reps": 9}
+    assert refreshed.sets[0].id == original_set.id
+    assert refreshed.sets[0].is_max_reps is True
+    assert refreshed.sets[0].superset_round == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_history_runs_anomaly_guard(
+    client, db: AsyncSession, history_exercise: Exercise
+):
+    response = await client.post(
+        "/workouts/history",
+        json=history_body(history_exercise.id, weight="700.00"),
+    )
+
+    assert response.status_code == 201, response.text
+    workout_id = response.json()["workout"]["id"]
+    workout_set = (
+        await db.execute(
+            select(WorkoutSessionSet)
+            .join(WorkoutSessionExercise)
+            .where(WorkoutSessionExercise.workout_session_id == workout_id)
+        )
+    ).scalar_one()
+    assert workout_set.is_anomalous is True
 
 
 @pytest.mark.asyncio

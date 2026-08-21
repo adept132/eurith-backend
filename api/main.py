@@ -40,9 +40,16 @@ async def lifespan(app: FastAPI):
     await init_db()
     await _purge_expired_accounts()
     from api.services.push_service import push_worker
+    from api.services.workout_recalculation import workout_recalculation_worker
     push_stop = asyncio.Event()
+    recalculation_stop = asyncio.Event()
     push_task = (
         asyncio.create_task(push_worker(push_stop))
+        if os.getenv("PYTEST_CURRENT_TEST") is None
+        else None
+    )
+    recalculation_task = (
+        asyncio.create_task(workout_recalculation_worker(recalculation_stop))
         if os.getenv("PYTEST_CURRENT_TEST") is None
         else None
     )
@@ -50,8 +57,11 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         push_stop.set()
+        recalculation_stop.set()
         if push_task is not None:
             await push_task
+        if recalculation_task is not None:
+            await recalculation_task
 
 
 async def _purge_expired_accounts():

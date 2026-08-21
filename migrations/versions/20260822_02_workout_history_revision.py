@@ -36,6 +36,21 @@ def upgrade() -> None:
         "workout_sessions",
         "entry_mode IN ('live', 'manual', 'screenshot_import')",
     )
+    # Legacy rows predate stable child identifiers. Backfill them before the
+    # history editor can round-trip a full snapshot, otherwise replacement
+    # would delete/recreate the rows and lose immutable prescription facts.
+    op.execute(
+        "UPDATE workout_sessions SET client_uuid = 'server-workout-' || id "
+        "WHERE client_uuid IS NULL"
+    )
+    op.execute(
+        "UPDATE workout_session_exercises SET client_uuid = 'server-exercise-' || id "
+        "WHERE client_uuid IS NULL"
+    )
+    op.execute(
+        "UPDATE workout_session_sets SET client_uuid = 'server-set-' || id "
+        "WHERE client_uuid IS NULL"
+    )
 
     op.create_table(
         "workout_recalculation_operations",
@@ -49,6 +64,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("next_attempt_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
             "status IN ('pending', 'processing', 'completed', 'failed')",
             name="ck_workout_recalculation_status",
@@ -67,9 +83,19 @@ def upgrade() -> None:
         ["workout_id"],
         unique=False,
     )
+    op.create_index(
+        "ix_workout_recalculation_ready",
+        "workout_recalculation_operations",
+        ["status", "next_attempt_at"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "ix_workout_recalculation_ready",
+        table_name="workout_recalculation_operations",
+    )
     op.drop_index(
         "ix_workout_recalculation_operations_workout_id",
         table_name="workout_recalculation_operations",

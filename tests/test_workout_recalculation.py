@@ -22,7 +22,10 @@ from api.services.models import (
     WorkoutSessionSet,
 )
 from api.services.workout_history import replace_history_workout
-from api.services.workout_recalculation import recalculate_workout_revision
+from api.services.workout_recalculation import (
+    recalculate_workout_revision,
+    run_pending_recalculations,
+)
 
 
 T0 = datetime(2026, 8, 19, 18, 0, tzinfo=timezone.utc)
@@ -174,6 +177,7 @@ async def test_history_replace_enqueues_union_of_old_and_new_exercise_ids(
 ):
     old_exercise, new_exercise = recalc_exercises
     draft = WorkoutHistoryDraft(
+        client_uuid="recalc-history-workout",
         base_revision=2,
         entry_mode="manual",
         started_at=T0,
@@ -201,3 +205,56 @@ async def test_history_replace_enqueues_union_of_old_and_new_exercise_ids(
     ).scalar_one()
 
     assert set(operation.exercise_ids) == {old_exercise.id, new_exercise.id}
+
+
+@pytest.mark.asyncio
+async def test_pending_recalculation_sweeper_completes_durable_operation(
+    db: AsyncSession, edited_workout: WorkoutSession
+):
+    processed = await run_pending_recalculations(limit=10)
+
+    operation = (
+        await db.execute(
+            select(WorkoutRecalculationOperation).where(
+                WorkoutRecalculationOperation.workout_id == edited_workout.id,
+                WorkoutRecalculationOperation.revision == 2,
+            )
+        )
+    ).scalar_one()
+    await db.refresh(operation)
+    assert processed >= 1
+    assert operation.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_failed_sweeper_operation_is_durable_and_retryable(
+    db: AsyncSession,
+    edited_workout: WorkoutSession,
+    recalc_exercises: tuple[Exercise, Exercise],
+):
+    operation = (
+        await db.execute(
+            select(WorkoutRecalculationOperation).where(
+                WorkoutRecalculationOperation.workout_id == edited_workout.id,
+                WorkoutRecalculationOperation.revision == 2,
+            )
+        )
+    ).scalar_one()
+    operation.exercise_ids = [2_147_483_000]
+    await db.commit()
+
+    await run_pending_recalculations(limit=10)
+    await db.refresh(operation)
+    assert operation.status == "failed"
+    assert operation.attempts == 1
+    assert operation.last_error
+    assert operation.next_attempt_at is not None
+
+    operation.exercise_ids = [recalc_exercises[0].id]
+    operation.next_attempt_at = T0
+    await db.commit()
+
+    await run_pending_recalculations(limit=10)
+    await db.refresh(operation)
+    assert operation.status == "completed"
+    assert operation.attempts == 2

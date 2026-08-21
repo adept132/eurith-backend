@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,6 +13,8 @@ from api.schemas.workout_history import (
     WorkoutHistoryListItem,
 )
 from api.services.exercise_utils import get_base_exercise_query
+from api.services.anomaly_guard import check_set, resolve_is_anomalous
+from api.services.anomaly_stats import load_exercise_stats
 from api.services.models import (
     Exercise,
     WorkoutRecalculationOperation,
@@ -107,6 +109,7 @@ async def _validate_exercises(
 def _apply_set_fields(
     target: WorkoutSessionSet,
     source,
+    stats,
 ) -> None:
     target.client_uuid = source.client_uuid
     target.set_number = source.set_number
@@ -116,6 +119,13 @@ def _apply_set_fields(
     target.effort_level = source.effort_level
     target.notes = source.notes
     target.is_completed = source.is_completed
+    verdict = check_set(
+        float(source.weight) if source.weight is not None else None,
+        source.reps,
+        source.set_type,
+        stats,
+    )
+    target.is_anomalous = resolve_is_anomalous(verdict, confirmed=False)
 
 
 def _new_session_exercise(
@@ -143,17 +153,20 @@ async def _replace_exercises(
     exercise_by_id: dict[int, Exercise],
 ) -> None:
     existing_exercises = {
-        item.client_uuid: item
+        item.client_uuid or f"server-exercise-{item.id}": item
         for item in workout.exercises
-        if item.client_uuid is not None
     }
     retained_exercise_uuids = {item.client_uuid for item in draft.exercises}
 
     for existing in list(workout.exercises):
-        if existing.client_uuid not in retained_exercise_uuids:
+        existing_key = existing.client_uuid or f"server-exercise-{existing.id}"
+        if existing_key not in retained_exercise_uuids:
             await db.delete(existing)
 
     for source_exercise in draft.exercises:
+        stats = await load_exercise_stats(
+            db, workout.app_user_id, source_exercise.exercise_id
+        )
         target_exercise = existing_exercises.get(source_exercise.client_uuid)
         if target_exercise is None:
             target_exercise = _new_session_exercise(
@@ -171,15 +184,19 @@ async def _replace_exercises(
             target_exercise.order_index = source_exercise.order_index
             target_exercise.superset_group = source_exercise.superset_group
             target_exercise.notes = source_exercise.notes
+            if target_exercise.client_uuid is None:
+                target_exercise.client_uuid = source_exercise.client_uuid
 
         existing_sets = {
-            item.client_uuid: item
+            item.client_uuid or f"server-set-{item.id}": item
             for item in target_exercise.sets
-            if item.client_uuid is not None
         }
         retained_set_uuids = {item.client_uuid for item in source_exercise.sets}
         for existing_set in list(target_exercise.sets):
-            if existing_set.client_uuid not in retained_set_uuids:
+            existing_set_key = (
+                existing_set.client_uuid or f"server-set-{existing_set.id}"
+            )
+            if existing_set_key not in retained_set_uuids:
                 await db.delete(existing_set)
 
         for source_set in source_exercise.sets:
@@ -191,7 +208,9 @@ async def _replace_exercises(
                     set_number=source_set.set_number,
                 )
                 db.add(target_set)
-            _apply_set_fields(target_set, source_set)
+            elif target_set.client_uuid is None:
+                target_set.client_uuid = source_set.client_uuid
+            _apply_set_fields(target_set, source_set, stats)
 
 
 def _enqueue_recalculation(
@@ -232,11 +251,15 @@ async def create_history_workout(
     if draft.base_revision != 0:
         raise WorkoutHistoryImmutableField("base_revision")
 
+    existing = await _load_workout_by_client_uuid(db, user_id, draft.client_uuid)
+    if existing is not None:
+        return existing
+
     try:
         exercise_by_id = await _validate_exercises(db, user_id, draft)
         workout = WorkoutSession(
             app_user_id=user_id,
-            client_uuid=str(uuid.uuid4()),
+            client_uuid=draft.client_uuid,
             source="free",
             status="finished",
             entry_mode=draft.entry_mode,
@@ -258,6 +281,12 @@ async def create_history_workout(
             {item.exercise_id for item in draft.exercises},
         )
         await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing = await _load_workout_by_client_uuid(db, user_id, draft.client_uuid)
+        if existing is not None:
+            return existing
+        raise
     except Exception:
         await db.rollback()
         raise
@@ -311,6 +340,7 @@ async def replace_history_workout(
 
 def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryDraft:
     return WorkoutHistoryDraft(
+        client_uuid=workout.client_uuid or f"server-workout-{workout.id}",
         base_revision=workout.revision,
         entry_mode=workout.entry_mode,
         started_at=workout.started_at,
@@ -342,6 +372,23 @@ def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryDraft:
             for item in workout.exercises
         ],
     )
+
+
+async def _load_workout_by_client_uuid(
+    db: AsyncSession,
+    user_id: int,
+    client_uuid: str,
+) -> WorkoutSession | None:
+    return (
+        await db.execute(
+            select(WorkoutSession)
+            .where(
+                WorkoutSession.app_user_id == user_id,
+                WorkoutSession.client_uuid == client_uuid,
+            )
+            .options(_workout_options())
+        )
+    ).scalar_one_or_none()
 
 
 async def list_history_workouts(

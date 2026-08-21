@@ -26,6 +26,7 @@ def _set(set_number: int, *, client_uuid: str | None = None) -> dict:
 
 def _draft(**overrides) -> dict:
     payload = {
+        "client_uuid": "history-schema-workout",
         "base_revision": 0,
         "entry_mode": "manual",
         "started_at": T0,
