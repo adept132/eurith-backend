@@ -198,11 +198,13 @@ def _enqueue_recalculation(
     db: AsyncSession,
     workout_id: int,
     revision: int,
+    exercise_ids: set[int],
 ) -> WorkoutRecalculationOperation:
     operation = WorkoutRecalculationOperation(
         workout_id=workout_id,
         revision=revision,
         status="pending",
+        exercise_ids=sorted(exercise_ids),
     )
     db.add(operation)
     return operation
@@ -249,7 +251,12 @@ async def create_history_workout(
         db.add(workout)
         await db.flush()
         await _replace_exercises(db, workout, draft, exercise_by_id)
-        _enqueue_recalculation(db, workout.id, workout.revision)
+        _enqueue_recalculation(
+            db,
+            workout.id,
+            workout.revision,
+            {item.exercise_id for item in draft.exercises},
+        )
         await db.commit()
     except Exception:
         await db.rollback()
@@ -279,6 +286,9 @@ async def replace_history_workout(
             raise WorkoutHistoryImmutableField("entry_mode")
 
         exercise_by_id = await _validate_exercises(db, user_id, draft)
+        affected_exercise_ids = {
+            item.exercise_id for item in workout.exercises
+        } | {item.exercise_id for item in draft.exercises}
         workout.started_at = draft.started_at
         workout.finished_at = draft.finished_at
         workout.notes = draft.notes
@@ -289,7 +299,9 @@ async def replace_history_workout(
         await _replace_exercises(db, workout, draft, exercise_by_id)
         workout.revision += 1
         workout.edited_at = datetime.now(timezone.utc)
-        _enqueue_recalculation(db, workout.id, workout.revision)
+        _enqueue_recalculation(
+            db, workout.id, workout.revision, affected_exercise_ids
+        )
         await db.commit()
     except Exception:
         await db.rollback()

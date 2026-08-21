@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20260822_02"
@@ -41,6 +42,7 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("workout_id", sa.Integer(), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
+        sa.Column("exercise_ids", postgresql.JSONB(), server_default="[]", nullable=False),
         sa.Column("status", sa.String(length=16), server_default="pending", nullable=False),
         sa.Column("attempts", sa.Integer(), server_default="0", nullable=False),
         sa.Column("last_error", sa.Text(), nullable=True),

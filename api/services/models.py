@@ -482,6 +482,9 @@ class WorkoutRecalculationOperation(Base):
         index=True,
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    exercise_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
     )
