@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 WorkoutSource = Literal["free", "split_day", "plan"]
 WorkoutStatus = Literal["active", "paused", "finished"]
 WorkoutSetType = Literal["normal", "warmup", "drop"]
+WorkoutEntryMode = Literal["live", "manual", "screenshot_import"]
 
 WorkoutEffortLevel = Literal[
     "warmup_effort",
@@ -152,6 +153,9 @@ class WorkoutSessionDetailResponse(BaseModel):
     client_uuid: str | None = None
     source: WorkoutSource
     status: WorkoutStatus
+    entry_mode: WorkoutEntryMode = "live"
+    revision: int = 0
+    edited_at: datetime | None = None
 
     split_day_id: Optional[uuid.UUID]  = None
     plan_id: int | None = None
