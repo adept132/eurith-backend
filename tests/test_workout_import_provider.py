@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 
 import httpx
 import pytest
+from fastapi import HTTPException
+from PIL import Image
 
 from api.config import WorkoutImportVisionSettings
 from api.schemas.workout_import import WorkoutImportMlRequest
@@ -14,6 +17,7 @@ from api.services.workout_import.types import (
     WorkoutVisionProviderError,
     WorkoutVisionRequest,
 )
+from api.routers.workout_import import _normalize_image
 
 
 def provider_request() -> WorkoutVisionRequest:
@@ -185,6 +189,23 @@ async def test_malformed_or_schema_violating_provider_output_is_rejected(respons
 def test_default_client_timeout_is_exactly_thirty_seconds():
     provider = OpenAICompatibleWorkoutVisionProvider(settings())
     assert provider.timeout_seconds == 30.0
+
+
+def test_image_normalization_applies_exif_orientation_and_enforces_output_bound():
+    source = Image.new("RGB", (2, 1), (255, 0, 0))
+    exif = Image.Exif()
+    exif[274] = 6
+    encoded = BytesIO()
+    source.save(encoded, format="JPEG", exif=exif)
+
+    normalized = _normalize_image("image/jpeg", encoded.getvalue(), max_output_bytes=1024 * 1024)
+    with Image.open(BytesIO(normalized)) as decoded:
+        assert decoded.size == (1, 2)
+        assert 274 not in decoded.getexif()
+
+    with pytest.raises(HTTPException) as caught:
+        _normalize_image("image/jpeg", encoded.getvalue(), max_output_bytes=1)
+    assert caught.value.status_code == 413
 
 
 @pytest.mark.asyncio

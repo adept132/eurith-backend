@@ -264,9 +264,20 @@ async def test_request_metadata_is_minimal_and_idempotency_blocks_replay(
 
 
 @pytest.mark.asyncio
-async def test_sixth_attempt_in_ten_minutes_is_rate_limited_across_requests(
-    client, db, test_user, fake_provider
+async def test_sixth_attempt_in_ten_minutes_is_rate_limited_before_image_decode(
+    client, db, test_user, fake_provider, monkeypatch
 ):
+    from api.routers import workout_import as router_module
+
+    original_normalize = router_module._normalize_image
+    decoded = 0
+
+    def counted_normalize(*args, **kwargs):
+        nonlocal decoded
+        decoded += 1
+        return original_normalize(*args, **kwargs)
+
+    monkeypatch.setattr(router_module, "_normalize_image", counted_normalize)
     for index in range(5):
         response = await post_fallback(client, key=f"idem-rate-{index}")
         assert response.status_code == 200, response.text
@@ -275,6 +286,7 @@ async def test_sixth_attempt_in_ten_minutes_is_rate_limited_across_requests(
     assert int(limited.headers["Retry-After"]) > 0
     assert limited.json()["detail"]["code"] == "rate_limited"
     assert len(fake_provider.calls) == 5
+    assert decoded == 5
     await db.rollback()
     statuses = list(
         (await db.execute(select(WorkoutImportMlRequestRecord.status).where(
