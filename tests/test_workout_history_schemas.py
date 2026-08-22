@@ -84,6 +84,40 @@ def test_history_draft_normalizes_blank_notes():
     assert draft.exercises[0].sets[0].notes is None
 
 
+def test_history_draft_accepts_dropset_parent_client_uuid():
+    payload = _draft()
+    payload["exercises"][0]["sets"] = [
+        _set(1, client_uuid="root-set"),
+        {
+            **_set(2, client_uuid="drop-set"),
+            "set_type": "drop",
+            "parent_client_uuid": "root-set",
+        },
+    ]
+
+    draft = WorkoutHistoryDraft(**payload)
+
+    assert draft.exercises[0].sets[1].parent_client_uuid == "root-set"
+
+
+def test_history_draft_rejects_dangling_parent_client_uuid_with_context():
+    payload = _draft()
+    payload["exercises"][0]["sets"] = [
+        {
+            **_set(1, client_uuid="drop-set"),
+            "set_type": "drop",
+            "parent_client_uuid": "missing-root",
+        }
+    ]
+
+    with pytest.raises(ValidationError) as error:
+        WorkoutHistoryDraft(**payload)
+
+    assert "parent_client_uuid 'missing-root' must reference a set in the same exercise" in str(
+        error.value
+    )
+
+
 def test_history_metadata_models_expose_revision_and_durable_operation_key():
     workout_columns = WorkoutSession.__table__.columns
     operation_constraints = WorkoutRecalculationOperation.__table__.constraints

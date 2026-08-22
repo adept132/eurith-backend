@@ -143,6 +143,47 @@ async def test_manual_create_is_finished(client, history_exercise: Exercise):
 
 
 @pytest.mark.asyncio
+async def test_manual_create_maps_dropset_parent_client_uuid(
+    client,
+    db: AsyncSession,
+    history_exercise: Exercise,
+):
+    body = history_body(history_exercise.id)
+    body["exercises"][0]["sets"] = [
+        body["exercises"][0]["sets"][0],
+        {
+            "client_uuid": "history-drop-1",
+            "parent_client_uuid": "history-set-1",
+            "set_number": 2,
+            "set_type": "drop",
+            "weight": "60.00",
+            "reps": 10,
+            "effort_level": "failure",
+            "notes": "Drop",
+            "is_completed": True,
+        },
+    ]
+
+    response = await client.post("/workouts/history", json=body)
+
+    assert response.status_code == 201, response.text
+    rows = list(
+        (
+            await db.execute(
+                select(WorkoutSessionSet)
+                .join(WorkoutSessionExercise)
+                .where(
+                    WorkoutSessionExercise.workout_session_id
+                    == response.json()["workout"]["id"]
+                )
+                .order_by(WorkoutSessionSet.set_number)
+            )
+        ).scalars()
+    )
+    assert rows[1].parent_set_id == rows[0].id
+
+
+@pytest.mark.asyncio
 async def test_manual_create_replay_is_idempotent(
     client, db: AsyncSession, test_user: AppUser, history_exercise: Exercise
 ):
@@ -278,6 +319,79 @@ async def test_patch_preserves_immutable_prescription_entry_mode_and_hidden_set_
     assert exercise.recommended_rir == 2
     assert exercise.sets[0].is_max_reps is True
     assert float(exercise.sets[0].weight) == 82.5
+
+
+@pytest.mark.asyncio
+async def test_patch_round_trips_existing_dropset_parent_relationship(
+    client,
+    db: AsyncSession,
+    test_user: AppUser,
+    history_exercise: Exercise,
+):
+    workout = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    loaded = (
+        await db.execute(
+            select(WorkoutSession)
+            .where(WorkoutSession.id == workout.id)
+            .options(
+                selectinload(WorkoutSession.exercises).selectinload(
+                    WorkoutSessionExercise.sets
+                )
+            )
+        )
+    ).scalar_one()
+    root = loaded.exercises[0].sets[0]
+    db.add(
+        WorkoutSessionSet(
+            workout_session_exercise_id=loaded.exercises[0].id,
+            client_uuid="history-existing-drop",
+            parent_set_id=root.id,
+            set_number=2,
+            set_type="drop",
+            weight=60,
+            reps=10,
+            effort_level="failure",
+            is_completed=True,
+        )
+    )
+    await db.commit()
+
+    body = history_body(
+        history_exercise.id,
+        base_revision=workout.revision,
+        entry_mode="live",
+        weight="82.50",
+    )
+    body["exercises"][0]["sets"] = [
+        body["exercises"][0]["sets"][0],
+        {
+            "client_uuid": "history-existing-drop",
+            "parent_client_uuid": "history-set-1",
+            "set_number": 2,
+            "set_type": "drop",
+            "weight": "57.50",
+            "reps": 12,
+            "effort_level": "failure",
+            "notes": None,
+            "is_completed": True,
+        },
+    ]
+
+    response = await client.patch(f"/workouts/{workout.id}/history", json=body)
+
+    assert response.status_code == 200, response.text
+    refreshed = list(
+        (
+            await db.execute(
+                select(WorkoutSessionSet)
+                .join(WorkoutSessionExercise)
+                .where(WorkoutSessionExercise.workout_session_id == workout.id)
+                .order_by(WorkoutSessionSet.set_number)
+            )
+        ).scalars()
+    )
+    assert refreshed[1].parent_set_id == refreshed[0].id
+    assert float(refreshed[1].weight) == 57.5
 
 
 @pytest.mark.asyncio

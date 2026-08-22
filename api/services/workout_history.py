@@ -13,6 +13,7 @@ from api.schemas.workout_history import (
     WorkoutHistoryDraft,
     WorkoutHistoryExerciseDraft,
     WorkoutHistoryListItem,
+    WorkoutHistorySetDraft,
 )
 from api.services.exercise_utils import get_base_exercise_query
 from api.services.anomaly_guard import check_set, resolve_is_anomalous
@@ -159,6 +160,20 @@ def _apply_set_fields(
     target.is_anomalous = resolve_is_anomalous(verdict, confirmed=False)
 
 
+def _apply_set_parent_links(
+    source_sets: list[WorkoutHistorySetDraft],
+    target_sets_by_client_uuid: dict[str, WorkoutSessionSet],
+) -> None:
+    for source_set in source_sets:
+        target_set = target_sets_by_client_uuid[source_set.client_uuid]
+        parent_uuid = source_set.parent_client_uuid
+        target_set.parent_set_id = (
+            target_sets_by_client_uuid[parent_uuid].id
+            if parent_uuid is not None
+            else None
+        )
+
+
 def _new_session_exercise(
     workout_id: int,
     source: WorkoutHistoryExerciseDraft,
@@ -230,6 +245,7 @@ async def _replace_exercises(
             if existing_set_key not in retained_set_uuids:
                 await db.delete(existing_set)
 
+        target_sets_by_client_uuid: dict[str, WorkoutSessionSet] = {}
         for source_set in source_exercise.sets:
             target_set = existing_sets.get(source_set.client_uuid)
             if target_set is None:
@@ -242,6 +258,16 @@ async def _replace_exercises(
             elif target_set.client_uuid is None:
                 target_set.client_uuid = source_set.client_uuid
             _apply_set_fields(target_set, source_set, stats)
+            target_sets_by_client_uuid[source_set.client_uuid] = target_set
+
+        # IDs for newly created root/drop rows are needed before ancestry can
+        # be resolved. The public contract uses stable client UUIDs so the
+        # service never depends on a client knowing server persistence IDs.
+        await db.flush()
+        _apply_set_parent_links(
+            source_exercise.sets,
+            target_sets_by_client_uuid,
+        )
 
 
 def _enqueue_recalculation(
@@ -371,6 +397,33 @@ async def replace_history_workout(
     return await _reload_workout(db, user_id, workout_id)
 
 
+def _draft_sets_from_exercise(
+    exercise: WorkoutSessionExercise,
+) -> list[dict[str, object]]:
+    client_uuid_by_id = {
+        workout_set.id: workout_set.client_uuid or f"server-set-{workout_set.id}"
+        for workout_set in exercise.sets
+    }
+    return [
+        {
+            "client_uuid": client_uuid_by_id[workout_set.id],
+            "parent_client_uuid": (
+                client_uuid_by_id.get(workout_set.parent_set_id)
+                if workout_set.parent_set_id is not None
+                else None
+            ),
+            "set_number": workout_set.set_number,
+            "set_type": workout_set.set_type,
+            "weight": workout_set.weight,
+            "reps": workout_set.reps,
+            "effort_level": workout_set.effort_level,
+            "notes": workout_set.notes,
+            "is_completed": workout_set.is_completed,
+        }
+        for workout_set in exercise.sets
+    ]
+
+
 def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryDraft:
     return WorkoutHistoryDraft(
         client_uuid=workout.client_uuid or f"server-workout-{workout.id}",
@@ -387,20 +440,7 @@ def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryDraft:
                 "order_index": item.order_index,
                 "superset_group": item.superset_group,
                 "notes": item.notes,
-                "sets": [
-                    {
-                        "client_uuid": workout_set.client_uuid
-                        or f"server-set-{workout_set.id}",
-                        "set_number": workout_set.set_number,
-                        "set_type": workout_set.set_type,
-                        "weight": workout_set.weight,
-                        "reps": workout_set.reps,
-                        "effort_level": workout_set.effort_level,
-                        "notes": workout_set.notes,
-                        "is_completed": workout_set.is_completed,
-                    }
-                    for workout_set in item.sets
-                ],
+                "sets": _draft_sets_from_exercise(item),
             }
             for item in workout.exercises
         ],
