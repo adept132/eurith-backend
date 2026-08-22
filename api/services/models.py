@@ -982,6 +982,24 @@ class WorkoutPlan(Base):
     meso_tag: Mapped[str] = mapped_column(String(20), nullable=False,
                                           index=True)  # 'deload', 'easy', 'medium', 'prefailure', 'failure', 'adaptive'
 
+    supersedes_plan_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("workout_plans.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_archived: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
     # Связь с упражнениями в плане
     exercises: Mapped[List["WorkoutPlanExercise"]] = relationship(
         "WorkoutPlanExercise",
