@@ -37,7 +37,11 @@ router = APIRouter(tags=["workout-routines"])
 
 
 def _routine_query():
-    return select(WorkoutRoutine).options(selectinload(WorkoutRoutine.exercises))
+    return select(WorkoutRoutine).options(
+        selectinload(WorkoutRoutine.exercises).selectinload(
+            WorkoutRoutineExercise.exercise
+        )
+    )
 
 
 async def _owned_routine(

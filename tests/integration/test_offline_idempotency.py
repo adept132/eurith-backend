@@ -181,6 +181,42 @@ async def test_sync_workout_idempotent(client, db, test_user):
     assert drop_parent == parent_id
 
 
+async def test_sync_workout_keeps_owned_routine_provenance(client, db, test_user):
+    exercise_id = await _create_exercise(client)
+    routine = await client.post(
+        "/workout-routines",
+        json={
+            "client_uuid": uuid.uuid4().hex,
+            "name": "Offline routine",
+            "exercises": [{
+                "exercise_id": exercise_id,
+                "order_index": 0,
+                "target_sets": 1,
+                "set_kinds": ["normal"],
+            }],
+        },
+    )
+    assert routine.status_code == 201, routine.text
+    routine_id = routine.json()["id"]
+
+    response = await client.post(
+        "/sync/workouts",
+        json={
+            "client_uuid": uuid.uuid4().hex,
+            "source": "free",
+            "status": "active",
+            "routine_id": routine_id,
+            "started_at": "2026-08-22T10:00:00+00:00",
+            "exercises": [],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    workout_id = next(iter(response.json()["id_map"].values()))
+    stored = await db.get(WorkoutSession, workout_id)
+    assert stored.routine_id == routine_id
+
+
 async def test_sync_workout_applies_updates(client, db, test_user):
     """Второй снимок с изменёнными данными обновляет, а не плодит строки (LWW)."""
     exercise_id = await _create_exercise(client)

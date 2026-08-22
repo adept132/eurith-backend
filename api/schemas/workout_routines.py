@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from api.schemas.workouts import ExerciseShortResponse
 
 
 RoutineSetKind = Literal["normal", "amrap", "backoff"]
@@ -133,6 +134,7 @@ class WorkoutRoutineExerciseRead(BaseModel):
     target_rir: int | None
     rest_seconds: int | None
     notes: str | None
+    exercise: ExerciseShortResponse
 
 
 class WorkoutRoutineRead(BaseModel):

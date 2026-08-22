@@ -89,6 +89,7 @@ async def test_routine_crud_returns_nested_exercises_in_order(client):
         first_exercise_id,
         second_exercise_id,
     ]
+    assert created.json()["exercises"][0]["exercise"]["id"] == first_exercise_id
 
     listed = await client.get("/workout-routines")
     assert listed.status_code == 200, listed.text
