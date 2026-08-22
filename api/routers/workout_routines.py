@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -210,10 +210,21 @@ async def update_workout_routine(
 )
 async def delete_workout_routine(
     routine_id: int,
+    base_revision: int = Query(ge=0),
     db: AsyncSession = Depends(get_db),
     current_app_user=Depends(get_current_app_user),
 ):
-    routine = await _owned_routine(db, current_app_user.id, routine_id)
+    routine = await _owned_routine(
+        db, current_app_user.id, routine_id, for_update=True
+    )
+    if routine.revision != base_revision:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "routine_revision_conflict",
+                "routine": WorkoutRoutineRead.model_validate(routine).model_dump(mode="json"),
+            },
+        )
     await db.delete(routine)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

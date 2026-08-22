@@ -111,7 +111,10 @@ async def test_routine_crud_returns_nested_exercises_in_order(client):
     assert [item["order_index"] for item in updated.json()["exercises"]] == [0, 1]
     assert updated.json()["revision"] == created.json()["revision"] + 1
 
-    deleted = await client.delete(f"/workout-routines/{routine_id}")
+    deleted = await client.delete(
+        f"/workout-routines/{routine_id}",
+        params={"base_revision": updated.json()["revision"]},
+    )
     assert deleted.status_code == 204, deleted.text
     assert (await client.get(f"/workout-routines/{routine_id}")).status_code == 404
 
@@ -152,6 +155,26 @@ async def test_concurrent_routine_patches_allow_only_one_revision_winner(client)
     )
 
     assert sorted((first.status_code, second.status_code)) == [200, 409]
+
+
+async def test_routine_delete_rejects_stale_revision_and_returns_current(client):
+    exercise_id = await _create_exercise(client, name_prefix="Routine delete conflict")
+    created = await client.post("/workout-routines", json=_routine_payload(exercise_id))
+    routine = created.json()
+    updated = await client.patch(
+        f"/workout-routines/{routine['id']}",
+        json={"name": "Remote edit", "base_revision": routine["revision"]},
+    )
+    assert updated.status_code == 200, updated.text
+
+    stale_delete = await client.delete(
+        f"/workout-routines/{routine['id']}",
+        params={"base_revision": routine["revision"]},
+    )
+
+    assert stale_delete.status_code == 409, stale_delete.text
+    assert stale_delete.json()["detail"]["routine"]["name"] == "Remote edit"
+    assert (await client.get(f"/workout-routines/{routine['id']}")).status_code == 200
 
 
 async def test_save_as_routine_drops_weights(client):
