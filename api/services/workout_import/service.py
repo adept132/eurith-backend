@@ -36,54 +36,7 @@ class MlRateLimitError(Exception):
     retry_after = 600
 
 
-async def preflight_ml_request(
-    db: AsyncSession,
-    *,
-    app_user_id: int,
-    idempotency_key: str,
-    image_count: int,
-    byte_count: int,
-) -> None:
-    """Reject duplicate/rate-limited work before CPU-heavy image normalization.
-
-    The authoritative reservation is repeated after normalization so concurrent
-    requests remain serialized by the same advisory transaction lock.
-    """
-    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": app_user_id})
-    duplicate = await db.scalar(
-        select(WorkoutImportMlRequestRecord.id).where(
-            WorkoutImportMlRequestRecord.app_user_id == app_user_id,
-            WorkoutImportMlRequestRecord.idempotency_key == idempotency_key,
-        )
-    )
-    if duplicate is not None:
-        await db.rollback()
-        raise DuplicateMlRequestError
-
-    cutoff = datetime.now(timezone.utc) - RATE_WINDOW
-    attempts = await db.scalar(
-        select(func.count()).select_from(WorkoutImportMlRequestRecord).where(
-            WorkoutImportMlRequestRecord.app_user_id == app_user_id,
-            WorkoutImportMlRequestRecord.created_at >= cutoff,
-        )
-    )
-    if int(attempts or 0) >= RATE_LIMIT:
-        db.add(
-            WorkoutImportMlRequestRecord(
-                app_user_id=app_user_id,
-                request_id=str(uuid.uuid4()),
-                idempotency_key=idempotency_key,
-                image_count=image_count,
-                byte_count=byte_count,
-                status="rate_limited",
-            )
-        )
-        await db.commit()
-        raise MlRateLimitError
-    await db.rollback()
-
-
-async def _reserve(
+async def reserve_ml_request(
     db: AsyncSession,
     *,
     app_user_id: int,
@@ -91,6 +44,7 @@ async def _reserve(
     image_count: int,
     byte_count: int,
 ) -> WorkoutImportMlRequestRecord:
+    """Atomically reserve an attempt before CPU-heavy image normalization."""
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": app_user_id})
     duplicate = await db.scalar(
         select(WorkoutImportMlRequestRecord.id).where(
@@ -122,7 +76,6 @@ async def _reserve(
         )
         await db.commit()
         raise MlRateLimitError
-
     record = WorkoutImportMlRequestRecord(
         app_user_id=app_user_id,
         request_id=str(uuid.uuid4()),
@@ -135,6 +88,16 @@ async def _reserve(
     await db.commit()
     await db.refresh(record)
     return record
+
+
+async def reject_ml_request(
+    db: AsyncSession,
+    record: WorkoutImportMlRequestRecord,
+    *,
+    status: str,
+) -> None:
+    record.status = status
+    await db.commit()
 
 
 async def _guard_result(
@@ -202,18 +165,11 @@ async def run_ml_fallback(
     db: AsyncSession,
     *,
     app_user_id: int,
-    idempotency_key: str,
+    record: WorkoutImportMlRequestRecord,
     draft: WorkoutImportMlRequest,
     images: tuple[VisionImage, ...],
     provider: WorkoutVisionProvider,
 ) -> WorkoutImportMlFallbackResponse:
-    record = await _reserve(
-        db,
-        app_user_id=app_user_id,
-        idempotency_key=idempotency_key,
-        image_count=len(images),
-        byte_count=sum(len(image.body) for image in images),
-    )
     started = time.monotonic()
     try:
         raw_result = await provider.extract(

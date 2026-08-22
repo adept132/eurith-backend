@@ -22,7 +22,8 @@ from api.services.workout_import.provider import WorkoutVisionProvider
 from api.services.workout_import.service import (
     DuplicateMlRequestError,
     MlRateLimitError,
-    preflight_ml_request,
+    reject_ml_request,
+    reserve_ml_request,
     run_ml_fallback,
 )
 from api.services.workout_import.types import ProviderErrorCode, VisionImage, WorkoutVisionProviderError
@@ -154,7 +155,7 @@ async def workout_import_ml_fallback(
     raw_images = await _read_raw_images(images)
     raw_byte_count = sum(len(body) for _, body in raw_images)
     try:
-        await preflight_ml_request(
+        record = await reserve_ml_request(
             db,
             app_user_id=app_user_id,
             idempotency_key=idempotency_key,
@@ -165,13 +166,21 @@ async def workout_import_ml_fallback(
         raise HTTPException(409, detail=_error("duplicate_request", "Этот запрос уже был обработан", False)) from exc
     except MlRateLimitError as exc:
         raise HTTPException(429, detail=_error("rate_limited", "Повторите позже", True), headers={"Retry-After": str(exc.retry_after)}) from exc
-    bounded_images = await _normalize_images(raw_images)
+    try:
+        bounded_images = await _normalize_images(raw_images)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        status = str(detail.get("code", "invalid_image"))
+        if status not in {"invalid_image", "payload_too_large"}:
+            status = "invalid_image"
+        await reject_ml_request(db, record, status=status)
+        raise
     byte_count = sum(len(image.body) for image in bounded_images)
     try:
         result = await run_ml_fallback(
             db,
             app_user_id=app_user_id,
-            idempotency_key=idempotency_key,
+            record=record,
             draft=parsed_draft,
             images=bounded_images,
             provider=provider,

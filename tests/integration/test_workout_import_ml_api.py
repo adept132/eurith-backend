@@ -257,7 +257,7 @@ async def test_request_metadata_is_minimal_and_idempotency_blocks_replay(
     )
     assert len(rows) == 1
     row = rows[0]
-    assert row.image_count == 1 and row.byte_count == len(fake_provider.calls[0].images[0].body)
+    assert row.image_count == 1 and row.byte_count == len(PNG_BYTES)
     assert row.status == "completed"
     forbidden = {"image_body", "body", "ocr_text", "payload", "provider_response", "filename"}
     assert not any(any(word in column.name for word in forbidden) for column in row.__table__.columns)
@@ -294,6 +294,31 @@ async def test_sixth_attempt_in_ten_minutes_is_rate_limited_before_image_decode(
         ).order_by(WorkoutImportMlRequestRecord.created_at))).scalars()
     )
     assert statuses == ["completed"] * 5 + ["rate_limited"]
+
+
+@pytest.mark.asyncio
+async def test_normalization_failure_keeps_terminal_reservation_and_blocks_replay(
+    client, db, test_user, fake_provider, monkeypatch
+):
+    from fastapi import HTTPException
+    from api.routers import workout_import as router_module
+
+    def reject_normalization(*_args, **_kwargs):
+        raise HTTPException(413, detail={"code": "payload_too_large", "message": "bounded", "retryable": False})
+
+    monkeypatch.setattr(router_module, "_normalize_image", reject_normalization)
+    first = await post_fallback(client, key="idem-normalize-reject")
+    replay = await post_fallback(client, key="idem-normalize-reject")
+
+    assert first.status_code == 413
+    assert replay.status_code == 409
+    assert fake_provider.calls == []
+    await db.rollback()
+    record = await db.scalar(select(WorkoutImportMlRequestRecord).where(
+        WorkoutImportMlRequestRecord.idempotency_key == "idem-normalize-reject"
+    ))
+    assert record is not None
+    assert record.status == "payload_too_large"
 
 
 @pytest.mark.asyncio

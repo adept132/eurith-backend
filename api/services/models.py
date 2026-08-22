@@ -1666,7 +1666,7 @@ class WorkoutImportMlRequestRecord(Base):
         CheckConstraint("byte_count BETWEEN 1 AND 8388608", name="ck_workout_import_ml_byte_count"),
         CheckConstraint("latency_ms IS NULL OR latency_ms >= 0", name="ck_workout_import_ml_latency"),
         CheckConstraint(
-            "status IN ('reserved', 'completed', 'rate_limited', 'timeout', 'unavailable', 'invalid_response')",
+            "status IN ('reserved', 'completed', 'rate_limited', 'timeout', 'unavailable', 'invalid_response', 'invalid_image', 'payload_too_large')",
             name="ck_workout_import_ml_status",
         ),
         Index("ix_workout_import_ml_user_created", "app_user_id", "created_at"),
