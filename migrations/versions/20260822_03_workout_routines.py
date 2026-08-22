@@ -27,6 +27,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("sort_order", sa.Integer(), server_default="0", nullable=False),
+        sa.Column("revision", sa.Integer(), server_default="0", nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),

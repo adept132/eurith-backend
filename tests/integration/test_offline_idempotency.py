@@ -217,6 +217,23 @@ async def test_sync_workout_keeps_owned_routine_provenance(client, db, test_user
     assert stored.routine_id == routine_id
 
 
+async def test_sync_rejects_a_second_active_workout(client):
+    def snapshot(client_uuid: str):
+        return {
+            "client_uuid": client_uuid,
+            "source": "free",
+            "status": "active",
+            "started_at": "2026-08-22T10:00:00+00:00",
+            "exercises": [],
+        }
+
+    first = await client.post("/sync/workouts", json=snapshot(uuid.uuid4().hex))
+    assert first.status_code == 200, first.text
+    second = await client.post("/sync/workouts", json=snapshot(uuid.uuid4().hex))
+    assert second.status_code == 409, second.text
+    assert second.json()["detail"] == "Active workout already exists"
+
+
 async def test_sync_workout_applies_updates(client, db, test_user):
     """Второй снимок с изменёнными данными обновляет, а не плодит строки (LWW)."""
     exercise_id = await _create_exercise(client)

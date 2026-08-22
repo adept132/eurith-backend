@@ -26,6 +26,7 @@ from api.services.plan_duration import DurationConfig, estimate_duration_seconds
 from api.services.progression import repository as progression_repo
 from api.services.progression.engine import plan_exercise
 from api.services.progression.resolve import override_for
+from api.services.active_workout_guard import ActiveWorkoutExists, ensure_no_other_active_workout
 from api.schemas.plan import (
     GeneratePlanRequest, GeneratePlanResponse, GeneratedDayOut, GeneratedExerciseOut,
     ConfirmPlanRequest, ConfirmPlanResponse, GenerationInputSummary,
@@ -1029,6 +1030,11 @@ async def apply_plan_to_calendar(
         current_user=Depends(get_current_app_user)
 ):
     """Применить план к календарю (создать тренировочную сессию)."""
+
+    try:
+        await ensure_no_other_active_workout(db, current_user.id)
+    except ActiveWorkoutExists as exc:
+        raise HTTPException(status_code=409, detail="Active workout already exists") from exc
 
     # 1. Достаем план вместе с его упражнениями
     stmt = (

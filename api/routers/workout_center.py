@@ -47,6 +47,7 @@ from api.schemas.workout_center import (
     StartWorkoutResponse, WorkoutCenterMesocycleRead,
 )
 from api.services.volume_service import VolumeService
+from api.services.active_workout_guard import ActiveWorkoutExists, ensure_no_other_active_workout
 
 router = APIRouter(prefix="", tags=["workout-center"])
 
@@ -428,8 +429,9 @@ async def start_workout(
     if payload.source not in {"free", "by_parameters"}:
         raise HTTPException(status_code=400, detail="Invalid source")
 
-    existing = await get_active_workout(session, app_user.id)
-    if existing:
+    try:
+        await ensure_no_other_active_workout(session, app_user.id)
+    except ActiveWorkoutExists:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Active workout already exists",

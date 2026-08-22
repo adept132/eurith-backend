@@ -100,16 +100,37 @@ async def test_routine_crud_returns_nested_exercises_in_order(client):
         json={
             "name": "  Push A  ",
             "sort_order": 3,
+            "base_revision": created.json()["revision"],
             "exercises": list(reversed(payload["exercises"])),
         },
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["name"] == "Push A"
     assert [item["order_index"] for item in updated.json()["exercises"]] == [0, 1]
+    assert updated.json()["revision"] == created.json()["revision"] + 1
 
     deleted = await client.delete(f"/workout-routines/{routine_id}")
     assert deleted.status_code == 204, deleted.text
     assert (await client.get(f"/workout-routines/{routine_id}")).status_code == 404
+
+
+async def test_routine_patch_rejects_stale_revision(client):
+    exercise_id = await _create_exercise(client, name_prefix="Routine revision")
+    created = await client.post("/workout-routines", json=_routine_payload(exercise_id))
+    assert created.status_code == 201, created.text
+    routine = created.json()
+
+    first = await client.patch(
+        f"/workout-routines/{routine['id']}",
+        json={"name": "First", "base_revision": routine["revision"]},
+    )
+    assert first.status_code == 200, first.text
+    stale = await client.patch(
+        f"/workout-routines/{routine['id']}",
+        json={"name": "Stale", "base_revision": routine["revision"]},
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["routine"]["name"] == "First"
 
 
 async def test_save_as_routine_drops_weights(client):

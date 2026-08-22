@@ -174,6 +174,14 @@ async def update_workout_routine(
     current_app_user=Depends(get_current_app_user),
 ):
     routine = await _owned_routine(db, current_app_user.id, routine_id)
+    if routine.revision != payload.base_revision:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "routine_revision_conflict",
+                "routine": WorkoutRoutineRead.model_validate(routine).model_dump(mode="json"),
+            },
+        )
     fields = payload.model_fields_set
     if "name" in fields:
         routine.name = payload.name
@@ -188,6 +196,8 @@ async def update_workout_routine(
         # deletions before inserting the replacement rows with the same order.
         await db.flush()
         routine.exercises = [_exercise_model(item) for item in payload.exercises]
+    routine.revision += 1
+    routine.updated_at = datetime.now(timezone.utc)
     await db.commit()
     return await _reload(db, routine.id)
 

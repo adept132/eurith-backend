@@ -77,6 +77,7 @@ class WorkoutRoutineCreate(BaseModel):
 
 
 class WorkoutRoutineUpdate(BaseModel):
+    base_revision: int = Field(ge=0)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     notes: str | None = Field(default=None, max_length=4000)
     sort_order: int | None = Field(default=None, ge=0)
@@ -145,6 +146,7 @@ class WorkoutRoutineRead(BaseModel):
     name: str
     notes: str | None
     sort_order: int
+    revision: int
     created_at: datetime
     updated_at: datetime
     exercises: list[WorkoutRoutineExerciseRead]

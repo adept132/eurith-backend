@@ -22,13 +22,13 @@ from api.services.progression import repository as progression_repo
 from api.services.progression.engine import plan_exercise
 from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
+from api.services.active_workout_guard import (
+    ActiveWorkoutExists,
+    ensure_no_other_active_workout,
+)
 
 
 class RoutineNotFound(Exception):
-    pass
-
-
-class ActiveWorkoutExists(Exception):
     pass
 
 
@@ -108,16 +108,7 @@ async def start_routine(
 ) -> WorkoutSession:
     # Serialize all start paths that opt into this guard. The second routine
     # start observes the first committed active session and returns 409.
-    await db.execute(select(AppUser.id).where(AppUser.id == user.id).with_for_update())
-
-    existing = await db.scalar(
-        select(WorkoutSession.id).where(
-            WorkoutSession.app_user_id == user.id,
-            WorkoutSession.status.in_(("active", "paused")),
-        )
-    )
-    if existing is not None:
-        raise ActiveWorkoutExists
+    await ensure_no_other_active_workout(db, user.id)
 
     routine = await _load_routine(db, user.id, routine_id)
     meso_id, current_phase, micro_id, training_block_id = await _free_session_context(

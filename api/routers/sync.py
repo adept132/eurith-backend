@@ -40,6 +40,7 @@ from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
 from api.services.readiness.types import CheckinSignals
 from api.services.workout_lifecycle import apply_snapshot
+from api.services.active_workout_guard import ActiveWorkoutExists, ensure_no_other_active_workout
 
 router = APIRouter(tags=["sync"])
 
@@ -208,6 +209,18 @@ async def _apply_snapshot(
         return SyncWorkoutResponse(deleted=True, id_map={}, sync_version=0, workout=None)
 
     is_new = workout is None
+    if payload.status in ("active", "paused"):
+        try:
+            await ensure_no_other_active_workout(
+                db,
+                app_user_id,
+                exclude_workout_id=workout.id if workout is not None else None,
+            )
+        except ActiveWorkoutExists as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Active workout already exists",
+            ) from exc
     if is_new:
         workout = WorkoutSession(
             app_user_id=app_user_id,
