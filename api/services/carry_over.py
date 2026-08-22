@@ -44,15 +44,15 @@ DiscardReason = Literal[
 
 def _effective_plan_sets(
     plan_sets: list[tuple[int, int]], adjustments: list[dict] | None
-) -> dict[int, int]:
+) -> list[int]:
     compiled = [
         {"exercise_id": exercise_id, "target_sets": target_sets}
         for exercise_id, target_sets in plan_sets
     ]
-    return {
-        int(item["exercise_id"]): int(item.get("target_sets") or 0)
+    return [
+        int(item.get("target_sets") or 0)
         for item in apply_adjustments(compiled, adjustments)
-    }
+    ]
 
 
 def _is_serialization_failure(exc: BaseException) -> bool:
@@ -622,11 +622,12 @@ async def preview_carry_over(
             ],
             day.volume_adjustments,
         )
-        for plan_exercise, exercise, _ in day_plan_rows:
+        for (plan_exercise, exercise, _), sets in zip(
+            day_plan_rows, effective_sets, strict=True
+        ):
             muscle = to_system_key(exercise.main_muscle_group)
             if not muscle:
                 continue
-            sets = effective_sets.get(plan_exercise.exercise_id, 0)
             planned_by_day_muscle[(day.id, muscle)] = (
                 planned_by_day_muscle.get((day.id, muscle), 0) + sets
             )

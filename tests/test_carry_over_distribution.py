@@ -41,7 +41,18 @@ def test_effective_plan_sets_clamps_oversized_negative_adjustment_for_safety_bud
     # The same effective counts feed both the per-session cap and the
     # whole-microcycle MRV budget.  The canonical adjustment contract never
     # removes an exercise: an oversized cut bottoms out at one set.
-    assert effective == {101: 1, 202: 5}
+    assert effective == [1, 5]
+
+
+def test_effective_plan_sets_preserves_duplicate_exercise_rows():
+    service = _service()
+
+    effective = service._effective_plan_sets(
+        [(101, 2), (101, 3)],
+        [{"exercise_id": 101, "delta_sets": 1}],
+    )
+
+    assert effective == [3, 4]
 
 
 def test_serialization_failure_detection_supports_asyncpg_wrapping():

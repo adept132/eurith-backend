@@ -21,17 +21,18 @@ from api.services.readiness import params
 from api.services.readiness.types import CheckinSignals, ExerciseTarget
 
 
-# Shared PostgreSQL transaction-lock namespace for user safety decisions.
-# Observation writers and carry-over apply both acquire this lock, so a pain
-# or readiness write cannot slip between the accepted preview and mutation.
-SAFETY_LOCK_NAMESPACE = 11305
+def _user_safety_lock_key(app_user_id: int) -> int:
+    # User ids are positive BIGINT values. Mapping them to the negative BIGINT
+    # domain is one-to-one and keeps this lock family separate without using
+    # PostgreSQL's narrower pair-of-INT advisory-lock overload.
+    return -(int(app_user_id) + 1)
 
 
 async def lock_user_safety_context(
     session: AsyncSession, app_user_id: int
 ) -> None:
     await session.execute(
-        select(func.pg_advisory_xact_lock(SAFETY_LOCK_NAMESPACE, app_user_id))
+        select(func.pg_advisory_xact_lock(_user_safety_lock_key(app_user_id)))
     )
 
 
