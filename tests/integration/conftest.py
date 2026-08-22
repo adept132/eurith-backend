@@ -40,6 +40,7 @@ from api.services.models import (  # noqa: E402
     UserRecord,
     WorkoutPlan,
     WorkoutPlanExercise,
+    WorkoutCarryOver,
     WorkoutRoutine,
     WorkoutSession,
     WorkoutSessionExercise,
@@ -93,6 +94,11 @@ async def test_user():
     # только exercise_id → exercises ON DELETE RESTRICT), поэтому bulk-удаление
     # тренировок не уносит дочерние строки — удаляем их явно.
     async with SessionLocal() as session:
+        await session.execute(
+            delete(WorkoutCarryOver).where(
+                WorkoutCarryOver.app_user_id == user_id
+            )
+        )
         workout_ids = (
             await session.execute(
                 select(WorkoutSession.id).where(

@@ -34,6 +34,7 @@ from api.routers.readiness import router as readiness_router
 from api.routers.periodization import router as periodization_router
 from api.routers.notifications import router as notifications_router
 from api.routers.reports import router as reports_router
+from api.routers.carry_over import router as carry_over_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -118,6 +119,7 @@ app.include_router(readiness_router)
 app.include_router(periodization_router)
 app.include_router(notifications_router)
 app.include_router(reports_router)
+app.include_router(carry_over_router)
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check(db: AsyncSession = Depends(get_db)):

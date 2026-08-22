@@ -468,6 +468,7 @@ class WorkoutCarryOver(Base):
     discarded: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default="[]"
     )
+    microcycle_end: Mapped[date] = mapped_column(Date, nullable=False)
     preview_token: Mapped[str] = mapped_column(String(64), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(

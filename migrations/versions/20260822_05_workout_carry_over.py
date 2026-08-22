@@ -40,6 +40,7 @@ def upgrade() -> None:
             server_default=sa.text("'[]'::jsonb"),
             nullable=False,
         ),
+        sa.Column("microcycle_end", sa.Date(), nullable=False),
         sa.Column("preview_token", sa.String(length=64), nullable=False),
         sa.Column("idempotency_key", sa.String(length=64), nullable=False),
         sa.Column(

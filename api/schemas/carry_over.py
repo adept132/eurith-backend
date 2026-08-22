@@ -51,3 +51,32 @@ class CarryOverPreviewItem(BaseModel):
         if sum(item.sets for item in self.discarded) != self.discarded_sets:
             raise ValueError("discard reasons must sum to discarded_sets")
         return self
+
+
+class UnfinishedExerciseSets(BaseModel):
+    source_exercise_id: int = Field(gt=0)
+    requested_sets: int = Field(gt=0)
+
+
+class CarryOverPreviewRequest(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=64)
+    unfinished_sets: list[UnfinishedExerciseSets] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_source_exercises(self) -> "CarryOverPreviewRequest":
+        ids = [item.source_exercise_id for item in self.unfinished_sets]
+        if len(ids) != len(set(ids)):
+            raise ValueError("source_exercise_id values must be unique")
+        return self
+
+
+class CarryOverDecisionRequest(BaseModel):
+    preview_token: str = Field(min_length=64, max_length=64)
+
+
+class CarryOverResponse(BaseModel):
+    status: CarryOverStatus
+    source_session_id: int = Field(gt=0)
+    microcycle_end: date
+    preview_token: str = Field(min_length=64, max_length=64)
+    items: list[CarryOverPreviewItem]

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Mapping
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.equipment import normalize_equipment_list
@@ -14,6 +17,12 @@ from api.services.readiness.repository import build_exercise_target
 from api.services.readiness.types import CheckinSignals
 from api.services.readiness.verdict import build_verdict, level_for_exercise
 from api.services.volume.landmarks import SESSION_MAX, landmarks_for, scale_landmarks
+from api.schemas.carry_over import (
+    CarryOverDiscard,
+    CarryOverPlacement as CarryOverPlacementSchema,
+    CarryOverPreviewItem,
+    CarryOverResponse,
+)
 
 
 MatchKind = Literal["exact", "compatible"]
@@ -624,3 +633,543 @@ async def preview_carry_over(
         microcycle_end=end,
         items=distribute_carry_over_sources(source_requests),
     )
+
+
+class CarryOverWorkflowError(Exception):
+    pass
+
+
+class CarryOverSourceNotFound(CarryOverWorkflowError):
+    pass
+
+
+class InvalidUnfinishedSets(CarryOverWorkflowError):
+    pass
+
+
+class CarryOverIdempotencyConflict(CarryOverWorkflowError):
+    pass
+
+
+class CarryOverDecisionConflict(CarryOverWorkflowError):
+    pass
+
+
+class StaleCarryOverPreview(CarryOverWorkflowError):
+    def __init__(self, preview: CarryOverResponse):
+        self.preview = preview
+
+
+def _placement_payload(distribution: CarryOverDistribution) -> list[dict]:
+    return [
+        {
+            "calendar_day_id": item.calendar_day_id,
+            "target_date": item.target_date.isoformat(),
+            "exercise_id": item.exercise_id,
+            "delta_sets": item.delta_sets,
+            "match_kind": item.match_kind,
+        }
+        for item in distribution.placements
+    ]
+
+
+def _discarded_payload(distribution: CarryOverDistribution) -> list[dict]:
+    counts = Counter(distribution.discarded_reasons)
+    return [
+        {"sets": counts[reason], "reason": reason}
+        for reason in sorted(counts)
+    ]
+
+
+def _item_schema(row) -> CarryOverPreviewItem:
+    return CarryOverPreviewItem(
+        carry_over_id=row.id,
+        source_exercise_id=row.source_exercise_id,
+        requested_sets=row.requested_sets,
+        placed_sets=row.placed_sets,
+        discarded_sets=row.discarded_sets,
+        placements=row.placements,
+        discarded=row.discarded,
+    )
+
+
+def _response_from_rows(rows: list, status: str | None = None) -> CarryOverResponse:
+    first = rows[0]
+    return CarryOverResponse(
+        status=status or first.status,
+        source_session_id=first.source_session_id,
+        microcycle_end=first.microcycle_end,
+        preview_token=first.preview_token,
+        items=[_item_schema(row) for row in rows],
+    )
+
+
+async def _validate_unfinished_sets(
+    db: AsyncSession,
+    user_id: int,
+    session_id: int,
+    unfinished_sets: Mapping[int, int],
+) -> None:
+    from api.services.models import (
+        WorkoutSession,
+        WorkoutSessionExercise,
+        WorkoutSessionSet,
+    )
+
+    owned = await db.scalar(
+        select(WorkoutSession.id).where(
+            WorkoutSession.id == session_id,
+            WorkoutSession.app_user_id == user_id,
+            WorkoutSession.status == "finished",
+        )
+    )
+    if owned is None:
+        raise CarryOverSourceNotFound
+
+    rows = (
+        await db.execute(
+            select(
+                WorkoutSessionExercise.id,
+                WorkoutSessionExercise.target_sets,
+                func.count(WorkoutSessionSet.id),
+            )
+            .outerjoin(
+                WorkoutSessionSet,
+                (WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id)
+                & WorkoutSessionSet.is_completed.is_(True)
+                & (WorkoutSessionSet.set_type == "normal"),
+            )
+            .where(
+                WorkoutSessionExercise.workout_session_id == session_id,
+                WorkoutSessionExercise.id.in_(list(unfinished_sets)),
+            )
+            .group_by(
+                WorkoutSessionExercise.id,
+                WorkoutSessionExercise.target_sets,
+            )
+        )
+    ).all()
+    if len(rows) != len(unfinished_sets):
+        raise InvalidUnfinishedSets
+    for source_exercise_id, target_sets, completed_sets in rows:
+        actual = max(0, int(target_sets or 0) - int(completed_sets or 0))
+        if actual <= 0 or actual != int(unfinished_sets[source_exercise_id]):
+            raise InvalidUnfinishedSets
+
+
+async def _preview_state_token(
+    db: AsyncSession,
+    user_id: int,
+    preview: CarryOverPreview,
+    now: datetime,
+) -> str:
+    from api.services.models import (
+        AppUserProfile,
+        UserCalendarDay,
+        UserObservation,
+        WorkoutPlan,
+        WorkoutPlanExercise,
+        WorkoutSession,
+        WorkoutSessionExercise,
+        WorkoutSessionSet,
+    )
+
+    source_session = await db.get(WorkoutSession, preview.source_session_id)
+    source_day = await db.get(UserCalendarDay, source_session.calendar_day_id)
+    calendar_days = (
+        await db.execute(
+            select(UserCalendarDay)
+            .where(
+                UserCalendarDay.app_user_id == user_id,
+                UserCalendarDay.block_id == source_day.block_id,
+                UserCalendarDay.target_date >= source_day.target_date,
+                UserCalendarDay.target_date <= preview.microcycle_end,
+            )
+            .order_by(UserCalendarDay.target_date, UserCalendarDay.id)
+        )
+    ).scalars().all()
+    plan_ids = sorted({day.plan_id for day in calendar_days if day.plan_id is not None})
+    plans = (
+        await db.execute(
+            select(WorkoutPlan)
+            .where(WorkoutPlan.id.in_(plan_ids))
+            .order_by(WorkoutPlan.id)
+        )
+    ).scalars().all() if plan_ids else []
+    plan_exercises = (
+        await db.execute(
+            select(WorkoutPlanExercise)
+            .where(WorkoutPlanExercise.plan_id.in_(plan_ids))
+            .order_by(
+                WorkoutPlanExercise.plan_id,
+                WorkoutPlanExercise.order_index,
+                WorkoutPlanExercise.id,
+            )
+        )
+    ).scalars().all() if plan_ids else []
+    source_exercise_ids = sorted(item.source_exercise_id for item in preview.items)
+    source_exercises = (
+        await db.execute(
+            select(WorkoutSessionExercise)
+            .where(WorkoutSessionExercise.id.in_(source_exercise_ids))
+            .order_by(WorkoutSessionExercise.id)
+        )
+    ).scalars().all()
+    completed = (
+        await db.execute(
+            select(
+                WorkoutSessionSet.workout_session_exercise_id,
+                func.count(WorkoutSessionSet.id),
+            )
+            .where(
+                WorkoutSessionSet.workout_session_exercise_id.in_(source_exercise_ids),
+                WorkoutSessionSet.is_completed.is_(True),
+                WorkoutSessionSet.set_type == "normal",
+            )
+            .group_by(WorkoutSessionSet.workout_session_exercise_id)
+            .order_by(WorkoutSessionSet.workout_session_exercise_id)
+        )
+    ).all()
+    profile = await db.scalar(
+        select(AppUserProfile).where(AppUserProfile.app_user_id == user_id)
+    )
+    observations = (
+        await db.execute(
+            select(UserObservation)
+            .where(
+                UserObservation.app_user_id == user_id,
+                UserObservation.observed_at
+                >= now - timedelta(days=readiness_params.PAIN_ACTIVE_DAYS),
+            )
+            .order_by(UserObservation.observed_at, UserObservation.id)
+        )
+    ).scalars().all()
+
+    payload = {
+        "as_of_date": now.date().isoformat(),
+        "source_session": {
+            "id": source_session.id,
+            "status": source_session.status,
+            "revision": source_session.revision,
+            "updated_at": source_session.updated_at.isoformat(),
+            "calendar_day_id": source_session.calendar_day_id,
+            "training_block_id": source_session.training_block_id,
+        },
+        "source_exercises": [
+            {
+                "id": item.id,
+                "exercise_id": item.exercise_id,
+                "target_sets": item.target_sets,
+                "updated_at": item.updated_at.isoformat(),
+            }
+            for item in source_exercises
+        ],
+        "completed_normal_sets": [list(item) for item in completed],
+        "calendar": [
+            {
+                "id": day.id,
+                "target_date": day.target_date.isoformat(),
+                "plan_id": day.plan_id,
+                "status": day.status,
+                "actual_workout_session_id": day.actual_workout_session_id,
+                "is_rest_day": day.is_rest_day,
+                "is_blackout": day.is_blackout,
+                "microcycle_day_number": day.microcycle_day_number,
+                "mesocycle_phase_number": day.mesocycle_phase_number,
+                "meso_tag": day.meso_tag,
+                "volume_adjustments": day.volume_adjustments,
+            }
+            for day in calendar_days
+        ],
+        "plans": [
+            {
+                "id": plan.id,
+                "revision": plan.revision,
+                "is_archived": plan.is_archived,
+            }
+            for plan in plans
+        ],
+        "plan_exercises": [
+            {
+                "id": item.id,
+                "plan_id": item.plan_id,
+                "exercise_id": item.exercise_id,
+                "order_index": item.order_index,
+                "target_sets": item.target_sets,
+            }
+            for item in plan_exercises
+        ],
+        "safety": {
+            "experience_level": getattr(profile, "experience_level", None),
+            "settings": getattr(profile, "settings", None),
+            "observations": [
+                {
+                    "id": item.id,
+                    "kind": item.kind,
+                    "value": item.value,
+                    "subject": item.subject,
+                    "observed_at": item.observed_at.isoformat(),
+                }
+                for item in observations
+            ],
+        },
+        "microcycle_end": preview.microcycle_end.isoformat(),
+        "distribution": [
+            {
+                "source_exercise_id": item.source_exercise_id,
+                "exercise_id": item.exercise_id,
+                "muscle": item.muscle,
+                "requested_sets": item.distribution.requested_sets,
+                "placements": _placement_payload(item.distribution),
+                "discarded_reasons": item.distribution.discarded_reasons,
+            }
+            for item in preview.items
+        ],
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _derived_idempotency_key(request_key: str, source_exercise_id: int) -> str:
+    return hashlib.sha256(
+        f"{request_key}:{source_exercise_id}".encode("utf-8")
+    ).hexdigest()
+
+
+async def create_carry_over_preview(
+    db: AsyncSession,
+    user_id: int,
+    session_id: int,
+    unfinished_sets: Mapping[int, int],
+    idempotency_key: str,
+    now: datetime,
+) -> CarryOverResponse:
+    from api.services.models import WorkoutCarryOver
+
+    await _validate_unfinished_sets(db, user_id, session_id, unfinished_sets)
+    try:
+        preview = await preview_carry_over(
+            db, user_id, session_id, unfinished_sets, now
+        )
+    except LookupError as exc:
+        raise CarryOverSourceNotFound from exc
+    token = await _preview_state_token(db, user_id, preview, now)
+    existing_rows = (
+        await db.execute(
+            select(WorkoutCarryOver)
+            .where(
+                WorkoutCarryOver.app_user_id == user_id,
+                WorkoutCarryOver.source_session_id == session_id,
+            )
+            .order_by(WorkoutCarryOver.source_exercise_id)
+        )
+    ).scalars().all()
+    existing_by_source = {row.source_exercise_id: row for row in existing_rows}
+    rows: list[WorkoutCarryOver] = []
+    for item in preview.items:
+        derived_key = _derived_idempotency_key(
+            idempotency_key, item.source_exercise_id
+        )
+        row = existing_by_source.get(item.source_exercise_id)
+        if row is not None:
+            if row.status != "draft":
+                raise CarryOverDecisionConflict
+            if row.idempotency_key != derived_key:
+                raise CarryOverIdempotencyConflict
+            if row.requested_sets != item.distribution.requested_sets:
+                raise InvalidUnfinishedSets
+        else:
+            row = WorkoutCarryOver(
+                app_user_id=user_id,
+                source_session_id=session_id,
+                source_exercise_id=item.source_exercise_id,
+                requested_sets=item.distribution.requested_sets,
+                placed_sets=0,
+                discarded_sets=item.distribution.requested_sets,
+                placements=[],
+                discarded=[
+                    {
+                        "sets": item.distribution.requested_sets,
+                        "reason": "microcycle_end",
+                    }
+                ],
+                microcycle_end=preview.microcycle_end,
+                preview_token=token,
+                idempotency_key=derived_key,
+                status="draft",
+            )
+            db.add(row)
+        row.placed_sets = item.distribution.placed_sets
+        row.discarded_sets = item.distribution.discarded_sets
+        row.placements = _placement_payload(item.distribution)
+        row.discarded = _discarded_payload(item.distribution)
+        row.microcycle_end = preview.microcycle_end
+        row.preview_token = token
+        rows.append(row)
+    await db.flush()
+    await db.commit()
+    return _response_from_rows(rows, status="draft")
+
+
+async def _carry_over_rows_for_update(
+    db: AsyncSession, user_id: int, session_id: int
+) -> list:
+    from api.services.models import WorkoutCarryOver
+
+    rows = (
+        await db.execute(
+            select(WorkoutCarryOver)
+            .where(
+                WorkoutCarryOver.app_user_id == user_id,
+                WorkoutCarryOver.source_session_id == session_id,
+            )
+            .order_by(WorkoutCarryOver.source_exercise_id)
+            .with_for_update()
+        )
+    ).scalars().all()
+    if not rows:
+        raise CarryOverSourceNotFound
+    return rows
+
+
+async def _lock_carry_over_context(
+    db: AsyncSession, user_id: int, session_id: int
+) -> None:
+    from api.services.models import (
+        UserCalendarDay,
+        WorkoutPlan,
+        WorkoutPlanExercise,
+        WorkoutSession,
+        WorkoutSessionExercise,
+    )
+
+    source_session = (
+        await db.execute(
+            select(WorkoutSession)
+            .where(
+                WorkoutSession.id == session_id,
+                WorkoutSession.app_user_id == user_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if source_session is None:
+        raise CarryOverSourceNotFound
+    await db.execute(
+        select(WorkoutSessionExercise.id)
+        .where(WorkoutSessionExercise.workout_session_id == session_id)
+        .with_for_update()
+    )
+    days = (
+        await db.execute(
+            select(UserCalendarDay)
+            .where(
+                UserCalendarDay.app_user_id == user_id,
+                UserCalendarDay.block_id == source_session.training_block_id,
+            )
+            .with_for_update()
+        )
+    ).scalars().all()
+    plan_ids = {day.plan_id for day in days if day.plan_id is not None}
+    if plan_ids:
+        await db.execute(
+            select(WorkoutPlan.id)
+            .where(WorkoutPlan.id.in_(plan_ids))
+            .with_for_update()
+        )
+        await db.execute(
+            select(WorkoutPlanExercise.id)
+            .where(WorkoutPlanExercise.plan_id.in_(plan_ids))
+            .with_for_update()
+        )
+
+
+async def apply_carry_over_preview(
+    db: AsyncSession,
+    user_id: int,
+    session_id: int,
+    preview_token: str,
+    now: datetime,
+) -> CarryOverResponse:
+    from api.services.models import UserCalendarDay
+
+    rows = await _carry_over_rows_for_update(db, user_id, session_id)
+    if all(row.status == "applied" for row in rows):
+        if rows[0].preview_token != preview_token:
+            raise CarryOverDecisionConflict
+        return _response_from_rows(rows, status="applied")
+    if any(row.status != "draft" for row in rows):
+        raise CarryOverDecisionConflict
+    await _lock_carry_over_context(db, user_id, session_id)
+
+    requested = {row.source_exercise_id: row.requested_sets for row in rows}
+    await _validate_unfinished_sets(db, user_id, session_id, requested)
+    preview = await preview_carry_over(db, user_id, session_id, requested, now)
+    fresh_token = await _preview_state_token(db, user_id, preview, now)
+    if preview_token != rows[0].preview_token or fresh_token != rows[0].preview_token:
+        by_source = {item.source_exercise_id: item for item in preview.items}
+        for row in rows:
+            item = by_source[row.source_exercise_id]
+            row.placed_sets = item.distribution.placed_sets
+            row.discarded_sets = item.distribution.discarded_sets
+            row.placements = _placement_payload(item.distribution)
+            row.discarded = _discarded_payload(item.distribution)
+            row.microcycle_end = preview.microcycle_end
+            row.preview_token = fresh_token
+        await db.commit()
+        raise StaleCarryOverPreview(_response_from_rows(rows, status="draft"))
+
+    applied_at = now.astimezone(timezone.utc)
+    for row in rows:
+        for placement in row.placements:
+            day = await db.get(
+                UserCalendarDay,
+                int(placement["calendar_day_id"]),
+                populate_existing=True,
+            )
+            adjustments = list(day.volume_adjustments or [])
+            if not any(item.get("carry_over_id") == row.id for item in adjustments):
+                adjustments.append(
+                    {
+                        "exercise_id": int(placement["exercise_id"]),
+                        "delta_sets": int(placement["delta_sets"]),
+                        "carry_over_id": row.id,
+                        "provenance": {
+                            "kind": "carry_over",
+                            "source_session_id": session_id,
+                            "source_exercise_id": row.source_exercise_id,
+                            "preview_token": preview_token,
+                        },
+                    }
+                )
+                day.volume_adjustments = adjustments
+        row.status = "applied"
+        row.applied_at = applied_at
+    await db.commit()
+    return _response_from_rows(rows, status="applied")
+
+
+async def dismiss_carry_over_preview(
+    db: AsyncSession,
+    user_id: int,
+    session_id: int,
+    preview_token: str,
+) -> CarryOverResponse:
+    rows = await _carry_over_rows_for_update(db, user_id, session_id)
+    if all(row.status == "dismissed" for row in rows):
+        if rows[0].preview_token != preview_token:
+            raise CarryOverDecisionConflict
+        return _response_from_rows(rows, status="dismissed")
+    if any(row.status != "draft" for row in rows):
+        raise CarryOverDecisionConflict
+    if any(row.preview_token != preview_token for row in rows):
+        raise CarryOverDecisionConflict
+    for row in rows:
+        row.status = "dismissed"
+    await db.commit()
+    return _response_from_rows(rows, status="dismissed")
