@@ -46,6 +46,7 @@ class PlanReplacementPreviewRequest(BaseModel):
 class PlanReplacementApplyRequest(BaseModel):
     target_plan_id: int = Field(gt=0)
     preview_token: str = Field(min_length=64, max_length=64)
+    idempotency_key: str = Field(min_length=8, max_length=64)
 
 
 class PlanReplacementResult(BaseModel):

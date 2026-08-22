@@ -21,6 +21,7 @@ from api.services.plan_replacement import (
     ReplacementSourceNotFound,
     StaleReplacementPreview,
     TargetPlanNotFound,
+    PlanReplacementIdempotencyConflict,
     apply_replacement,
     preview_replacement,
 )
@@ -59,6 +60,11 @@ def _replacement_error(exc: Exception) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": "no_replaceable_plan_dates"},
+        )
+    if isinstance(exc, PlanReplacementIdempotencyConflict):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "idempotency_conflict"},
         )
     raise exc
 
@@ -137,6 +143,7 @@ async def _apply(
             payload.target_plan_id,
             date.today(),
             payload.preview_token,
+            payload.idempotency_key,
         )
     except Exception as exc:
         raise _replacement_error(exc) from exc

@@ -20,7 +20,9 @@ from api.schemas.plan_replacement import (
 from api.services.models import (
     Exercise,
     AppUserProfile,
+    PlanReplacementOperation,
     UserCalendarDay,
+    UserSplit,
     WorkoutPlan,
     WorkoutPlanExercise,
     WorkoutRoutine,
@@ -64,6 +66,53 @@ class InvalidReplacementExercise(PlanReplacementError):
 class StaleReplacementPreview(PlanReplacementError):
     def __init__(self, preview: PlanReplacementPreview):
         self.preview = preview
+
+
+class PlanReplacementIdempotencyConflict(PlanReplacementError):
+    pass
+
+
+def _apply_request_fingerprint(
+    source_kind: PlanReplacementSourceKind,
+    source_id: int,
+    plan_id: int,
+    preview_token: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "source_kind": source_kind,
+            "source_id": source_id,
+            "target_plan_id": plan_id,
+            "preview_token": preview_token,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def _idempotent_result(
+    db: AsyncSession,
+    user_id: int,
+    idempotency_key: str,
+    request_fingerprint: str,
+) -> PlanReplacementResult | None:
+    operation = (
+        await db.execute(
+            select(PlanReplacementOperation).where(
+                PlanReplacementOperation.app_user_id == user_id,
+                PlanReplacementOperation.idempotency_key == idempotency_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if operation is None:
+        return None
+    if operation.request_fingerprint != request_fingerprint:
+        raise PlanReplacementIdempotencyConflict
+    return PlanReplacementResult(
+        new_plan_id=operation.new_plan_id,
+        affected_dates=[date.fromisoformat(value) for value in operation.affected_dates],
+    )
 
 
 def _parse_rep_range(value: str | None) -> tuple[int | None, int | None]:
@@ -419,12 +468,36 @@ async def apply_replacement(
     plan_id: int,
     today: date,
     preview_token: str,
+    idempotency_key: str,
 ) -> PlanReplacementResult:
     source_kind, source_id = source
+    request_fingerprint = _apply_request_fingerprint(
+        source_kind, source_id, plan_id, preview_token
+    )
+    replay = await _idempotent_result(
+        db, user_id, idempotency_key, request_fingerprint
+    )
+    if replay is not None:
+        return replay
     structure = await _load_source_structure(
         db, user_id, source_kind, source_id, for_update=True
     )
-    target_plan = await _load_target_plan(db, user_id, plan_id, for_update=True)
+    try:
+        target_plan = await _load_target_plan(db, user_id, plan_id, for_update=True)
+    except TargetPlanNotFound:
+        replay = await _idempotent_result(
+            db, user_id, idempotency_key, request_fingerprint
+        )
+        if replay is not None:
+            return replay
+        raise
+    # A concurrent request can miss the operation before waiting on the plan
+    # row lock. Recheck after acquiring that lock before cloning anything.
+    replay = await _idempotent_result(
+        db, user_id, idempotency_key, request_fingerprint
+    )
+    if replay is not None:
+        return replay
     affected_days = await _load_affected_days(
         db, user_id, plan_id, today, for_update=True
     )
@@ -517,6 +590,24 @@ async def apply_replacement(
             for item in structure.exercises
         ]
     )
+    selected_splits = list(
+        (
+            await db.execute(
+                select(UserSplit)
+                .where(UserSplit.app_user_id == user_id)
+                .with_for_update()
+            )
+        ).scalars().all()
+    )
+    for split in selected_splits:
+        selected = dict(split.selected_plans or {})
+        changed = False
+        for key, value in selected.items():
+            if str(key).isdigit() and str(value) == str(target_plan.id):
+                selected[key] = new_plan.id
+                changed = True
+        if changed:
+            split.selected_plans = selected
     affected_ids = [item.id for item in affected_days]
     await db.execute(
         update(UserCalendarDay)
@@ -548,6 +639,16 @@ async def apply_replacement(
     )
     if remaining_calendar_reference is None and active_session_reference is None:
         target_plan.is_archived = True
+
+    db.add(
+        PlanReplacementOperation(
+            app_user_id=user_id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            new_plan_id=new_plan.id,
+            affected_dates=[value.isoformat() for value in current_preview.affected_dates],
+        )
+    )
 
     await db.commit()
     return PlanReplacementResult(

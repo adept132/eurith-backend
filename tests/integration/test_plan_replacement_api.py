@@ -9,7 +9,9 @@ from sqlalchemy.orm import selectinload
 from api.services.models import (
     AppUser,
     Exercise,
+    SplitBlueprint,
     UserCalendarDay,
+    UserSplit,
     WorkoutPlan,
     WorkoutPlanExercise,
     WorkoutRoutine,
@@ -226,6 +228,7 @@ async def test_apply_clones_metadata_and_rebinds_only_unfinished_inactive_days(
         json={
             "target_plan_id": plan.id,
             "preview_token": preview.json()["preview_token"],
+            "idempotency_key": str(uuid.uuid4()),
         },
     )
 
@@ -297,7 +300,11 @@ async def test_apply_returns_refreshed_preview_for_a_stale_token(client, db, tes
 
     applied = await client.post(
         f"/workout-routines/{routine.id}/plan-replacement/apply",
-        json={"target_plan_id": plan.id, "preview_token": stale_token},
+        json={
+            "target_plan_id": plan.id,
+            "preview_token": stale_token,
+            "idempotency_key": str(uuid.uuid4()),
+        },
     )
 
     assert applied.status_code == 409
@@ -327,6 +334,7 @@ async def test_validator_failure_is_atomic(client, db, test_user):
         json={
             "target_plan_id": plan.id,
             "preview_token": preview.json()["preview_token"],
+            "idempotency_key": str(uuid.uuid4()),
         },
     )
 
@@ -360,6 +368,7 @@ async def test_apply_archives_old_plan_when_no_future_reference_remains(
         json={
             "target_plan_id": plan.id,
             "preview_token": preview.json()["preview_token"],
+            "idempotency_key": str(uuid.uuid4()),
         },
     )
 
@@ -372,3 +381,157 @@ async def test_apply_archives_old_plan_when_no_future_reference_remains(
     await db.rollback()
     old_plan = await db.get(WorkoutPlan, plan.id, populate_existing=True)
     assert old_plan.is_archived is True
+
+
+async def test_apply_rebinds_legacy_split_selection_and_replay_is_idempotent(
+    client, db, test_user
+):
+    plan, routine, eligible_dates, _, _ = await _seed_preview(
+        db, test_user.id, include_locked_days=True
+    )
+    blueprint = SplitBlueprint(
+        name="Review split",
+        author_id=test_user.id,
+        length_days=1,
+        is_system=False,
+    )
+    db.add(blueprint)
+    await db.flush()
+    split = UserSplit(
+        app_user_id=test_user.id,
+        blueprint_id=blueprint.id,
+        selected_plans={"1": plan.id, "blackout_weekdays": [6]},
+        current_day=1,
+        is_active=True,
+    )
+    db.add(split)
+    await db.commit()
+    preview = await client.post(
+        f"/workout-routines/{routine.id}/plan-replacement/preview",
+        json={"target_plan_id": plan.id},
+    )
+    key = str(uuid.uuid4())
+    payload = {
+        "target_plan_id": plan.id,
+        "preview_token": preview.json()["preview_token"],
+        "idempotency_key": key,
+    }
+
+    first = await client.post(
+        f"/workout-routines/{routine.id}/plan-replacement/apply", json=payload
+    )
+    replay = await client.post(
+        f"/workout-routines/{routine.id}/plan-replacement/apply", json=payload
+    )
+
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    await db.rollback()
+    saved_split = await db.get(UserSplit, split.id, populate_existing=True)
+    assert saved_split.selected_plans == {
+        "1": first.json()["new_plan_id"],
+        "blackout_weekdays": [6],
+    }
+    successors = await db.scalar(
+        select(func.count(WorkoutPlan.id)).where(
+            WorkoutPlan.supersedes_plan_id == plan.id
+        )
+    )
+    assert successors == 1
+    assert first.json()["affected_dates"] == [
+        item.isoformat() for item in eligible_dates
+    ]
+
+
+async def test_idempotency_key_cannot_be_reused_for_a_different_request(
+    client, db, test_user
+):
+    plan, routine, _, _, _ = await _seed_preview(
+        db, test_user.id, include_locked_days=False
+    )
+    preview = await client.post(
+        f"/workout-routines/{routine.id}/plan-replacement/preview",
+        json={"target_plan_id": plan.id},
+    )
+    key = str(uuid.uuid4())
+    first = await client.post(
+        f"/workout-routines/{routine.id}/plan-replacement/apply",
+        json={
+            "target_plan_id": plan.id,
+            "preview_token": preview.json()["preview_token"],
+            "idempotency_key": key,
+        },
+    )
+    conflict = await client.post(
+        f"/workout-routines/{routine.id + 999}/plan-replacement/apply",
+        json={
+            "target_plan_id": plan.id,
+            "preview_token": preview.json()["preview_token"],
+            "idempotency_key": key,
+        },
+    )
+
+    assert first.status_code == 200
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["error"] == "idempotency_conflict"
+
+
+async def test_archived_plan_cannot_be_selected_mutated_or_deleted(
+    client, db, test_user
+):
+    plan, routine, _, _, _ = await _seed_preview(
+        db, test_user.id, include_locked_days=False
+    )
+    blueprint = SplitBlueprint(
+        name="Immutable split",
+        author_id=test_user.id,
+        length_days=1,
+        is_system=False,
+    )
+    db.add(blueprint)
+    await db.flush()
+    db.add(
+        UserSplit(
+            app_user_id=test_user.id,
+            blueprint_id=blueprint.id,
+            selected_plans={},
+            current_day=1,
+            is_active=True,
+        )
+    )
+    await db.commit()
+    preview = await client.post(
+        f"/workout-routines/{routine.id}/plan-replacement/preview",
+        json={"target_plan_id": plan.id},
+    )
+    applied = await client.post(
+        f"/workout-routines/{routine.id}/plan-replacement/apply",
+        json={
+            "target_plan_id": plan.id,
+            "preview_token": preview.json()["preview_token"],
+            "idempotency_key": str(uuid.uuid4()),
+        },
+    )
+    assert applied.status_code == 200
+
+    selected = await client.patch(
+        "/workout-center/context/plan", json={"plan_id": plan.id}
+    )
+    mutated = await client.put(
+        f"/plans/{plan.id}",
+        json={
+            "name": "Retroactive edit",
+            "day_tag": "push",
+            "micro_tag": "adaptive",
+            "meso_tag": "adaptive",
+            "exercises": [],
+        },
+    )
+    deleted = await client.delete(f"/plans/{plan.id}")
+
+    assert selected.status_code == 404
+    assert mutated.status_code == 409
+    assert mutated.json()["detail"]["error"] == "immutable_plan_history"
+    assert deleted.status_code == 409
+    assert deleted.json()["detail"]["error"] == "immutable_plan_history"

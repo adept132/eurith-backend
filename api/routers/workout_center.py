@@ -239,7 +239,10 @@ async def build_context(
             phase_label = target_phase.name
 
         # --- 3. ЗАГРУЗКА ПЛАНОВ ---
-    plans_stmt = select(WorkoutPlan).where(WorkoutPlan.app_user_id == app_user.id)
+    plans_stmt = select(WorkoutPlan).where(
+        WorkoutPlan.app_user_id == app_user.id,
+        WorkoutPlan.is_archived.is_(False),
+    )
     plans_result = await session.execute(plans_stmt)
     available_plans_db = plans_result.scalars().all()
 
@@ -463,6 +466,19 @@ async def start_workout(
 
         split_day_tag = slot.day.template_type.value if hasattr(slot.day.template_type, 'value') else str(
             slot.day.template_type)
+
+    if payload.plan_id is not None:
+        plan_exists = (
+            await session.execute(
+                select(WorkoutPlan.id).where(
+                    WorkoutPlan.id == payload.plan_id,
+                    WorkoutPlan.app_user_id == app_user.id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+            )
+        ).scalar_one_or_none()
+        if plan_exists is None:
+            raise HTTPException(status_code=404, detail="План не найден")
 
     # === ИНТЕЛЛЕКТУАЛЬНЫЙ ПОИСК КОНТЕКСТА ===
     meso_id = None
@@ -872,6 +888,19 @@ async def update_workout_center_plan(
 
     if not user_split:
         raise HTTPException(status_code=400, detail="Сплит не выбран. Невозможно привязать план.")
+
+    if payload.plan_id is not None:
+        selectable_plan = (
+            await session.execute(
+                select(WorkoutPlan.id).where(
+                    WorkoutPlan.id == payload.plan_id,
+                    WorkoutPlan.app_user_id == app_user.id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+            )
+        ).scalar_one_or_none()
+        if selectable_plan is None:
+            raise HTTPException(status_code=404, detail="План не найден")
 
     current_day_str = str(user_split.current_day)
 

@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20260822_04"
@@ -48,9 +49,30 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
+    op.create_table(
+        "plan_replacement_operations",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("app_user_id", sa.BigInteger(), nullable=False),
+        sa.Column("idempotency_key", sa.String(length=64), nullable=False),
+        sa.Column("request_fingerprint", sa.String(length=64), nullable=False),
+        sa.Column("new_plan_id", sa.Integer(), nullable=False),
+        sa.Column("affected_dates", postgresql.JSONB(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["app_user_id"], ["app_users.id"], ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["new_plan_id"], ["workout_plans.id"], ondelete="RESTRICT"
+        ),
+        sa.UniqueConstraint(
+            "app_user_id",
+            "idempotency_key",
+            name="uq_plan_replacement_operation_user_key",
+        ),
+    )
 
 
 def downgrade() -> None:
+    op.drop_table("plan_replacement_operations")
     op.drop_constraint(
         "fk_workout_plans_supersedes_plan_id",
         "workout_plans",

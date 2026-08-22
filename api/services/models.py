@@ -1041,9 +1041,36 @@ class WorkoutPlanExercise(Base):
     override_rir: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     plan: Mapped["WorkoutPlan"] = relationship("WorkoutPlan", back_populates="exercises")
-
     exercise: Mapped["Exercise"] = relationship("Exercise")
 
+
+class PlanReplacementOperation(Base):
+    """Durable result of an apply request, keyed by a client-generated id."""
+
+    __tablename__ = "plan_replacement_operations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    new_plan_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("workout_plans.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    affected_dates: Mapped[list] = mapped_column(JSONB, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id",
+            "idempotency_key",
+            name="uq_plan_replacement_operation_user_key",
+        ),
+    )
 
 class WorkoutRoutine(Base):
     """User-managed one-workout structure, separate from WorkoutPlan."""
