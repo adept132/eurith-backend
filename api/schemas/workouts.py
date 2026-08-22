@@ -159,6 +159,8 @@ class WorkoutSessionDetailResponse(BaseModel):
 
     split_day_id: Optional[uuid.UUID]  = None
     plan_id: int | None = None
+    # P1-13 provenance. Routine starts remain source='free'.
+    routine_id: int | None = None
     app_user_periodization_id: int | None = None
     periodization_week: int | None = None
     items: list[dict] = []

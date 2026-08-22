@@ -24,6 +24,13 @@ from api.services.models import (
     WorkoutSessionExercise,
 )
 from api.services.workout_structure import extract_workout_structure
+from api.services.routine_start import (
+    ActiveWorkoutExists,
+    RoutineNotFound,
+    start_routine,
+)
+from api.schemas.workouts import WorkoutSessionDetailResponse
+from datetime import datetime, timezone
 
 
 router = APIRouter(tags=["workout-routines"])
@@ -193,6 +200,29 @@ async def delete_workout_routine(
     await db.delete(routine)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/workout-routines/{routine_id}/start",
+    response_model=WorkoutSessionDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def start_workout_routine(
+    routine_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_app_user=Depends(get_current_app_user),
+):
+    try:
+        return await start_routine(
+            db, current_app_user, routine_id, datetime.now(timezone.utc)
+        )
+    except RoutineNotFound as exc:
+        raise HTTPException(status_code=404, detail="Routine not found") from exc
+    except ActiveWorkoutExists as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Active workout already exists",
+        ) from exc
 
 
 @router.post(
