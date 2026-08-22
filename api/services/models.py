@@ -984,7 +984,11 @@ class WorkoutPlan(Base):
 
     supersedes_plan_id: Mapped[Optional[int]] = mapped_column(
         Integer,
-        ForeignKey("workout_plans.id", ondelete="SET NULL"),
+        ForeignKey(
+            "workout_plans.id",
+            ondelete="SET NULL",
+            name="fk_workout_plans_supersedes_plan_id",
+        ),
         nullable=True,
     )
     is_archived: Mapped[bool] = mapped_column(

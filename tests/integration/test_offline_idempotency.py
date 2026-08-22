@@ -12,11 +12,13 @@ import pytest
 from sqlalchemy import func, select
 
 from api.services.models import (
+    AppUser,
     Exercise,
     UserAnthropometry,
     WorkoutSession,
     WorkoutSessionExercise,
     WorkoutSessionSet,
+    WorkoutPlan,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -215,6 +217,59 @@ async def test_sync_workout_keeps_owned_routine_provenance(client, db, test_user
     workout_id = next(iter(response.json()["id_map"].values()))
     stored = await db.get(WorkoutSession, workout_id)
     assert stored.routine_id == routine_id
+
+
+async def test_sync_rejects_archived_and_foreign_plan_provenance(
+    client, db, test_user
+):
+    archived = WorkoutPlan(
+        app_user_id=test_user.id,
+        name="Archived",
+        day_tag="push",
+        micro_tag="adaptive",
+        meso_tag="adaptive",
+        is_archived=True,
+    )
+    other = AppUser(
+        firebase_uid=f"sync-other-{uuid.uuid4().hex}",
+        email=f"sync-other-{uuid.uuid4().hex}@example.com",
+        display_name="Other",
+    )
+    db.add_all([archived, other])
+    await db.flush()
+    foreign = WorkoutPlan(
+        app_user_id=other.id,
+        name="Foreign",
+        day_tag="push",
+        micro_tag="adaptive",
+        meso_tag="adaptive",
+        is_archived=False,
+    )
+    db.add(foreign)
+    await db.commit()
+
+    def snapshot(plan_id: int):
+        return {
+            "client_uuid": uuid.uuid4().hex,
+            "source": "plan",
+            "status": "finished",
+            "plan_id": plan_id,
+            "started_at": "2026-08-22T10:00:00+00:00",
+            "finished_at": "2026-08-22T11:00:00+00:00",
+            "exercises": [],
+        }
+
+    archived_response = await client.post(
+        "/sync/workouts", json=snapshot(archived.id)
+    )
+    foreign_response = await client.post(
+        "/sync/workouts", json=snapshot(foreign.id)
+    )
+
+    assert archived_response.status_code == 422
+    assert archived_response.json()["detail"]["error"] == "invalid_plan_id"
+    assert foreign_response.status_code == 422
+    assert foreign_response.json()["detail"]["error"] == "invalid_plan_id"
 
 
 async def test_sync_rejects_a_second_active_workout(client):

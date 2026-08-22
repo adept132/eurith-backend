@@ -28,6 +28,7 @@ def test_plan_version_provenance_never_cascades_to_its_predecessor():
     foreign_key = next(iter(WorkoutPlan.__table__.c.supersedes_plan_id.foreign_keys))
     assert foreign_key.target_fullname == "workout_plans.id"
     assert foreign_key.ondelete == "SET NULL"
+    assert foreign_key.constraint.name == "fk_workout_plans_supersedes_plan_id"
 
 
 def test_plan_versions_start_unarchived_at_revision_zero():

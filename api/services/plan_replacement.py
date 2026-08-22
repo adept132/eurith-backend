@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import date
 from typing import Any
 
-from sqlalchemy import exists, or_, select, update
+from sqlalchemy import exists, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -473,6 +473,15 @@ async def apply_replacement(
     source_kind, source_id = source
     request_fingerprint = _apply_request_fingerprint(
         source_kind, source_id, plan_id, preview_token
+    )
+    # Serialize every use of one user-scoped key, even when conflicting
+    # requests point at different source/target rows and share no row lock.
+    await db.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended(CAST(:lock_key AS text), CAST(:lock_seed AS bigint)))"
+        ),
+        {"lock_key": idempotency_key, "lock_seed": user_id},
     )
     replay = await _idempotent_result(
         db, user_id, idempotency_key, request_fingerprint

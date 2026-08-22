@@ -31,6 +31,7 @@ from api.services.models import (
     WorkoutRoutine,
     WorkoutSessionExercise,
     WorkoutSessionSet,
+    WorkoutPlan,
 )
 from api.services.notification_service import create_notification
 from api.services.progression import repository as progression_repo
@@ -229,6 +230,24 @@ async def _apply_snapshot(
             paused_duration_seconds=0,
         )
         db.add(workout)
+
+    if payload.plan_id is not None and (
+        is_new or workout.plan_id != payload.plan_id
+    ):
+        plan_exists = await db.scalar(
+            select(
+                exists().where(
+                    WorkoutPlan.id == payload.plan_id,
+                    WorkoutPlan.app_user_id == app_user_id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+            )
+        )
+        if not plan_exists:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={"error": "invalid_plan_id"},
+            )
 
     # 4. Скалярные поля (клиент-авторитетно).
     workout.source = payload.source
