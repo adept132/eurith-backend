@@ -40,6 +40,7 @@ from api.services.models import (  # noqa: E402
     UserRecord,
     WorkoutPlan,
     WorkoutPlanExercise,
+    WorkoutRoutine,
     WorkoutSession,
     WorkoutSessionExercise,
     WorkoutSessionSet,
@@ -131,6 +132,11 @@ async def test_user():
         # иначе удаление Exercise падает с ForeignKeyViolationError.
         await session.execute(
             delete(UserRecord).where(UserRecord.app_user_id == user_id)
+        )
+        # Routines reference custom exercises with ON DELETE RESTRICT. Remove
+        # the user-owned aggregate first; its children cascade from the DB.
+        await session.execute(
+            delete(WorkoutRoutine).where(WorkoutRoutine.app_user_id == user_id)
         )
         await session.execute(
             delete(Exercise).where(Exercise.app_user_id == user_id)

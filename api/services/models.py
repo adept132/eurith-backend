@@ -52,6 +52,9 @@ class AppUser(Base):
     )
 
     sessions: Mapped[List["WorkoutSession"]] = relationship("WorkoutSession", back_populates="app_user")
+    routines: Mapped[List["WorkoutRoutine"]] = relationship(
+        "WorkoutRoutine", back_populates="app_user", cascade="all, delete-orphan"
+    )
     user_splits: Mapped[List["UserSplit"]] = relationship("UserSplit", back_populates="app_user")
     mesocycles: Mapped[List["AppUserMesocycle"]] = relationship(
         "AppUserMesocycle",
@@ -291,6 +294,14 @@ class WorkoutSession(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # free | split_day | plan
     status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
     plan_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("workout_plans.id", ondelete="SET NULL"), nullable=True)
+    # P1-13: provenance only. A routine launch remains source='free' and is
+    # never a scheduled/planned workout.
+    routine_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("workout_routines.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     split_day_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey('split_day_slots.id', ondelete="SET NULL"),
@@ -1014,6 +1025,110 @@ class WorkoutPlanExercise(Base):
     plan: Mapped["WorkoutPlan"] = relationship("WorkoutPlan", back_populates="exercises")
 
     exercise: Mapped["Exercise"] = relationship("Exercise")
+
+
+class WorkoutRoutine(Base):
+    """User-managed one-workout structure, separate from WorkoutPlan."""
+
+    __tablename__ = "workout_routines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    client_uuid: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    app_user: Mapped["AppUser"] = relationship("AppUser", back_populates="routines")
+    exercises: Mapped[List["WorkoutRoutineExercise"]] = relationship(
+        "WorkoutRoutineExercise",
+        back_populates="routine",
+        cascade="all, delete-orphan",
+        order_by="WorkoutRoutineExercise.order_index",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "client_uuid", name="uq_workout_routines_user_client_uuid"
+        ),
+        CheckConstraint("sort_order >= 0", name="ck_workout_routines_sort_order"),
+    )
+
+
+class WorkoutRoutineExercise(Base):
+    __tablename__ = "workout_routine_exercises"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    routine_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("workout_routines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    exercise_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("exercises.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    superset_group: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    target_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    set_kinds: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    rep_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rep_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_rir: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rest_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    routine: Mapped["WorkoutRoutine"] = relationship(
+        "WorkoutRoutine", back_populates="exercises"
+    )
+    exercise: Mapped["Exercise"] = relationship("Exercise")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "routine_id", "order_index", name="uq_workout_routine_exercise_order"
+        ),
+        CheckConstraint(
+            "order_index >= 0", name="ck_workout_routine_exercise_order"
+        ),
+        CheckConstraint(
+            "target_sets > 0", name="ck_workout_routine_exercise_target_sets"
+        ),
+        CheckConstraint(
+            "rep_min IS NULL OR rep_min > 0",
+            name="ck_workout_routine_exercise_rep_min",
+        ),
+        CheckConstraint(
+            "rep_max IS NULL OR rep_max >= rep_min",
+            name="ck_workout_routine_exercise_rep_max",
+        ),
+        CheckConstraint(
+            "target_rir IS NULL OR target_rir BETWEEN 0 AND 10",
+            name="ck_workout_routine_exercise_target_rir",
+        ),
+        CheckConstraint(
+            "rest_seconds IS NULL OR rest_seconds >= 0",
+            name="ck_workout_routine_exercise_rest_seconds",
+        ),
+    )
 
 
 class AppUserMicrocycle(Base):
