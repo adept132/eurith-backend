@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import json
+import threading
 
 import pytest
 import pytest_asyncio
@@ -294,6 +296,63 @@ async def test_sixth_attempt_in_ten_minutes_is_rate_limited_before_image_decode(
         ).order_by(WorkoutImportMlRequestRecord.created_at))).scalars()
     )
     assert statuses == ["completed"] * 5 + ["rate_limited"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_rate_limit_allows_only_five_image_decodes(
+    client, fake_provider, monkeypatch
+):
+    from api.routers import workout_import as router_module
+
+    original_normalize = router_module._normalize_image
+    lock = threading.Lock()
+    release = threading.Event()
+    decoded = 0
+
+    def synchronized_normalize(*args, **kwargs):
+        nonlocal decoded
+        with lock:
+            decoded += 1
+            if decoded == 5:
+                release.set()
+        assert release.wait(timeout=5)
+        return original_normalize(*args, **kwargs)
+
+    monkeypatch.setattr(router_module, "_normalize_image", synchronized_normalize)
+    responses = await asyncio.gather(*(
+        post_fallback(client, key=f"idem-concurrent-rate-{index}") for index in range(6)
+    ))
+
+    assert sorted(response.status_code for response in responses) == [200] * 5 + [429]
+    assert decoded == 5
+    assert len(fake_provider.calls) == 5
+
+
+@pytest.mark.asyncio
+async def test_concurrent_duplicate_reaches_image_decode_only_once(
+    client, fake_provider, monkeypatch
+):
+    from api.routers import workout_import as router_module
+
+    original_normalize = router_module._normalize_image
+    lock = threading.Lock()
+    decoded = 0
+
+    def counted_normalize(*args, **kwargs):
+        nonlocal decoded
+        with lock:
+            decoded += 1
+        return original_normalize(*args, **kwargs)
+
+    monkeypatch.setattr(router_module, "_normalize_image", counted_normalize)
+    responses = await asyncio.gather(
+        post_fallback(client, key="idem-concurrent-duplicate"),
+        post_fallback(client, key="idem-concurrent-duplicate"),
+    )
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    assert decoded == 1
+    assert len(fake_provider.calls) == 1
 
 
 @pytest.mark.asyncio
