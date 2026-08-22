@@ -45,15 +45,16 @@ def _routine_query():
 
 
 async def _owned_routine(
-    db: AsyncSession, user_id: int, routine_id: int
+    db: AsyncSession, user_id: int, routine_id: int, *, for_update: bool = False
 ) -> WorkoutRoutine:
+    query = _routine_query().where(
+        WorkoutRoutine.id == routine_id,
+        WorkoutRoutine.app_user_id == user_id,
+    )
+    if for_update:
+        query = query.with_for_update()
     routine = (
-        await db.execute(
-            _routine_query().where(
-                WorkoutRoutine.id == routine_id,
-                WorkoutRoutine.app_user_id == user_id,
-            )
-        )
+        await db.execute(query)
     ).scalar_one_or_none()
     if routine is None:
         raise HTTPException(status_code=404, detail="Routine not found")
@@ -173,7 +174,9 @@ async def update_workout_routine(
     db: AsyncSession = Depends(get_db),
     current_app_user=Depends(get_current_app_user),
 ):
-    routine = await _owned_routine(db, current_app_user.id, routine_id)
+    routine = await _owned_routine(
+        db, current_app_user.id, routine_id, for_update=True
+    )
     if routine.revision != payload.base_revision:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

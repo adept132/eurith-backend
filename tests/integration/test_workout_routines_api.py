@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import uuid
 
 import pytest
@@ -131,6 +133,25 @@ async def test_routine_patch_rejects_stale_revision(client):
     )
     assert stale.status_code == 409, stale.text
     assert stale.json()["detail"]["routine"]["name"] == "First"
+
+
+async def test_concurrent_routine_patches_allow_only_one_revision_winner(client):
+    exercise_id = await _create_exercise(client, name_prefix="Routine concurrent")
+    created = await client.post("/workout-routines", json=_routine_payload(exercise_id))
+    routine = created.json()
+
+    first, second = await asyncio.gather(
+        client.patch(
+            f"/workout-routines/{routine['id']}",
+            json={"name": "Device A", "base_revision": routine["revision"]},
+        ),
+        client.patch(
+            f"/workout-routines/{routine['id']}",
+            json={"name": "Device B", "base_revision": routine["revision"]},
+        ),
+    )
+
+    assert sorted((first.status_code, second.status_code)) == [200, 409]
 
 
 async def test_save_as_routine_drops_weights(client):
