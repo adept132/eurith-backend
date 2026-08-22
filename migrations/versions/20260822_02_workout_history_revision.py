@@ -31,6 +31,10 @@ def upgrade() -> None:
         "workout_sessions",
         sa.Column("edited_at", sa.DateTime(timezone=True), nullable=True),
     )
+    op.add_column(
+        "workout_sessions",
+        sa.Column("history_request_fingerprint", sa.String(length=64), nullable=True),
+    )
     op.create_check_constraint(
         "ck_workout_sessions_entry_mode",
         "workout_sessions",
@@ -104,6 +108,7 @@ def downgrade() -> None:
     op.drop_constraint(
         "ck_workout_sessions_entry_mode", "workout_sessions", type_="check"
     )
+    op.drop_column("workout_sessions", "history_request_fingerprint")
     op.drop_column("workout_sessions", "edited_at")
     op.drop_column("workout_sessions", "revision")
     op.drop_column("workout_sessions", "entry_mode")

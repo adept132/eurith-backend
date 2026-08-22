@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -53,6 +55,35 @@ class WorkoutHistoryRevisionConflict(WorkoutHistoryError):
         self.server_revision = server_revision
         self.server_draft = server_draft
         super().__init__(str(server_revision))
+
+
+class WorkoutHistoryIdempotencyConflict(WorkoutHistoryError):
+    def __init__(self, server_draft: WorkoutHistoryDraft):
+        self.server_draft = server_draft
+        super().__init__(server_draft.client_uuid)
+
+
+def _history_request_fingerprint(draft: WorkoutHistoryDraft) -> str:
+    canonical = json.dumps(
+        draft.model_dump(mode="json"),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _require_exact_history_replay(
+    existing: WorkoutSession,
+    request_fingerprint: str,
+) -> WorkoutSession:
+    if (
+        existing.status == "finished"
+        and existing.entry_mode in {"manual", "screenshot_import"}
+        and existing.history_request_fingerprint == request_fingerprint
+    ):
+        return existing
+    raise WorkoutHistoryIdempotencyConflict(draft_from_workout(existing))
 
 
 def _workout_options():
@@ -251,9 +282,10 @@ async def create_history_workout(
     if draft.base_revision != 0:
         raise WorkoutHistoryImmutableField("base_revision")
 
+    request_fingerprint = _history_request_fingerprint(draft)
     existing = await _load_workout_by_client_uuid(db, user_id, draft.client_uuid)
     if existing is not None:
-        return existing
+        return _require_exact_history_replay(existing, request_fingerprint)
 
     try:
         exercise_by_id = await _validate_exercises(db, user_id, draft)
@@ -264,6 +296,7 @@ async def create_history_workout(
             status="finished",
             entry_mode=draft.entry_mode,
             revision=0,
+            history_request_fingerprint=request_fingerprint,
             notes=draft.notes,
             session_rpe=draft.session_rpe,
             session_rpe_at=draft.finished_at if draft.session_rpe is not None else None,
@@ -285,7 +318,7 @@ async def create_history_workout(
         await db.rollback()
         existing = await _load_workout_by_client_uuid(db, user_id, draft.client_uuid)
         if existing is not None:
-            return existing
+            return _require_exact_history_replay(existing, request_fingerprint)
         raise
     except Exception:
         await db.rollback()

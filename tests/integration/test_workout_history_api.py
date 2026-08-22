@@ -168,6 +168,40 @@ async def test_manual_create_replay_is_idempotent(
 
 
 @pytest.mark.asyncio
+async def test_manual_create_changed_replay_returns_typed_conflict(
+    client, history_exercise: Exercise
+):
+    body = history_body(history_exercise.id)
+    first = await client.post("/workouts/history", json=body)
+    changed = {**body, "notes": "changed after a lost response"}
+
+    second = await client.post("/workouts/history", json=changed)
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 409, second.text
+    detail = second.json()["detail"]
+    assert detail["error"] == "history_idempotency_conflict"
+    assert detail["server_draft"]["notes"] == "Session note"
+
+
+@pytest.mark.asyncio
+async def test_manual_create_rejects_client_uuid_owned_by_live_workout(
+    client,
+    db: AsyncSession,
+    test_user: AppUser,
+    history_exercise: Exercise,
+):
+    live = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    body = history_body(history_exercise.id)
+    body["client_uuid"] = live.client_uuid
+
+    response = await client.post("/workouts/history", json=body)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "history_idempotency_conflict"
+
+
+@pytest.mark.asyncio
 async def test_history_list_returns_completed_owned_workouts(
     client, history_exercise: Exercise
 ):

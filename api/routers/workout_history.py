@@ -10,6 +10,7 @@ from api.schemas.workout_history import (
 from api.services.app_user_service import get_current_app_user
 from api.services.workout_history import (
     WorkoutHistoryImmutableField,
+    WorkoutHistoryIdempotencyConflict,
     WorkoutHistoryInvalidExercise,
     WorkoutHistoryNotFinished,
     WorkoutHistoryNotFound,
@@ -47,6 +48,15 @@ def _translate_history_error(exc: Exception) -> HTTPException:
             detail={
                 "error": "history_revision_conflict",
                 "server_revision": exc.server_revision,
+                "server_draft": exc.server_draft.model_dump(mode="json"),
+            },
+        )
+    if isinstance(exc, WorkoutHistoryIdempotencyConflict):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "history_idempotency_conflict",
+                "server_revision": exc.server_draft.base_revision,
                 "server_draft": exc.server_draft.model_dump(mode="json"),
             },
         )

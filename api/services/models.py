@@ -346,6 +346,9 @@ class WorkoutSession(Base):
         Integer, nullable=False, default=0, server_default="0"
     )
     edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    history_request_fingerprint: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
