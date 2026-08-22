@@ -94,7 +94,7 @@ def test_preview_has_exact_diff_counts_dates_and_stable_token():
     assert [(item.exercise_id, item.old_target_sets, item.new_target_sets) for item in preview.modified] == [
         (1, 3, 4)
     ]
-    assert preview.preview_token == "3abe1de0ddbf33b403c32bf296bd0441ca42102181947afc47a8f8d66f0ce9fc"
+    assert preview.preview_token == "1cab8d006f11cc6ddc4b5ac562f58c4843d145e428aaaa9f3e6bbd92195b0894"
 
 
 def test_preview_token_changes_with_plan_revision_affected_ids_or_structure():
@@ -111,6 +111,11 @@ def test_preview_token_changes_with_plan_revision_affected_ids_or_structure():
     revised = build_replacement_preview(
         **{**common, "target_plan": _target_plan(revision=4)}
     ).preview_token
+    changed_target = _target_plan()
+    changed_target.exercises[0].target_sets = 9
+    target_structure_changed = build_replacement_preview(
+        **{**common, "target_plan": changed_target}
+    ).preview_token
     fewer_days = build_replacement_preview(
         **{**common, "affected_days": _affected_days()[:1]}
     ).preview_token
@@ -121,4 +126,4 @@ def test_preview_token_changes_with_plan_revision_affected_ids_or_structure():
         **{**common, "source_structure": changed_structure}
     ).preview_token
 
-    assert len({original, revised, fewer_days, changed}) == 4
+    assert len({original, revised, target_structure_changed, fewer_days, changed}) == 5

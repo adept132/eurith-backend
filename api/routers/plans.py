@@ -675,9 +675,23 @@ async def delete_generator_preset(
     await db.commit()
 
 @router.get("/")
-def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_app_user)):
+async def get_plans(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_app_user),
+):
     """Получить список всех сохраненных планов пользователя."""
-    return db.query(WorkoutPlan).filter(WorkoutPlan.app_user_id == current_user.id).all()
+    return list(
+        (
+            await db.execute(
+                select(WorkoutPlan)
+                .where(
+                    WorkoutPlan.app_user_id == current_user.id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+                .order_by(WorkoutPlan.id)
+            )
+        ).scalars().all()
+    )
 
 
 @router.get("/{plan_id}")

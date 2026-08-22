@@ -32,7 +32,11 @@ class SchedulingEngine:
         safe_target = target_day_name.lower()
 
         # Фильтруем планы, пытаясь найти совпадение тега плана и имени дня из блюпринта
-        valid_plans = [p for p in plans if p.day_tag.lower() in safe_target or safe_target in p.day_tag.lower()]
+        valid_plans = [
+            p for p in plans
+            if not getattr(p, "is_archived", False)
+            and (p.day_tag.lower() in safe_target or safe_target in p.day_tag.lower())
+        ]
 
         if not valid_plans:
             return None
@@ -74,7 +78,10 @@ class SchedulingEngine:
     async def rebind_plans(session: AsyncSession, app_user_id: int, from_date: date) -> int:
         """Re-score user plans onto future non-rest calendar days (fills plan_id)."""
         plans_res = await session.execute(
-            select(WorkoutPlan).where(WorkoutPlan.app_user_id == app_user_id)
+            select(WorkoutPlan).where(
+                WorkoutPlan.app_user_id == app_user_id,
+                WorkoutPlan.is_archived.is_(False),
+            )
         )
         user_plans = list(plans_res.scalars().all())
 
@@ -160,7 +167,10 @@ class SchedulingEngine:
         micro_length = user_micro.length_days if user_micro else len(slots_queue)
 
         plans = list((await session.execute(
-            select(WorkoutPlan).where(WorkoutPlan.app_user_id == app_user_id)
+            select(WorkoutPlan).where(
+                WorkoutPlan.app_user_id == app_user_id,
+                WorkoutPlan.is_archived.is_(False),
+            )
         )).scalars().all())
 
         # P0-09: дни, пережившие выборочную перегенерацию (_wipe_future_calendar
@@ -357,7 +367,10 @@ class SchedulingEngine:
                 phases_list = sorted(strategy.phases, key=lambda p: p.phase_number)
 
         # 4. Загрузка планов
-        plans_stmt = select(WorkoutPlan).where(WorkoutPlan.app_user_id == app_user_id)
+        plans_stmt = select(WorkoutPlan).where(
+            WorkoutPlan.app_user_id == app_user_id,
+            WorkoutPlan.is_archived.is_(False),
+        )
         plans_res = await session.execute(plans_stmt)
         user_plans = list(plans_res.scalars().all())
 
@@ -549,7 +562,10 @@ class SchedulingEngine:
             phases_list = sorted(strategy.phases, key=lambda p: p.phase_number)
 
         # 6. Загружаем планы тренировок
-        plans_stmt = select(WorkoutPlan).where(WorkoutPlan.app_user_id == app_user_id)
+        plans_stmt = select(WorkoutPlan).where(
+            WorkoutPlan.app_user_id == app_user_id,
+            WorkoutPlan.is_archived.is_(False),
+        )
         plans_res = await session.execute(plans_stmt)
         user_plans = list(plans_res.scalars().all())
 
