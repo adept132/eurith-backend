@@ -13,10 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.services.equipment import normalize_equipment_list
 from api.services.muscle_keys import to_system_key
 from api.services.readiness import params as readiness_params
-from api.services.readiness.repository import build_exercise_target
+from api.services.readiness.repository import (
+    build_exercise_target,
+    lock_user_safety_context,
+)
 from api.services.readiness.types import CheckinSignals
 from api.services.readiness.verdict import build_verdict, level_for_exercise
 from api.services.volume.landmarks import SESSION_MAX, landmarks_for, scale_landmarks
+from api.services.volume.measure import apply_adjustments
 from api.schemas.carry_over import (
     CarryOverDiscard,
     CarryOverPlacement as CarryOverPlacementSchema,
@@ -36,6 +40,32 @@ DiscardReason = Literal[
     "microcycle_end",
     "no_compatible_day",
 ]
+
+
+def _effective_plan_sets(
+    plan_sets: list[tuple[int, int]], adjustments: list[dict] | None
+) -> dict[int, int]:
+    compiled = [
+        {"exercise_id": exercise_id, "target_sets": target_sets}
+        for exercise_id, target_sets in plan_sets
+    ]
+    return {
+        int(item["exercise_id"]): int(item.get("target_sets") or 0)
+        for item in apply_adjustments(compiled, adjustments)
+    }
+
+
+def _is_serialization_failure(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if getattr(current, "sqlstate", None) == "40001" or getattr(
+            current, "pgcode", None
+        ) == "40001":
+            return True
+        current = getattr(current, "orig", None) or getattr(current, "__cause__", None)
+    return False
 
 
 @dataclass(frozen=True)
@@ -522,10 +552,8 @@ async def preview_carry_over(
         )
     ).all() if plan_ids else []
     rows_by_plan: dict[int, list[tuple]] = {}
-    exercise_by_id: dict[int, object] = {}
     for plan_exercise, exercise, plan in plan_rows:
         rows_by_plan.setdefault(plan.id, []).append((plan_exercise, exercise, plan))
-        exercise_by_id[exercise.id] = exercise
 
     actual_rows = (
         await db.execute(
@@ -563,7 +591,6 @@ async def preview_carry_over(
             actual_by_day_muscle.get((calendar_day_id, muscle), 0)
             + int(completed_sets)
         )
-        exercise_by_id[actual_exercise.id] = actual_exercise
     finished_day_ids = set(
         (
             await db.execute(
@@ -587,28 +614,23 @@ async def preview_carry_over(
                         planned_by_muscle.get(muscle, 0) + sets
                     )
             continue
-        for plan_exercise, exercise, _ in rows_by_plan.get(day.plan_id, []):
+        day_plan_rows = rows_by_plan.get(day.plan_id, [])
+        effective_sets = _effective_plan_sets(
+            [
+                (plan_exercise.exercise_id, int(plan_exercise.target_sets or 0))
+                for plan_exercise, _, _ in day_plan_rows
+            ],
+            day.volume_adjustments,
+        )
+        for plan_exercise, exercise, _ in day_plan_rows:
             muscle = to_system_key(exercise.main_muscle_group)
             if not muscle:
                 continue
-            sets = int(plan_exercise.target_sets or 0)
+            sets = effective_sets.get(plan_exercise.exercise_id, 0)
             planned_by_day_muscle[(day.id, muscle)] = (
                 planned_by_day_muscle.get((day.id, muscle), 0) + sets
             )
             planned_by_muscle[muscle] = planned_by_muscle.get(muscle, 0) + sets
-        for adjustment in day.volume_adjustments or []:
-            try:
-                exercise = exercise_by_id[int(adjustment["exercise_id"])]
-                delta = int(adjustment["delta_sets"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            muscle = to_system_key(exercise.main_muscle_group)
-            if not muscle:
-                continue
-            planned_by_day_muscle[(day.id, muscle)] = (
-                planned_by_day_muscle.get((day.id, muscle), 0) + delta
-            )
-            planned_by_muscle[muscle] = planned_by_muscle.get(muscle, 0) + delta
 
     profile = (
         await db.execute(
@@ -717,6 +739,10 @@ class CarryOverIdempotencyConflict(CarryOverWorkflowError):
 
 
 class CarryOverDecisionConflict(CarryOverWorkflowError):
+    pass
+
+
+class CarryOverRetryableConflict(CarryOverWorkflowError):
     pass
 
 
@@ -945,6 +971,7 @@ async def _preview_state_token(
     exercise_ids = sorted(
         {item.exercise_id for item in source_exercises}
         | {item.exercise_id for item in plan_exercises}
+        | {int(item[1]) for item in cycle_completed}
     )
     exercises = (
         await db.execute(
@@ -1107,14 +1134,6 @@ async def create_carry_over_preview(
     # Common per-source lock makes concurrent retries observe the first
     # request's audit rows instead of racing into the uniqueness constraint.
     await _lock_owned_source(db, user_id, session_id)
-    await _validate_unfinished_sets(db, user_id, session_id, unfinished_sets)
-    try:
-        preview = await preview_carry_over(
-            db, user_id, session_id, unfinished_sets, now
-        )
-    except LookupError as exc:
-        raise CarryOverSourceNotFound from exc
-    token = await _preview_state_token(db, user_id, preview, now)
     existing_rows = (
         await db.execute(
             select(WorkoutCarryOver)
@@ -1123,8 +1142,17 @@ async def create_carry_over_preview(
                 WorkoutCarryOver.source_session_id == session_id,
             )
             .order_by(WorkoutCarryOver.source_exercise_id)
+            .with_for_update()
         )
     ).scalars().all()
+    await _validate_unfinished_sets(db, user_id, session_id, unfinished_sets)
+    try:
+        preview = await preview_carry_over(
+            db, user_id, session_id, unfinished_sets, now
+        )
+    except LookupError as exc:
+        raise CarryOverSourceNotFound from exc
+    token = await _preview_state_token(db, user_id, preview, now)
     existing_by_source = {row.source_exercise_id: row for row in existing_rows}
     rows: list[WorkoutCarryOver] = []
     for item in preview.items:
@@ -1289,7 +1317,7 @@ async def _lock_carry_over_context(
         )
 
 
-async def apply_carry_over_preview(
+async def _apply_carry_over_once(
     db: AsyncSession,
     user_id: int,
     session_id: int,
@@ -1298,21 +1326,24 @@ async def apply_carry_over_preview(
 ) -> CarryOverResponse:
     from api.services.models import UserCalendarDay
 
-    # Predicate locks also cover new readiness/pain observations while the
-    # safety snapshot is recalculated. A concurrent safety write forces one
-    # transaction to abort instead of silently applying stale placements.
     # Authentication has already performed a read on this request session,
     # which starts a default transaction. It made no writes, so close it
     # before opening the serializable decision transaction.
     await db.rollback()
     await db.connection(execution_options={"isolation_level": "SERIALIZABLE"})
+    # Every decision operation follows the same order: source, draft rows,
+    # safety/context.  Observation writers share the advisory safety lock.
+    await _lock_owned_source(db, user_id, session_id)
     rows = await _carry_over_rows_for_update(db, user_id, session_id)
     if all(row.status == "applied" for row in rows):
         if rows[0].preview_token != preview_token:
             raise CarryOverDecisionConflict
-        return _response_from_rows(rows, status="applied")
+        response = _response_from_rows(rows, status="applied")
+        await db.commit()
+        return response
     if any(row.status != "draft" for row in rows):
         raise CarryOverDecisionConflict
+    await lock_user_safety_context(db, user_id)
     await _lock_carry_over_context(db, user_id, session_id)
 
     requested = {row.source_exercise_id: row.requested_sets for row in rows}
@@ -1362,12 +1393,34 @@ async def apply_carry_over_preview(
     return _response_from_rows(rows, status="applied")
 
 
+async def apply_carry_over_preview(
+    db: AsyncSession,
+    user_id: int,
+    session_id: int,
+    preview_token: str,
+    now: datetime,
+) -> CarryOverResponse:
+    for attempt in range(3):
+        try:
+            return await _apply_carry_over_once(
+                db, user_id, session_id, preview_token, now
+            )
+        except Exception as exc:
+            if not _is_serialization_failure(exc):
+                raise
+            await db.rollback()
+            if attempt == 2:
+                raise CarryOverRetryableConflict from exc
+    raise AssertionError("unreachable")
+
+
 async def dismiss_carry_over_preview(
     db: AsyncSession,
     user_id: int,
     session_id: int,
     preview_token: str,
 ) -> CarryOverResponse:
+    await _lock_owned_source(db, user_id, session_id)
     rows = await _carry_over_rows_for_update(db, user_id, session_id)
     if all(row.status == "dismissed" for row in rows):
         if rows[0].preview_token != preview_token:

@@ -261,6 +261,62 @@ async def test_apply_is_explicit_atomic_and_idempotent(client, db, test_user):
     assert row.applied_at is not None
 
 
+async def test_concurrent_apply_retries_do_not_escape_as_server_errors(
+    client, db, test_user
+):
+    session, source_exercise, _, _ = await _seed_carry_over(db, test_user.id)
+    preview = await client.post(
+        f"/workouts/{session.id}/carry-over/preview",
+        json=_preview_payload(source_exercise.id),
+    )
+    assert preview.status_code == 200, preview.text
+    payload = {"preview_token": preview.json()["preview_token"]}
+
+    first, second = await asyncio.gather(
+        client.post(f"/workouts/{session.id}/carry-over/apply", json=payload),
+        client.post(f"/workouts/{session.id}/carry-over/apply", json=payload),
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json() == second.json()
+
+
+async def test_preview_retry_and_dismiss_share_source_then_draft_lock_order(
+    client, db, test_user
+):
+    session, source_exercise, _, _ = await _seed_carry_over(db, test_user.id)
+    preview_payload = _preview_payload(source_exercise.id)
+    preview = await client.post(
+        f"/workouts/{session.id}/carry-over/preview", json=preview_payload
+    )
+    assert preview.status_code == 200, preview.text
+    decision_payload = {"preview_token": preview.json()["preview_token"]}
+
+    retried, dismissed = await asyncio.gather(
+        client.post(
+            f"/workouts/{session.id}/carry-over/preview", json=preview_payload
+        ),
+        client.post(
+            f"/workouts/{session.id}/carry-over/dismiss", json=decision_payload
+        ),
+    )
+
+    assert dismissed.status_code == 200, dismissed.text
+    assert retried.status_code in {200, 409}, retried.text
+    await db.rollback()
+    statuses = set(
+        (
+            await db.execute(
+                select(WorkoutCarryOver.status).where(
+                    WorkoutCarryOver.source_session_id == session.id
+                )
+            )
+        ).scalars().all()
+    )
+    assert statuses == {"dismissed"}
+
+
 async def test_stale_apply_returns_fresh_preview_without_carry_over_mutation(
     client, db, test_user
 ):

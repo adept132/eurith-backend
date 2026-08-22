@@ -15,6 +15,7 @@ from api.services.app_user_service import get_current_app_user
 from api.services.carry_over import (
     CarryOverDecisionConflict,
     CarryOverIdempotencyConflict,
+    CarryOverRetryableConflict,
     CarryOverSourceNotFound,
     InvalidUnfinishedSets,
     StaleCarryOverPreview,
@@ -102,6 +103,10 @@ async def apply_workout_carry_over(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": "stale_preview", "preview": exc.preview.model_dump(mode="json")},
+        ) from exc
+    except CarryOverRetryableConflict as exc:
+        raise _workflow_error(
+            "carry_over_retry", status.HTTP_409_CONFLICT
         ) from exc
 
 

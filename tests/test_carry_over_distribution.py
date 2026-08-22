@@ -27,6 +27,36 @@ def _placement_counts(result):
     ]
 
 
+def test_effective_plan_sets_clamps_oversized_negative_adjustment_for_safety_budgets():
+    service = _service()
+
+    effective = service._effective_plan_sets(
+        [(101, 2), (202, 4)],
+        [
+            {"exercise_id": 101, "delta_sets": -99},
+            {"exercise_id": 202, "delta_sets": 1},
+        ],
+    )
+
+    # The same effective counts feed both the per-session cap and the
+    # whole-microcycle MRV budget.  The canonical adjustment contract never
+    # removes an exercise: an oversized cut bottoms out at one set.
+    assert effective == {101: 1, 202: 5}
+
+
+def test_serialization_failure_detection_supports_asyncpg_wrapping():
+    service = _service()
+
+    class DriverError(Exception):
+        sqlstate = "40001"
+
+    class WrappedError(Exception):
+        orig = DriverError()
+
+    assert service._is_serialization_failure(WrappedError()) is True
+    assert service._is_serialization_failure(RuntimeError("other")) is False
+
+
 def test_spreads_four_sets_two_plus_two_across_exact_days():
     result = _distribute(
         4,
