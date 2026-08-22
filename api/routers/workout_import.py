@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile
 from pydantic import ValidationError
@@ -30,9 +31,16 @@ ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
 IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,64}$")
 
 
-def get_workout_vision_provider() -> WorkoutVisionProvider | None:
+async def get_workout_vision_provider() -> AsyncIterator[WorkoutVisionProvider | None]:
     settings = WorkoutImportVisionSettings.from_env()
-    return OpenAICompatibleWorkoutVisionProvider(settings) if settings else None
+    if settings is None:
+        yield None
+        return
+    provider = OpenAICompatibleWorkoutVisionProvider(settings)
+    try:
+        yield provider
+    finally:
+        await provider.aclose()
 
 
 def _error(code: str, message: str, retryable: bool) -> dict:

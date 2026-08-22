@@ -29,6 +29,7 @@ def _strict_schema() -> dict[str, Any]:
 
     def visit(node: Any) -> None:
         if isinstance(node, dict):
+            node.pop("default", None)
             if node.get("type") == "object" or "properties" in node:
                 properties = node.get("properties", {})
                 node["additionalProperties"] = False
@@ -77,7 +78,12 @@ class OpenAICompatibleWorkoutVisionProvider:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
+        self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=self.timeout_seconds)
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
 
     def _payload(self, request: WorkoutVisionRequest) -> dict[str, Any]:
         content: list[dict[str, Any]] = [
@@ -138,4 +144,3 @@ class OpenAICompatibleWorkoutVisionProvider:
             return MlWorkoutImportResult.model_validate(result_payload)
         except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
             raise WorkoutVisionProviderError(ProviderErrorCode.INVALID_RESPONSE, retryable=False) from exc
-

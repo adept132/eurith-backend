@@ -63,7 +63,17 @@ async def _reserve(
         )
     )
     if int(attempts or 0) >= RATE_LIMIT:
-        await db.rollback()
+        db.add(
+            WorkoutImportMlRequestRecord(
+                app_user_id=app_user_id,
+                request_id=str(uuid.uuid4()),
+                idempotency_key=idempotency_key,
+                image_count=image_count,
+                byte_count=byte_count,
+                status="rate_limited",
+            )
+        )
+        await db.commit()
         raise MlRateLimitError
 
     record = WorkoutImportMlRequestRecord(

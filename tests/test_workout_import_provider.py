@@ -99,6 +99,7 @@ async def test_adapter_sends_current_responses_contract_and_parses_strict_output
     assert payload["store"] is False
     assert payload["text"]["format"]["type"] == "json_schema"
     assert payload["text"]["format"]["strict"] is True
+    assert "default" not in json.dumps(payload["text"]["format"]["schema"])
     content = payload["input"][0]["content"]
     assert content[0]["type"] == "input_text"
     assert content[1]["type"] == "input_image"
@@ -174,3 +175,16 @@ def test_default_client_timeout_is_exactly_thirty_seconds():
     provider = OpenAICompatibleWorkoutVisionProvider(settings())
     assert provider.timeout_seconds == 30.0
 
+
+@pytest.mark.asyncio
+async def test_provider_closes_only_the_client_it_owns():
+    owned = OpenAICompatibleWorkoutVisionProvider(settings())
+    owned_client = owned._client
+    await owned.aclose()
+    assert owned_client.is_closed
+
+    external_client = httpx.AsyncClient()
+    external = OpenAICompatibleWorkoutVisionProvider(settings(), client=external_client)
+    await external.aclose()
+    assert not external_client.is_closed
+    await external_client.aclose()

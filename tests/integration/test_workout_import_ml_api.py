@@ -214,7 +214,9 @@ async def test_request_metadata_is_minimal_and_idempotency_blocks_replay(
 
 
 @pytest.mark.asyncio
-async def test_sixth_attempt_in_ten_minutes_is_rate_limited_across_requests(client, fake_provider):
+async def test_sixth_attempt_in_ten_minutes_is_rate_limited_across_requests(
+    client, db, test_user, fake_provider
+):
     for index in range(5):
         response = await post_fallback(client, key=f"idem-rate-{index}")
         assert response.status_code == 200, response.text
@@ -223,6 +225,13 @@ async def test_sixth_attempt_in_ten_minutes_is_rate_limited_across_requests(clie
     assert int(limited.headers["Retry-After"]) > 0
     assert limited.json()["detail"]["code"] == "rate_limited"
     assert len(fake_provider.calls) == 5
+    await db.rollback()
+    statuses = list(
+        (await db.execute(select(WorkoutImportMlRequestRecord.status).where(
+            WorkoutImportMlRequestRecord.app_user_id == test_user.id
+        ).order_by(WorkoutImportMlRequestRecord.created_at))).scalars()
+    )
+    assert statuses == ["completed"] * 5 + ["rate_limited"]
 
 
 @pytest.mark.asyncio
