@@ -435,6 +435,81 @@ class WorkoutSessionExercise(Base):
     exercise: Mapped["Exercise"] = relationship("Exercise")
 
 
+class WorkoutCarryOver(Base):
+    """Auditable carry-over proposal for one unfinished session exercise."""
+
+    __tablename__ = "workout_carry_overs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_session_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("workout_sessions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    source_exercise_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("workout_session_exercises.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    requested_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    placed_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    discarded_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    placements: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    discarded: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    preview_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="draft", server_default="draft"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    applied_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id",
+            "source_session_id",
+            "source_exercise_id",
+            name="uq_workout_carry_over_source",
+        ),
+        UniqueConstraint(
+            "app_user_id",
+            "idempotency_key",
+            name="uq_workout_carry_over_user_idempotency",
+        ),
+        CheckConstraint(
+            "requested_sets >= 0", name="ck_workout_carry_over_requested_sets"
+        ),
+        CheckConstraint(
+            "placed_sets >= 0", name="ck_workout_carry_over_placed_sets"
+        ),
+        CheckConstraint(
+            "discarded_sets >= 0", name="ck_workout_carry_over_discarded_sets"
+        ),
+        CheckConstraint(
+            "requested_sets = placed_sets + discarded_sets",
+            name="ck_workout_carry_over_counts_consistent",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'applied', 'dismissed', 'expired')",
+            name="ck_workout_carry_over_status",
+        ),
+    )
+
+
 class WorkoutSessionSet(Base):
     __tablename__ = "workout_session_sets"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
