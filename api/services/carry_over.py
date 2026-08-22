@@ -387,6 +387,20 @@ def _microcycle_end(source_day, days, block) -> date:
     return min(calculated, block.planned_end_date)
 
 
+def _microcycle_start(source_day, days, block) -> date:
+    starts = [
+        day.target_date
+        for day in days
+        if day.target_date <= source_day.target_date
+        and day.microcycle_day_number == 1
+    ]
+    if starts:
+        return max(starts)
+    day_number = max(1, int(source_day.microcycle_day_number or 1))
+    calculated = source_day.target_date - timedelta(days=day_number - 1)
+    return max(calculated, block.start_date)
+
+
 def _phase_is_deload(day, block) -> bool:
     if str(day.meso_tag or "").lower() == "deload":
         return True
@@ -415,6 +429,7 @@ async def preview_carry_over(
         WorkoutPlanExercise,
         WorkoutSession,
         WorkoutSessionExercise,
+        WorkoutSessionSet,
     )
 
     source_session = (
@@ -442,19 +457,21 @@ async def preview_carry_over(
     ):
         raise LookupError("source calendar context not found")
 
-    days = (
+    block_days = (
         await db.execute(
             select(UserCalendarDay)
             .where(
                 UserCalendarDay.app_user_id == user_id,
                 UserCalendarDay.block_id == block.id,
-                UserCalendarDay.target_date >= source_day.target_date,
             )
             .order_by(UserCalendarDay.target_date, UserCalendarDay.id)
         )
     ).scalars().all()
-    end = _microcycle_end(source_day, days, block)
-    cycle_days = [day for day in days if day.target_date <= end]
+    start = _microcycle_start(source_day, block_days, block)
+    end = _microcycle_end(source_day, block_days, block)
+    cycle_days = [
+        day for day in block_days if start <= day.target_date <= end
+    ]
     future_days = [
         day
         for day in cycle_days
@@ -510,9 +527,66 @@ async def preview_carry_over(
         rows_by_plan.setdefault(plan.id, []).append((plan_exercise, exercise, plan))
         exercise_by_id[exercise.id] = exercise
 
+    actual_rows = (
+        await db.execute(
+            select(
+                WorkoutSession.calendar_day_id,
+                Exercise,
+                func.count(WorkoutSessionSet.id),
+            )
+            .join(
+                WorkoutSessionExercise,
+                WorkoutSessionExercise.workout_session_id == WorkoutSession.id,
+            )
+            .join(Exercise, Exercise.id == WorkoutSessionExercise.exercise_id)
+            .join(
+                WorkoutSessionSet,
+                WorkoutSessionSet.workout_session_exercise_id
+                == WorkoutSessionExercise.id,
+            )
+            .where(
+                WorkoutSession.app_user_id == user_id,
+                WorkoutSession.calendar_day_id.in_([day.id for day in cycle_days]),
+                WorkoutSession.status == "finished",
+                WorkoutSessionSet.is_completed.is_(True),
+                WorkoutSessionSet.set_type == "normal",
+            )
+            .group_by(WorkoutSession.calendar_day_id, Exercise.id)
+        )
+    ).all() if cycle_days else []
+    actual_by_day_muscle: dict[tuple[int, str], int] = {}
+    for calendar_day_id, actual_exercise, completed_sets in actual_rows:
+        muscle = to_system_key(actual_exercise.main_muscle_group)
+        if not muscle:
+            continue
+        actual_by_day_muscle[(calendar_day_id, muscle)] = (
+            actual_by_day_muscle.get((calendar_day_id, muscle), 0)
+            + int(completed_sets)
+        )
+        exercise_by_id[actual_exercise.id] = actual_exercise
+    finished_day_ids = set(
+        (
+            await db.execute(
+                select(WorkoutSession.calendar_day_id).where(
+                    WorkoutSession.app_user_id == user_id,
+                    WorkoutSession.calendar_day_id.in_([day.id for day in cycle_days]),
+                    WorkoutSession.status == "finished",
+                )
+            )
+        ).scalars().all()
+    ) if cycle_days else set()
+
     planned_by_day_muscle: dict[tuple[int, str], int] = {}
     planned_by_muscle: dict[str, int] = {}
     for day in cycle_days:
+        if day.id in finished_day_ids:
+            for (calendar_day_id, muscle), sets in actual_by_day_muscle.items():
+                if calendar_day_id == day.id:
+                    planned_by_day_muscle[(day.id, muscle)] = sets
+                    planned_by_muscle[muscle] = (
+                        planned_by_muscle.get(muscle, 0) + sets
+                    )
+            continue
         for plan_exercise, exercise, _ in rows_by_plan.get(day.plan_id, []):
             muscle = to_system_key(exercise.main_muscle_group)
             if not muscle:
@@ -535,15 +609,6 @@ async def preview_carry_over(
                 planned_by_day_muscle.get((day.id, muscle), 0) + delta
             )
             planned_by_muscle[muscle] = planned_by_muscle.get(muscle, 0) + delta
-
-    for source_exercise, exercise in source_exercises:
-        muscle = to_system_key(exercise.main_muscle_group)
-        if muscle:
-            planned_by_muscle[muscle] = max(
-                0,
-                planned_by_muscle.get(muscle, 0)
-                - max(0, int(unfinished_sets[source_exercise.id])),
-            )
 
     profile = (
         await db.execute(
@@ -765,8 +830,10 @@ async def _preview_state_token(
 ) -> str:
     from api.services.models import (
         AppUserProfile,
+        Exercise,
         UserCalendarDay,
         UserObservation,
+        TrainingBlock,
         WorkoutPlan,
         WorkoutPlanExercise,
         WorkoutSession,
@@ -776,13 +843,25 @@ async def _preview_state_token(
 
     source_session = await db.get(WorkoutSession, preview.source_session_id)
     source_day = await db.get(UserCalendarDay, source_session.calendar_day_id)
+    block = await db.get(TrainingBlock, source_session.training_block_id)
+    block_days = (
+        await db.execute(
+            select(UserCalendarDay)
+            .where(
+                UserCalendarDay.app_user_id == user_id,
+                UserCalendarDay.block_id == source_day.block_id,
+            )
+            .order_by(UserCalendarDay.target_date, UserCalendarDay.id)
+        )
+    ).scalars().all()
+    cycle_start = _microcycle_start(source_day, block_days, block)
     calendar_days = (
         await db.execute(
             select(UserCalendarDay)
             .where(
                 UserCalendarDay.app_user_id == user_id,
                 UserCalendarDay.block_id == source_day.block_id,
-                UserCalendarDay.target_date >= source_day.target_date,
+                UserCalendarDay.target_date >= cycle_start,
                 UserCalendarDay.target_date <= preview.microcycle_end,
             )
             .order_by(UserCalendarDay.target_date, UserCalendarDay.id)
@@ -830,6 +909,48 @@ async def _preview_state_token(
             .order_by(WorkoutSessionSet.workout_session_exercise_id)
         )
     ).all()
+    cycle_completed = (
+        await db.execute(
+            select(
+                WorkoutSession.calendar_day_id,
+                WorkoutSessionExercise.exercise_id,
+                func.count(WorkoutSessionSet.id),
+            )
+            .join(
+                WorkoutSessionExercise,
+                WorkoutSessionExercise.workout_session_id == WorkoutSession.id,
+            )
+            .join(
+                WorkoutSessionSet,
+                WorkoutSessionSet.workout_session_exercise_id
+                == WorkoutSessionExercise.id,
+            )
+            .where(
+                WorkoutSession.app_user_id == user_id,
+                WorkoutSession.calendar_day_id.in_([day.id for day in calendar_days]),
+                WorkoutSession.status == "finished",
+                WorkoutSessionSet.is_completed.is_(True),
+                WorkoutSessionSet.set_type == "normal",
+            )
+            .group_by(
+                WorkoutSession.calendar_day_id,
+                WorkoutSessionExercise.exercise_id,
+            )
+            .order_by(
+                WorkoutSession.calendar_day_id,
+                WorkoutSessionExercise.exercise_id,
+            )
+        )
+    ).all() if calendar_days else []
+    exercise_ids = sorted(
+        {item.exercise_id for item in source_exercises}
+        | {item.exercise_id for item in plan_exercises}
+    )
+    exercises = (
+        await db.execute(
+            select(Exercise).where(Exercise.id.in_(exercise_ids)).order_by(Exercise.id)
+        )
+    ).scalars().all() if exercise_ids else []
     profile = await db.scalar(
         select(AppUserProfile).where(AppUserProfile.app_user_id == user_id)
     )
@@ -865,6 +986,7 @@ async def _preview_state_token(
             for item in source_exercises
         ],
         "completed_normal_sets": [list(item) for item in completed],
+        "cycle_completed_normal_sets": [list(item) for item in cycle_completed],
         "calendar": [
             {
                 "id": day.id,
@@ -900,8 +1022,22 @@ async def _preview_state_token(
             for item in plan_exercises
         ],
         "safety": {
+            "block": {
+                "id": block.id,
+                "microcycle_length": block.microcycle_length,
+                "planned_end_date": block.planned_end_date.isoformat(),
+                "phases": block.phases,
+            },
             "experience_level": getattr(profile, "experience_level", None),
             "settings": getattr(profile, "settings", None),
+            "exercises": [
+                {
+                    "id": item.id,
+                    "main_muscle_group": item.main_muscle_group,
+                    "equipment_needed": item.equipment_needed,
+                }
+                for item in exercises
+            ],
             "observations": [
                 {
                     "id": item.id,
@@ -941,6 +1077,23 @@ def _derived_idempotency_key(request_key: str, source_exercise_id: int) -> str:
     ).hexdigest()
 
 
+async def _lock_owned_source(
+    db: AsyncSession, user_id: int, session_id: int
+) -> None:
+    from api.services.models import WorkoutSession
+
+    owned = await db.scalar(
+        select(WorkoutSession.id)
+        .where(
+            WorkoutSession.id == session_id,
+            WorkoutSession.app_user_id == user_id,
+        )
+        .with_for_update()
+    )
+    if owned is None:
+        raise CarryOverSourceNotFound
+
+
 async def create_carry_over_preview(
     db: AsyncSession,
     user_id: int,
@@ -951,6 +1104,9 @@ async def create_carry_over_preview(
 ) -> CarryOverResponse:
     from api.services.models import WorkoutCarryOver
 
+    # Common per-source lock makes concurrent retries observe the first
+    # request's audit rows instead of racing into the uniqueness constraint.
+    await _lock_owned_source(db, user_id, session_id)
     await _validate_unfinished_sets(db, user_id, session_id, unfinished_sets)
     try:
         preview = await preview_carry_over(
@@ -1041,7 +1197,11 @@ async def _lock_carry_over_context(
     db: AsyncSession, user_id: int, session_id: int
 ) -> None:
     from api.services.models import (
+        AppUserProfile,
+        Exercise,
+        TrainingBlock,
         UserCalendarDay,
+        UserObservation,
         WorkoutPlan,
         WorkoutPlanExercise,
         WorkoutSession,
@@ -1060,6 +1220,21 @@ async def _lock_carry_over_context(
     ).scalar_one_or_none()
     if source_session is None:
         raise CarryOverSourceNotFound
+    await db.execute(
+        select(TrainingBlock.id)
+        .where(TrainingBlock.id == source_session.training_block_id)
+        .with_for_update()
+    )
+    await db.execute(
+        select(AppUserProfile.id)
+        .where(AppUserProfile.app_user_id == user_id)
+        .with_for_update()
+    )
+    await db.execute(
+        select(UserObservation.id)
+        .where(UserObservation.app_user_id == user_id)
+        .with_for_update()
+    )
     await db.execute(
         select(WorkoutSessionExercise.id)
         .where(WorkoutSessionExercise.workout_session_id == session_id)
@@ -1087,6 +1262,31 @@ async def _lock_carry_over_context(
             .where(WorkoutPlanExercise.plan_id.in_(plan_ids))
             .with_for_update()
         )
+    exercise_ids = set(
+        (
+            await db.execute(
+                select(WorkoutSessionExercise.exercise_id).where(
+                    WorkoutSessionExercise.workout_session_id == session_id
+                )
+            )
+        ).scalars().all()
+    )
+    if plan_ids:
+        exercise_ids.update(
+            (
+                await db.execute(
+                    select(WorkoutPlanExercise.exercise_id).where(
+                        WorkoutPlanExercise.plan_id.in_(plan_ids)
+                    )
+                )
+            ).scalars().all()
+        )
+    if exercise_ids:
+        await db.execute(
+            select(Exercise.id)
+            .where(Exercise.id.in_(exercise_ids))
+            .with_for_update()
+        )
 
 
 async def apply_carry_over_preview(
@@ -1098,6 +1298,14 @@ async def apply_carry_over_preview(
 ) -> CarryOverResponse:
     from api.services.models import UserCalendarDay
 
+    # Predicate locks also cover new readiness/pain observations while the
+    # safety snapshot is recalculated. A concurrent safety write forces one
+    # transaction to abort instead of silently applying stale placements.
+    # Authentication has already performed a read on this request session,
+    # which starts a default transaction. It made no writes, so close it
+    # before opening the serializable decision transaction.
+    await db.rollback()
+    await db.connection(execution_options={"isolation_level": "SERIALIZABLE"})
     rows = await _carry_over_rows_for_update(db, user_id, session_id)
     if all(row.status == "applied" for row in rows):
         if rows[0].preview_token != preview_token:

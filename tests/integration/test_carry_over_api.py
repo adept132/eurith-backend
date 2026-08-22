@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select
@@ -190,6 +191,28 @@ async def test_preview_is_deterministic_idempotent_and_has_no_calendar_side_effe
         )
     ).scalars().all()
     assert all(day.volume_adjustments is None for day in days)
+    assert await db.scalar(
+        select(func.count(WorkoutCarryOver.id)).where(
+            WorkoutCarryOver.source_session_id == session.id
+        )
+    ) == 1
+
+
+async def test_concurrent_identical_preview_retries_share_one_draft(
+    client, db, test_user
+):
+    session, source_exercise, _, _ = await _seed_carry_over(db, test_user.id)
+    payload = _preview_payload(source_exercise.id)
+
+    first, second = await asyncio.gather(
+        client.post(f"/workouts/{session.id}/carry-over/preview", json=payload),
+        client.post(f"/workouts/{session.id}/carry-over/preview", json=payload),
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json() == second.json()
+    await db.rollback()
     assert await db.scalar(
         select(func.count(WorkoutCarryOver.id)).where(
             WorkoutCarryOver.source_session_id == session.id

@@ -279,7 +279,7 @@ async def test_preview_loads_only_exact_days_from_the_source_microcycle():
                 }
             ],
             microcycle_length=7,
-            start_date=date(2026, 8, 22),
+            start_date=date(2026, 8, 20),
             planned_end_date=date(2026, 9, 4),
             status="active",
         )
@@ -316,7 +316,7 @@ async def test_preview_loads_only_exact_days_from_the_source_microcycle():
             target_date=date(2026, 8, 22),
             plan_id=source_plan.id,
             block_id=block.id,
-            microcycle_day_number=1,
+            microcycle_day_number=3,
             day_tag="push",
             micro_tag="medium",
             meso_tag="medium",
@@ -333,9 +333,9 @@ async def test_preview_loads_only_exact_days_from_the_source_microcycle():
                 meso_tag="medium",
             )
             for target_date, plan_row, day_number in (
-                (date(2026, 8, 23), exact_plan_a, 2),
-                (date(2026, 8, 24), exact_plan_b, 3),
-                (date(2026, 8, 25), compatible_plan, 4),
+                (date(2026, 8, 23), exact_plan_a, 4),
+                (date(2026, 8, 24), exact_plan_b, 5),
+                (date(2026, 8, 25), compatible_plan, 6),
                 (date(2026, 8, 29), next_cycle_plan, 1),
             )
         ]
@@ -381,6 +381,35 @@ async def test_preview_loads_only_exact_days_from_the_source_microcycle():
             item.calendar_day_id != future_days[-1].id
             for item in preview.items[0].distribution.placements
         )
+
+        # Earlier current-cycle volume is part of the hard MRV budget even
+        # though only post-source days are placement candidates.
+        earlier_plan = plan("Earlier", exact, 5)
+        await db.flush()
+        earlier_day = UserCalendarDay(
+            app_user_id=user.id,
+            target_date=date(2026, 8, 20),
+            plan_id=earlier_plan.id,
+            block_id=block.id,
+            microcycle_day_number=1,
+            day_tag="push",
+            micro_tag="medium",
+            meso_tag="medium",
+        )
+        db.add(earlier_day)
+        await db.flush()
+        mrv_preview = await service.preview_carry_over(
+            db,
+            user.id,
+            source_session.id,
+            {source_exercise.id: 4},
+            datetime(2026, 8, 22, 12, tzinfo=timezone.utc),
+        )
+        assert mrv_preview.items[0].distribution.placements == []
+        assert mrv_preview.items[0].distribution.discarded_reasons == ["mrv"] * 4
+        await db.delete(earlier_day)
+        await db.delete(earlier_plan)
+        await db.flush()
 
         db.add(
             UserObservation(
