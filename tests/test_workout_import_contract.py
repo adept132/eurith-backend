@@ -27,6 +27,14 @@ def request(**overrides):
         "unresolved_source_ids": ["set-1"],
         "parser_warnings": ["reps unresolved"],
         "unit_preference": "kg",
+        "ocr_blocks": [
+            {
+                "image_index": 0,
+                "block_id": "image-0-block-2",
+                "text": "80 x ?",
+                "box": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1},
+            }
+        ],
     }
     value.update(overrides)
     return value
@@ -124,3 +132,12 @@ def test_request_accepts_partial_local_result():
         request(local_ocr_text="", parser_warnings=[], local_sources=[source(raw_text="?")])
     )
     assert parsed.unresolved_source_ids == ["set-1"]
+
+
+def test_request_rejects_duplicate_or_out_of_bounds_ocr_blocks():
+    duplicate = request(ocr_blocks=[request()["ocr_blocks"][0], request()["ocr_blocks"][0]])
+    invalid = request(ocr_blocks=[{**request()["ocr_blocks"][0], "image_index": 3}])
+    with pytest.raises(ValidationError):
+        WorkoutImportMlRequest.model_validate(duplicate)
+    with pytest.raises(ValidationError):
+        WorkoutImportMlRequest.model_validate(invalid)

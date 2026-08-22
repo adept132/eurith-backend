@@ -34,6 +34,13 @@ class OcrEvidence(StrictWorkoutImportModel):
     box: OcrBox
 
 
+class OcrInputBlock(StrictWorkoutImportModel):
+    image_index: int = Field(ge=0, lt=3)
+    block_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+    text: str = Field(max_length=2000)
+    box: OcrBox
+
+
 class LocalWorkoutSource(StrictWorkoutImportModel):
     source_id: SourceId
     source_type: Literal["exercise", "set"]
@@ -55,6 +62,7 @@ class WorkoutImportMlRequest(StrictWorkoutImportModel):
     unresolved_source_ids: list[SourceId] = Field(min_length=1, max_length=500)
     parser_warnings: list[Annotated[str, StringConstraints(max_length=500)]] = Field(max_length=100)
     unit_preference: Literal["kg", "lb"]
+    ocr_blocks: list[OcrInputBlock] = Field(default_factory=list, max_length=2000)
 
     @model_validator(mode="after")
     def _validate_source_ids(self) -> "WorkoutImportMlRequest":
@@ -65,6 +73,9 @@ class WorkoutImportMlRequest(StrictWorkoutImportModel):
             raise ValueError("unresolved source ids must be unique")
         if not set(self.unresolved_source_ids).issubset(source_ids):
             raise ValueError("unresolved source ids must reference local sources")
+        block_keys = [(item.image_index, item.block_id) for item in self.ocr_blocks]
+        if len(block_keys) != len(set(block_keys)):
+            raise ValueError("OCR block ids must be unique within an image")
         return self
 
 
