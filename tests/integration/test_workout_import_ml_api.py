@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 
 import pytest
@@ -19,7 +20,9 @@ from api.services.workout_import.types import (
     WorkoutVisionProviderError,
 )
 
-PNG_BYTES = b"\x89PNG\r\n\x1a\nfixture"
+PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 def local_draft(secret: str = "Bench 80 x ?") -> dict:
@@ -31,6 +34,12 @@ def local_draft(secret: str = "Bench 80 x ?") -> dict:
         "unresolved_source_ids": ["set-1"],
         "parser_warnings": ["reps unresolved"],
         "unit_preference": "kg",
+        "ocr_blocks": [{
+            "image_index": 0,
+            "block_id": "block-1",
+            "text": secret,
+            "box": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.1},
+        }],
     }
 
 
@@ -116,7 +125,8 @@ async def test_success_returns_review_only_draft_and_never_writes_workout(
     assert "workout_id" not in payload
     assert before == after
     assert len(fake_provider.calls) == 1
-    assert fake_provider.calls[0].images[0].body == PNG_BYTES
+    assert fake_provider.calls[0].images[0].body.startswith(b"\x89PNG\r\n\x1a\n")
+    assert fake_provider.calls[0].images[0].body != PNG_BYTES
 
 
 @pytest.mark.asyncio
@@ -126,6 +136,7 @@ async def test_success_returns_review_only_draft_and_never_writes_workout(
         ([("images", ("x.gif", b"gif", "image/gif"))], 415),
         ([("images", (f"{i}.png", PNG_BYTES, "image/png")) for i in range(4)], 413),
         ([("images", ("huge.png", b"\x89PNG\r\n\x1a\n" + b"x" * (8 * 1024 * 1024), "image/png"))], 413),
+        ([('images', ('fake.png', b'\x89PNG\r\n\x1a\nnot-an-image', 'image/png'))], 415),
     ],
 )
 async def test_image_type_count_and_total_size_limits(client, fake_provider, images, status):
@@ -190,6 +201,45 @@ async def test_invalid_adversarial_provider_result_is_rejected(client, fake_prov
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "result",
+    [
+        {
+            "suggestions": [{
+                **provider_result()["suggestions"][0],
+                "evidence": [{
+                    "image_index": 0,
+                    "block_id": "fabricated",
+                    "box": {"x": 0.1, "y": 0.1, "width": 0.2, "height": 0.1},
+                }],
+            }],
+            "warnings": [],
+        },
+        {
+            "suggestions": [{
+                **provider_result()["suggestions"][0],
+                "field": "exercise_name",
+                "value": "Bench Press",
+            }],
+            "warnings": [],
+        },
+    ],
+)
+async def test_fabricated_evidence_and_source_field_mismatches_are_dropped(
+    client, fake_provider, result
+):
+    fake_provider.result = MlWorkoutImportResult.model_validate(result)
+    response = await post_fallback(client)
+    assert response.status_code == 200
+    assert response.json()["suggestions"] == []
+    assert any(
+        marker in warning
+        for warning in response.json()["warnings"]
+        for marker in ("invalid_evidence", "invalid_source_field")
+    )
+
+
+@pytest.mark.asyncio
 async def test_request_metadata_is_minimal_and_idempotency_blocks_replay(
     client, db, test_user, fake_provider
 ):
@@ -207,7 +257,7 @@ async def test_request_metadata_is_minimal_and_idempotency_blocks_replay(
     )
     assert len(rows) == 1
     row = rows[0]
-    assert row.image_count == 1 and row.byte_count == len(PNG_BYTES)
+    assert row.image_count == 1 and row.byte_count == len(fake_provider.calls[0].images[0].body)
     assert row.status == "completed"
     forbidden = {"image_body", "body", "ocr_text", "payload", "provider_response", "filename"}
     assert not any(any(word in column.name for word in forbidden) for column in row.__table__.columns)
@@ -242,7 +292,7 @@ async def test_logs_redact_ocr_images_filenames_provider_errors_and_auth(client,
         response = await post_fallback(
             client,
             draft=local_draft(secret),
-            images=[("images", ("SECRET_FILENAME.png", b"\x89PNG\r\n\x1a\nSECRET_IMAGE_BYTES", "image/png"))],
+            images=[("images", ("SECRET_FILENAME.png", PNG_BYTES + b"SECRET_IMAGE_BYTES", "image/png"))],
         )
     assert response.status_code == 503
     rendered = "\n".join(record.getMessage() for record in caplog.records)

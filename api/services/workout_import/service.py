@@ -99,6 +99,8 @@ async def _guard_result(
     image_count: int,
 ) -> MlWorkoutImportResult:
     allowed = set(draft.unresolved_source_ids)
+    source_map = {source.source_id: source for source in draft.local_sources}
+    evidence_map = {(block.image_index, block.block_id): block for block in draft.ocr_blocks}
     accepted = []
     warnings = list(result.warnings)
     truth_flags: dict[str, set[str]] = {}
@@ -107,8 +109,23 @@ async def _guard_result(
         if patch.source_id not in allowed:
             warnings.append(f"ignored_resolved_source:{patch.source_id}")
             continue
+        source = source_map[patch.source_id]
+        compatible = (
+            (source.source_type == "exercise" and patch.field == "exercise_name")
+            or (source.source_type == "set" and patch.field != "exercise_name")
+        )
+        if not compatible:
+            warnings.append(f"invalid_source_field:{patch.source_id}:{patch.field}")
+            continue
         if any(item.image_index >= image_count for item in patch.evidence):
             warnings.append(f"invalid_image_evidence:{patch.source_id}")
+            continue
+        if any(
+            (block := evidence_map.get((item.image_index, item.block_id))) is None
+            or block.box != item.box
+            for item in patch.evidence
+        ):
+            warnings.append(f"invalid_evidence:{patch.source_id}")
             continue
         if patch.field in ("bodyweight", "assisted") and patch.value is True:
             truth_flags.setdefault(patch.source_id, set()).add(patch.field)

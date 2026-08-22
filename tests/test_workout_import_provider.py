@@ -119,6 +119,17 @@ def test_missing_or_partial_configuration_disables_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_invalid_configuration_is_treated_as_disabled(monkeypatch):
+    from api.routers.workout_import import get_workout_vision_provider
+
+    monkeypatch.setenv("WORKOUT_IMPORT_VISION_BASE_URL", "not-a-url")
+    monkeypatch.setenv("WORKOUT_IMPORT_VISION_API_KEY", "secret")
+    monkeypatch.setenv("WORKOUT_IMPORT_VISION_MODEL", "model")
+    dependency = get_workout_vision_provider()
+    assert await anext(dependency) is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "code", "retryable"),
     [(429, ProviderErrorCode.RATE_LIMITED, True), (500, ProviderErrorCode.UNAVAILABLE, True), (400, ProviderErrorCode.UNAVAILABLE, False)],

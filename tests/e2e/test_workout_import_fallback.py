@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import func, select
+from PIL import Image
 
 from api.main import app
 from api.routers.workout_import import get_workout_vision_provider
@@ -13,11 +15,16 @@ from api.services.models import WorkoutSession
 from api.services.workout_import.types import ProviderErrorCode, WorkoutVisionProviderError
 
 
-PNG = b"\x89PNG\r\n\x1a\n"
+def png(color):
+    output = BytesIO()
+    Image.new("RGB", (2, 2), color).save(output, format="PNG")
+    return output.getvalue()
+
+
 FIXTURES = {
-    "strong": PNG + b"strong-screenshot",
-    "notes": PNG + b"photographed-notes-table",
-    "mixed": PNG + "низкое качество mixed language".encode(),
+    "strong": png((255, 0, 0)),
+    "notes": png((0, 255, 0)),
+    "mixed": png((0, 0, 255)),
 }
 
 
@@ -69,10 +76,10 @@ class FixtureProvider:
         self.calls.append(request)
         if self.failure:
             raise self.failure
-        marker = request.images[0].body
-        if marker == FIXTURES["strong"]:
+        marker = Image.open(BytesIO(request.images[0].body)).getpixel((0, 0))
+        if marker == (255, 0, 0):
             return result("reps", 8)
-        if marker == FIXTURES["notes"]:
+        if marker == (0, 255, 0):
             return result("weight", 80.0, 0.88)
         return MlWorkoutImportResult(suggestions=[], warnings=["mixed_language_low_confidence"])
 
@@ -128,4 +135,3 @@ async def test_invalid_provider_output_never_reaches_review_or_persistence(clien
     response = await send(client, "strong", "e2e-invalid-1")
     assert response.status_code == 502
     assert response.json()["detail"]["code"] == "invalid_response"
-

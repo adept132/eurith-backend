@@ -21,10 +21,16 @@ from fastapi import Depends
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.engine import make_url
 
-# TEST_DATABASE_URL имеет приоритет; иначе используем обычный DATABASE_URL.
-if os.getenv("TEST_DATABASE_URL"):
-    os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+# Интеграционные тесты никогда не имеют права молча использовать обычную БД.
+test_database_url = os.getenv("TEST_DATABASE_URL")
+if not test_database_url:
+    raise RuntimeError("TEST_DATABASE_URL is required for integration tests")
+test_database_name = (make_url(test_database_url).database or "").lower()
+if test_database_name == "fitpilot_bot" or "test" not in test_database_name:
+    raise RuntimeError("TEST_DATABASE_URL must point to a dedicated test database")
+os.environ["DATABASE_URL"] = test_database_url
 
 from api.main import app  # noqa: E402
 from api.services.app_user_service import (  # noqa: E402

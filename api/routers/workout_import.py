@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+from io import BytesIO
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from PIL import Image, UnidentifiedImageError
 
 from api.config import WorkoutImportVisionSettings
 from api.deps import get_db
@@ -32,7 +34,10 @@ IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,64}$")
 
 
 async def get_workout_vision_provider() -> AsyncIterator[WorkoutVisionProvider | None]:
-    settings = WorkoutImportVisionSettings.from_env()
+    try:
+        settings = WorkoutImportVisionSettings.from_env()
+    except ValueError:
+        settings = None
     if settings is None:
         yield None
         return
@@ -57,6 +62,23 @@ def _valid_magic(content_type: str, body: bytes) -> bool:
     return False
 
 
+def _normalize_image(content_type: str, body: bytes) -> bytes:
+    expected_format = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}[content_type]
+    try:
+        with Image.open(BytesIO(body)) as source:
+            if source.format != expected_format or source.width <= 0 or source.height <= 0:
+                raise ValueError("image format mismatch")
+            if source.width > 12_000 or source.height > 12_000 or source.width * source.height > 20_000_000:
+                raise ValueError("image dimensions exceed limits")
+            source.load()
+            normalized = source.convert("RGBA" if source.mode in ("RGBA", "LA") and expected_format != "JPEG" else "RGB")
+            output = BytesIO()
+            normalized.save(output, format=expected_format)
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+        raise HTTPException(415, detail=_error("invalid_image", "Изображение не удалось безопасно декодировать", False)) from exc
+
+
 async def _read_images(uploads: list[UploadFile]) -> tuple[VisionImage, ...]:
     if not 1 <= len(uploads) <= 3:
         raise HTTPException(413, detail=_error("too_many_images", "Разрешено от 1 до 3 изображений", False))
@@ -74,7 +96,7 @@ async def _read_images(uploads: list[UploadFile]) -> tuple[VisionImage, ...]:
                 raise HTTPException(413, detail=_error("payload_too_large", "Изображения превышают 8 МиБ", False))
             if not body or not _valid_magic(content_type, body):
                 raise HTTPException(415, detail=_error("invalid_image", "Содержимое не соответствует типу изображения", False))
-            images.append(VisionImage(content_type=content_type, body=body))
+            images.append(VisionImage(content_type=content_type, body=_normalize_image(content_type, body)))
     finally:
         for upload in uploads:
             await upload.close()
