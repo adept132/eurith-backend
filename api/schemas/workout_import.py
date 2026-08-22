@@ -114,3 +114,11 @@ class MlWorkoutImportResult(StrictWorkoutImportModel):
             raise ValueError("only one suggestion per source field is allowed")
         return self
 
+
+class WorkoutImportMlFallbackResponse(StrictWorkoutImportModel):
+    request_id: str
+    draft_id: str
+    status: Literal["review_required"] = "review_required"
+    provenance: Literal["ml_fallback"] = "ml_fallback"
+    suggestions: list[MlWorkoutPatch]
+    warnings: list[str]

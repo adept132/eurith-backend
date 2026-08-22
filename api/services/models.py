@@ -1637,3 +1637,37 @@ class PushDelivery(Base):
     __table_args__ = (
         UniqueConstraint("notification_id", "device_id", name="uq_push_delivery_notification_device"),
     )
+
+
+class WorkoutImportMlRequestRecord(Base):
+    """Metadata-only audit/rate-limit row; request and provider bodies never persist."""
+
+    __tablename__ = "workout_import_ml_requests"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "idempotency_key", name="uq_workout_import_ml_user_idempotency"
+        ),
+        CheckConstraint("image_count BETWEEN 1 AND 3", name="ck_workout_import_ml_image_count"),
+        CheckConstraint("byte_count BETWEEN 1 AND 8388608", name="ck_workout_import_ml_byte_count"),
+        CheckConstraint("latency_ms IS NULL OR latency_ms >= 0", name="ck_workout_import_ml_latency"),
+        CheckConstraint(
+            "status IN ('reserved', 'completed', 'rate_limited', 'timeout', 'unavailable', 'invalid_response')",
+            name="ck_workout_import_ml_status",
+        ),
+        Index("ix_workout_import_ml_user_created", "app_user_id", "created_at"),
+    )
