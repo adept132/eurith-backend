@@ -4,10 +4,12 @@
 каскад сопоставления имён, дедупликация и вставка сессий.
 """
 
+import unicodedata
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.csv_format import wall_clock_to_utc
@@ -24,6 +26,7 @@ from api.services.models import (
 from api.services.strong_dictionary import lookup_ru_name, split_equipment
 
 IMPORT_SOURCE_STRONG = "strong"
+IMPORT_SOURCES = ("strong", "hevy", "fitbod", "table", "notes")
 
 # Порог, ниже которого fuzzy-совпадению не доверяем и спрашиваем пользователя.
 # Намеренно строгий: кривой маппинг отравляет бюджет объёма и DUP.
@@ -35,30 +38,61 @@ MIN_AUTO_MATCH_SIMILARITY = 0.75
 MIN_SUGGESTION_SIMILARITY = 0.45
 
 
+def normalize_external_name(external_name: str) -> str:
+    """Build the stable identity used by alias save and lookup.
+
+    NFKC folds compatibility forms (for example full-width Latin), split/join
+    trims and collapses every Unicode whitespace run, and casefold provides
+    Unicode caseless matching rather than ASCII-oriented ``lower``.
+    """
+    if not isinstance(external_name, str):
+        raise TypeError("external_name must be a string")
+    compatible = unicodedata.normalize("NFKC", external_name)
+    collapsed = " ".join(compatible.split())
+    return unicodedata.normalize("NFKC", collapsed.casefold())
+
+
+def _validated_source(source: str) -> str:
+    if source not in IMPORT_SOURCES:
+        raise ValueError(f"unsupported import source: {source}")
+    return source
+
+
 class ExerciseResolver:
     """Каскад: Exercise ID -> алиас -> словарь EN->RU -> fuzzy -> не найдено."""
 
-    def __init__(self, session: AsyncSession, app_user_id: int):
+    def __init__(
+        self,
+        session: AsyncSession,
+        app_user_id: int,
+        source: str = IMPORT_SOURCE_STRONG,
+    ):
         self.session = session
         self.app_user_id = app_user_id
+        self.source = _validated_source(source)
         self._by_id: Dict[int, Exercise] = {}
         self._by_name: Dict[str, Exercise] = {}
         self._aliases: Dict[str, int] = {}
         self._cache: Dict[str, Optional[int]] = {}
 
     async def load(self) -> None:
+        self._by_id.clear()
+        self._by_name.clear()
+        self._aliases.clear()
+        self._cache.clear()
         result = await self.session.execute(get_base_exercise_query(self.app_user_id))
         for ex in result.scalars().all():
             self._by_id[ex.id] = ex
-            self._by_name[ex.name.strip().lower()] = ex
+            self._by_name[normalize_external_name(ex.name)] = ex
 
         alias_rows = await self.session.execute(
             select(ExerciseImportAlias).where(
-                ExerciseImportAlias.app_user_id == self.app_user_id
+                ExerciseImportAlias.app_user_id == self.app_user_id,
+                ExerciseImportAlias.source == self.source,
             )
         )
         for a in alias_rows.scalars().all():
-            self._aliases[a.external_name.strip().lower()] = a.exercise_id
+            self._aliases[a.normalized_external_name] = a.exercise_id
 
     async def resolve(
         self, name: str, exercise_id: Optional[int] = None
@@ -68,7 +102,7 @@ class ExerciseResolver:
         if exercise_id and exercise_id in self._by_id:
             return exercise_id
 
-        key = name.strip().lower()
+        key = normalize_external_name(name)
         if key in self._cache:
             return self._cache[key]
 
@@ -88,9 +122,9 @@ class ExerciseResolver:
             return exact.id
 
         # 4. Словарь EN->RU для англоязычных имён Strong.
-        ru_name = lookup_ru_name(name)
+        ru_name = lookup_ru_name(name) if self.source == IMPORT_SOURCE_STRONG else None
         if ru_name:
-            hit = self._by_name.get(ru_name.strip().lower())
+            hit = self._by_name.get(normalize_external_name(ru_name))
             if hit:
                 return hit.id
 
@@ -138,28 +172,55 @@ async def existing_import_keys(
     return {row[0] for row in result.all()}
 
 
-async def save_alias(
-    session: AsyncSession, app_user_id: int, external_name: str, exercise_id: int
-) -> None:
-    key = external_name.strip().lower()
-    existing = await session.execute(
-        select(ExerciseImportAlias).where(
-            ExerciseImportAlias.app_user_id == app_user_id,
-            func.lower(ExerciseImportAlias.external_name) == key,
-        )
+def build_alias_upsert(
+    *,
+    app_user_id: int,
+    source: str,
+    external_name: str,
+    exercise_id: int,
+):
+    """Compile one PostgreSQL insert-or-update for an alias identity."""
+    source = _validated_source(source)
+    normalized_name = normalize_external_name(external_name)
+    if not normalized_name:
+        raise ValueError("external_name must contain non-whitespace text")
+
+    statement = insert(ExerciseImportAlias).values(
+        app_user_id=app_user_id,
+        source=source,
+        external_name=external_name,
+        normalized_external_name=normalized_name,
+        exercise_id=exercise_id,
     )
-    alias = existing.scalars().first()
-    if alias:
-        alias.exercise_id = exercise_id
-        return
-    session.add(
-        ExerciseImportAlias(
+    return (
+        statement.on_conflict_do_update(
+            constraint="uq_exercise_import_alias_user_source_name",
+            set_={
+                "external_name": statement.excluded.external_name,
+                "exercise_id": statement.excluded.exercise_id,
+            },
+        )
+        .returning(ExerciseImportAlias)
+    )
+
+
+async def save_alias(
+    session: AsyncSession,
+    app_user_id: int,
+    external_name: str,
+    exercise_id: int,
+    source: str = IMPORT_SOURCE_STRONG,
+) -> ExerciseImportAlias:
+    """Persist a source-aware alias without a select-then-insert race."""
+    result = await session.execute(
+        build_alias_upsert(
             app_user_id=app_user_id,
-            source=IMPORT_SOURCE_STRONG,
-            external_name=key,
+            source=source,
+            external_name=external_name,
             exercise_id=exercise_id,
         )
     )
+    return result.scalar_one()
 
 
 async def import_workouts(

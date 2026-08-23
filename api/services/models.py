@@ -643,9 +643,14 @@ class ExerciseImportAlias(Base):
     app_user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    source: Mapped[str] = mapped_column(String(32), default="strong", server_default="strong")
-    # Имя как в файле, приведённое к нижнему регистру и обрезанное.
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="strong", server_default="strong"
+    )
+    # Исходное имя сохраняется без изменений для показа пользователю и аудита.
     external_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Единственный ключ сопоставления. Его строит общий Unicode-aware normalizer
+    # из import_service; исходное написание выше в поиске не участвует.
+    normalized_external_name: Mapped[str] = mapped_column(String(200), nullable=False)
     exercise_id: Mapped[int] = mapped_column(
         ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False
     )
@@ -654,6 +659,19 @@ class ExerciseImportAlias(Base):
     )
 
     exercise: Mapped["Exercise"] = relationship("Exercise", lazy="noload")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id",
+            "source",
+            "normalized_external_name",
+            name="uq_exercise_import_alias_user_source_name",
+        ),
+        CheckConstraint(
+            "source IN ('strong', 'hevy', 'fitbod', 'table', 'notes')",
+            name="ck_exercise_import_alias_source",
+        ),
+    )
 
 
 class UserExercise(Base):
