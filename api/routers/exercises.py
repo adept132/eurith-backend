@@ -7,18 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.deps import get_db
-from api.schemas.exercise_aliases import (
-    ExerciseAliasExerciseItem,
-    ExerciseAliasResponse,
-    ExerciseAliasUpsertRequest,
-)
 from api.schemas.workouts import ExerciseShortResponse
 from api.services.app_user_service import get_current_app_user
 from api.services.exercise_search_service import ExerciseSearchService
 from api.services.exercise_utils import get_base_exercise_query
 from api.services.fatigue_tiers import calculate_fatigue_tier
 from api.services.heuristics import HeuristicsEngine
-from api.services.import_service import save_alias
 from app.database import get_session
 from api.services.models import Exercise, WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet, AppUser, WorkoutPlanExercise, UserExerciseNote, UserExercisePreference
 from api.schemas.exercises import (
@@ -46,52 +40,6 @@ def _thumb_url(request: Request, image_urls, image_approx) -> tuple[Optional[str
         return None, approx
     base = str(request.base_url).rstrip("/")
     return f"{base}/media/{str(urls[0]).lstrip('/')}", approx
-
-
-@router.put("/import-alias", response_model=ExerciseAliasResponse)
-async def put_exercise_import_alias(
-    payload: ExerciseAliasUpsertRequest,
-    db: AsyncSession = Depends(get_db),
-    app_user: AppUser = Depends(get_current_app_user),
-) -> ExerciseAliasResponse:
-    """Persist the authenticated user's choice for one external exercise."""
-    exercise = (
-        await db.execute(
-            get_base_exercise_query(app_user.id).where(
-                Exercise.id == payload.exercise_id
-            )
-        )
-    ).scalar_one_or_none()
-    if exercise is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Exercise not found",
-        )
-
-    alias = await save_alias(
-        session=db,
-        app_user_id=app_user.id,
-        source=payload.source,
-        external_name=payload.external_name,
-        exercise_id=exercise.id,
-    )
-    await db.commit()
-
-    return ExerciseAliasResponse(
-        source=alias.source,
-        external_name=alias.external_name,
-        normalized_external_name=alias.normalized_external_name,
-        exercise_id=exercise.id,
-        exercise=ExerciseAliasExerciseItem(
-            id=exercise.id,
-            name=exercise.name,
-            category=exercise.category,
-            main_muscle_group=exercise.main_muscle_group,
-            secondary_muscle_groups=exercise.secondary_muscle_groups or [],
-            equipment_needed=exercise.equipment_needed or [],
-            source=exercise.source,
-        ),
-    )
 
 
 @router.get("/exercises", response_model=list[ExerciseListItemResponse])

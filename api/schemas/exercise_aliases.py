@@ -4,6 +4,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from api.services.exercise_alias_identity import (
+    EXERCISE_ID_MAX,
+    EXTERNAL_NAME_MAX_CHARS,
+    validate_external_name,
+)
+
 
 ExerciseAliasSource = Literal["strong", "hevy", "fitbod", "table", "notes"]
 
@@ -14,14 +20,13 @@ class StrictExerciseAliasModel(BaseModel):
 
 class ExerciseAliasUpsertRequest(StrictExerciseAliasModel):
     source: ExerciseAliasSource
-    external_name: str = Field(min_length=1, max_length=200)
-    exercise_id: int = Field(gt=0)
+    external_name: str = Field(min_length=1, max_length=EXTERNAL_NAME_MAX_CHARS)
+    exercise_id: int = Field(gt=0, le=EXERCISE_ID_MAX)
 
     @field_validator("external_name")
     @classmethod
     def _has_visible_name(cls, value: str) -> str:
-        if not " ".join(value.split()):
-            raise ValueError("external_name must contain non-whitespace text")
+        validate_external_name(value)
         # Preserve the exact adapter value; normalization belongs to the
         # persistence boundary and is returned separately.
         return value

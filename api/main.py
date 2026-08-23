@@ -12,6 +12,7 @@ from app.database import init_db
 from api.deps import get_db
 from api.routers.splits import router as splits_router
 from api.routers.exercises import router as exercises_router
+from api.routers.exercise_aliases import router as exercise_aliases_router
 from api.routers.auth import router as auth_router
 from api.routers.workout_center import router as workout_center_router
 from api.routers.workouts import router as workouts_router
@@ -96,6 +97,7 @@ MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 app.include_router(exercises_router, prefix="/exercises", tags=["exercises"])
+app.include_router(exercise_aliases_router)
 app.include_router(auth_router)
 app.include_router(workout_center_router)
 app.include_router(workout_history_router)

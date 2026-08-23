@@ -9,6 +9,10 @@ from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import relationship, declarative_base, mapped_column, Mapped
 
 from api.services.day_template import DayTemplateType
+from api.services.exercise_alias_identity import (
+    NORMALIZED_EXTERNAL_NAME_MAX_CHARS,
+    NORMALIZED_EXTERNAL_NAME_SHA256_HEX_CHARS,
+)
 from api.services.exercise_pattern_tags import ExerciseAction, ExerciseVector, ExerciseLaterality
 from api.services.mesocycle_phase import MesocyclePhaseEnum
 from api.services.scheduling import SchedulingMode, WorkoutStatus, MesocyclePhase
@@ -648,9 +652,15 @@ class ExerciseImportAlias(Base):
     )
     # Исходное имя сохраняется без изменений для показа пользователю и аудита.
     external_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    # Единственный ключ сопоставления. Его строит общий Unicode-aware normalizer
-    # из import_service; исходное написание выше в поиске не участвует.
-    normalized_external_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Полная Unicode-нормализация может расширить 200 исходных символов до
+    # 3 600 символов / 6 600 UTF-8 байт, поэтому её нельзя обрезать или класть
+    # напрямую в PostgreSQL B-tree. TEXT хранит полную идентичность, а SHA-256
+    # ниже служит фиксированным ключом индекса; upsert дополнительно проверяет
+    # равенство полного текста и никогда не обновляет строку при hash collision.
+    normalized_external_name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_external_name_sha256: Mapped[str] = mapped_column(
+        String(NORMALIZED_EXTERNAL_NAME_SHA256_HEX_CHARS), nullable=False
+    )
     exercise_id: Mapped[int] = mapped_column(
         ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False
     )
@@ -664,12 +674,19 @@ class ExerciseImportAlias(Base):
         UniqueConstraint(
             "app_user_id",
             "source",
-            "normalized_external_name",
+            "normalized_external_name_sha256",
             name="uq_exercise_import_alias_user_source_name",
         ),
         CheckConstraint(
             "source IN ('strong', 'hevy', 'fitbod', 'table', 'notes')",
             name="ck_exercise_import_alias_source",
+        ),
+        CheckConstraint(
+            (
+                "char_length(normalized_external_name) <= "
+                f"{NORMALIZED_EXTERNAL_NAME_MAX_CHARS}"
+            ),
+            name="ck_exercise_import_alias_normalized_length",
         ),
     )
 
