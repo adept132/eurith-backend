@@ -8,8 +8,15 @@ from sqlalchemy.orm import selectinload
 
 from api.services import equipment
 from api.services.exercise_utils import get_base_exercise_query
-from api.services.models import Exercise, WorkoutSession, WorkoutSessionExercise, UserExercisePreference
+from api.services.models import (
+    Exercise,
+    ExerciseImportAlias,
+    UserExercisePreference,
+    WorkoutSession,
+    WorkoutSessionExercise,
+)
 from api.services.exercise_matcher import ExerciseMatcher
+from api.services.strong_dictionary import build_reverse_strong_aliases
 
 
 def normalize_exercise_type(value: Optional[str]) -> Optional[str]:
@@ -80,6 +87,85 @@ class ExerciseSearchService:
             marked.append((rank.get(preference, 1), index, item))
         marked.sort(key=lambda row: (row[0], row[1]))
         return [row[2] for row in marked]
+
+    @staticmethod
+    def _deduplicate_aliases(
+        canonical_aliases: set[str],
+        private_aliases: list[str],
+        display_name: str,
+    ) -> list[str]:
+        by_normalized_name: dict[str, str] = {}
+        display_key = " ".join(display_name.split()).casefold()
+
+        # Canonical casing wins over a private duplicate. Sorting both inputs
+        # makes the result independent of set and database row order.
+        candidates = sorted(canonical_aliases, key=lambda value: (value.casefold(), value))
+        candidates.extend(
+            sorted(private_aliases, key=lambda value: (value.casefold(), value))
+        )
+        for candidate in candidates:
+            cleaned = " ".join((candidate or "").split())
+            normalized = cleaned.casefold()
+            if not cleaned or normalized == display_key:
+                continue
+            by_normalized_name.setdefault(normalized, cleaned)
+
+        return sorted(
+            by_normalized_name.values(),
+            key=lambda value: (value.casefold(), value),
+        )
+
+    @staticmethod
+    async def attach_aliases(
+        session: AsyncSession,
+        user_id: int,
+        items,
+    ):
+        """Attach canonical and current-user aliases with one database query."""
+        items = list(items)
+        if not items:
+            return items
+
+        exercise_ids = {
+            item.get("id") if isinstance(item, dict) else item.id
+            for item in items
+        }
+        exercise_ids.discard(None)
+
+        private_by_exercise: dict[int, list[str]] = defaultdict(list)
+        if exercise_ids:
+            result = await session.execute(
+                select(
+                    ExerciseImportAlias.exercise_id,
+                    ExerciseImportAlias.external_name,
+                ).where(
+                    ExerciseImportAlias.app_user_id == user_id,
+                    ExerciseImportAlias.exercise_id.in_(exercise_ids),
+                )
+            )
+            for exercise_id, external_name in result.all():
+                private_by_exercise[exercise_id].append(external_name)
+
+        canonical_by_name = build_reverse_strong_aliases()
+        for item in items:
+            if isinstance(item, dict):
+                exercise_id = item.get("id")
+                display_name = item.get("name") or ""
+            else:
+                exercise_id = item.id
+                display_name = item.name or ""
+
+            aliases = ExerciseSearchService._deduplicate_aliases(
+                canonical_aliases=canonical_by_name.get(display_name, set()),
+                private_aliases=private_by_exercise.get(exercise_id, []),
+                display_name=display_name,
+            )
+            if isinstance(item, dict):
+                item["aliases"] = aliases
+            else:
+                item.aliases = aliases
+
+        return items
 
     @staticmethod
     async def _get_recent_exercise_ids(
@@ -169,7 +255,8 @@ class ExerciseSearchService:
                 ]
 
             preferences = await ExerciseSearchService.preference_map(session, user_id)
-            return ExerciseSearchService.sort_and_mark_preferences(filtered, preferences)
+            marked = ExerciseSearchService.sort_and_mark_preferences(filtered, preferences)
+            return await ExerciseSearchService.attach_aliases(session, user_id, marked)
 
         stmt = (
             get_base_exercise_query(user_id)
@@ -226,7 +313,8 @@ class ExerciseSearchService:
             ]
 
         preferences = await ExerciseSearchService.preference_map(session, user_id)
-        return ExerciseSearchService.sort_and_mark_preferences(filtered_items, preferences)
+        marked = ExerciseSearchService.sort_and_mark_preferences(filtered_items, preferences)
+        return await ExerciseSearchService.attach_aliases(session, user_id, marked)
 
     @staticmethod
     async def get_muscle_groups(

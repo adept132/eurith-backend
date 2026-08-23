@@ -205,6 +205,48 @@ _BY_EQUIPMENT = {
 
 _BY_EQUIPMENT_NORMALIZED = {(_key(n), eq): ru for (n, eq), ru in _BY_EQUIPMENT.items()}
 
+_EQUIPMENT_ALIAS_LABELS = {
+    BARBELL: "Barbell",
+    DUMBBELL: "Dumbbell",
+    SMITH: "Smith Machine",
+    FREE_MACHINE: "Machine",
+    BLOCK_MACHINE: "Cable",
+    BODYWEIGHT: "Bodyweight",
+    KETTLEBELL: "Kettlebell",
+}
+
+
+def _alias_title(name: str) -> str:
+    return " ".join(part.capitalize() for part in name.split())
+
+
+def build_reverse_strong_aliases() -> dict[str, set[str]]:
+    """Каноническое русское имя -> безопасные английские имена импорта.
+
+    Названия, смысл которых зависит от оборудования, выдаются только в
+    квалифицированной форме (например, ``Barbell Bench Press``). Голое имя
+    добавляется лишь когда оно ведёт ровно к одному русскому упражнению.
+    """
+    targets_by_base: dict[str, set[str]] = {}
+    for base, ru_name in _GENERIC.items():
+        targets_by_base.setdefault(base, set()).add(ru_name)
+    for (base, _equipment), ru_name in _BY_EQUIPMENT_NORMALIZED.items():
+        targets_by_base.setdefault(base, set()).add(ru_name)
+
+    reverse: dict[str, set[str]] = {}
+    for base, ru_name in _GENERIC.items():
+        if len(targets_by_base[base]) == 1:
+            reverse.setdefault(ru_name, set()).add(_alias_title(base))
+
+    for (base, equipment), ru_name in _BY_EQUIPMENT_NORMALIZED.items():
+        equipment_label = _EQUIPMENT_ALIAS_LABELS.get(equipment)
+        if not equipment_label:
+            continue
+        alias = f"{equipment_label} {_alias_title(base)}"
+        reverse.setdefault(ru_name, set()).add(alias)
+
+    return reverse
+
 
 def lookup_ru_name(strong_name: str) -> Optional[str]:
     """Имя Strong -> точное имя в нашей базе, либо None.
