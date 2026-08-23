@@ -164,6 +164,7 @@ _BY_EQUIPMENT = {
     ("upright row", BARBELL): "Вертикальная тяга штанги к груди стоя",
     ("upright row", DUMBBELL): "Вертикальная тяга гантелей к подбородку",
 
+    ("bent over row", BARBELL): "Тяга штанги в наклоне",
     ("bent over row", DUMBBELL): "Тяга гантелей в наклоне",
     ("bent over one arm row", DUMBBELL): "Тяга гантели в наклоне",
 
@@ -178,6 +179,8 @@ _BY_EQUIPMENT = {
     ("lateral raise", BLOCK_MACHINE): "Отведение руки в сторону в кроссовере",
     ("lateral raise", FREE_MACHINE): "Разведение рук в тренажере",
     ("reverse fly", DUMBBELL): "Разведение гантелей сидя в наклоне",
+    # Strong's "Machine" equipment is normalized to FREE_MACHINE above.
+    ("reverse fly", FREE_MACHINE): "Обратная бабочка",
 
     ("chest fly", DUMBBELL): "Сведение гантелей лежа на горизонтальной скамье",
     ("incline chest fly", DUMBBELL): "Сведение гантелей лежа на скамье с положительным наклоном",

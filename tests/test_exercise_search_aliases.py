@@ -13,6 +13,24 @@ from api.services.models import Exercise
 BENCH_PRESS_RU = "Жим лежа на прямой скамье"
 DUMBBELL_BENCH_PRESS_RU = "Жим гантелей лежа на горизонтальной скамье"
 
+GENERIC_EQUIPMENT_COLLISIONS = [
+    (
+        "Тяга штанги в наклоне",
+        "Barbell Bent Over Row",
+        "Bent Over Row",
+    ),
+    (
+        "Разведение рук в стороны с гантелями стоя",
+        "Dumbbell Lateral Raise",
+        "Lateral Raise",
+    ),
+    (
+        "Обратная бабочка",
+        "Machine Reverse Fly",
+        "Reverse Fly",
+    ),
+]
+
 
 class _Result:
     def __init__(self, rows):
@@ -109,6 +127,37 @@ def test_reverse_strong_aliases_are_equipment_aware_and_exclude_bare_collisions(
         "Bench Press" not in aliases
         for aliases in aliases_by_name.values()
     )
+
+
+@pytest.mark.parametrize(
+    ("russian_name", "qualified_alias", "bare_alias"),
+    GENERIC_EQUIPMENT_COLLISIONS,
+)
+def test_generic_equipment_collisions_keep_the_safe_qualified_alias(
+    russian_name: str,
+    qualified_alias: str,
+    bare_alias: str,
+) -> None:
+    aliases_by_name = strong_dictionary.build_reverse_strong_aliases()
+
+    assert qualified_alias in aliases_by_name[russian_name]
+    assert all(bare_alias not in aliases for aliases in aliases_by_name.values())
+
+
+def test_qualified_strong_aliases_have_no_cross_exercise_collisions() -> None:
+    aliases_by_name = strong_dictionary.build_reverse_strong_aliases()
+    targets_by_alias: dict[str, set[str]] = {}
+    for russian_name, aliases in aliases_by_name.items():
+        for alias in aliases:
+            targets_by_alias.setdefault(alias.casefold(), set()).add(russian_name)
+
+    collisions = {
+        alias: targets
+        for alias, targets in targets_by_alias.items()
+        if len(targets) > 1
+    }
+
+    assert collisions == {}
 
 
 @pytest.mark.asyncio
