@@ -218,6 +218,25 @@ _EQUIPMENT_ALIAS_LABELS = {
     KETTLEBELL: "Kettlebell",
 }
 
+# Generic Strong spellings that are also canonical names of different rows in
+# the production exercise corpus. The corpus-shaped regression test audits the
+# complete emitted reverse map, so additions cannot silently create a new
+# cross-target collision.
+_CATALOG_CANONICAL_ALIAS_COLLISIONS = {
+    "butterfly",
+    "cable crossover",
+    "leg press",
+    "seated leg curl",
+    "hack squat",
+    "seated calf raise",
+    "calf press",
+    "preacher curl",
+    "zottman curl",
+    "triceps pushdown",
+    "hanging leg raise",
+    "cable crunch",
+}
+
 
 def _alias_title(name: str) -> str:
     return " ".join(part.capitalize() for part in name.split())
@@ -228,9 +247,10 @@ def build_reverse_strong_aliases() -> dict[str, set[str]]:
 
     Названия, смысл которых зависит от оборудования, выдаются только в
     реальной Strong-форме с суффиксом (например, ``Bench Press (Barbell)``).
-    Установленные ранее префиксные формы остаются совместимыми только когда
-    полный словарный аудит показывает единственную цель. Голое имя добавляется
-    лишь когда оно ведёт ровно к одному русскому упражнению.
+    Голое имя добавляется лишь когда оно ведёт ровно к одному русскому
+    упражнению. Фабрикованные префиксные формы не выдаются: имя, уникальное
+    внутри этого словаря, всё ещё может принадлежать другому каноническому
+    упражнению в производственном каталоге.
     """
     targets_by_base: dict[str, set[str]] = {}
     for base, ru_name in _GENERIC.items():
@@ -240,7 +260,10 @@ def build_reverse_strong_aliases() -> dict[str, set[str]]:
 
     candidates: list[tuple[str, str]] = []
     for base, ru_name in _GENERIC.items():
-        if len(targets_by_base[base]) == 1:
+        if (
+            len(targets_by_base[base]) == 1
+            and base not in _CATALOG_CANONICAL_ALIAS_COLLISIONS
+        ):
             candidates.append((ru_name, _alias_title(base)))
 
     for (base, equipment), ru_name in _BY_EQUIPMENT_NORMALIZED.items():
@@ -249,7 +272,6 @@ def build_reverse_strong_aliases() -> dict[str, set[str]]:
             continue
         title = _alias_title(base)
         candidates.append((ru_name, f"{title} ({equipment_label})"))
-        candidates.append((ru_name, f"{equipment_label} {title}"))
 
     targets_by_alias: dict[str, set[str]] = {}
     for ru_name, alias in candidates:

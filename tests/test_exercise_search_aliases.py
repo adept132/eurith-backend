@@ -1,4 +1,7 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
+import unicodedata
 
 import pytest
 from starlette.requests import Request
@@ -12,6 +15,8 @@ from api.services.models import Exercise
 
 BENCH_PRESS_RU = "Жим лежа на прямой скамье"
 DUMBBELL_BENCH_PRESS_RU = "Жим гантелей лежа на горизонтальной скамье"
+
+CATALOG_INDEX_PATH = Path(__file__).parents[1] / "api" / "data" / "exercise_index.json"
 
 GENERIC_EQUIPMENT_COLLISIONS = [
     (
@@ -128,10 +133,11 @@ def test_reverse_strong_aliases_are_equipment_aware_and_exclude_bare_collisions(
 
     assert "Bench Press (Barbell)" in aliases_by_name[BENCH_PRESS_RU]
     assert "Bench Press (Dumbbell)" in aliases_by_name[DUMBBELL_BENCH_PRESS_RU]
-    # The installed prefix spellings remain compatibility aliases only while
-    # the dictionary-wide collision audit below proves they are safe.
-    assert "Barbell Bench Press" in aliases_by_name[BENCH_PRESS_RU]
-    assert "Dumbbell Bench Press" in aliases_by_name[DUMBBELL_BENCH_PRESS_RU]
+    assert "Barbell Bench Press" not in aliases_by_name[BENCH_PRESS_RU]
+    assert "Dumbbell Bench Press" not in aliases_by_name[DUMBBELL_BENCH_PRESS_RU]
+    assert "Lat Pulldown" in aliases_by_name[
+        "Тяга верхнего блока широким хватом"
+    ]
     assert all(
         "Bench Press" not in aliases
         for aliases in aliases_by_name.values()
@@ -169,6 +175,62 @@ def test_qualified_strong_aliases_have_no_cross_exercise_collisions() -> None:
     assert collisions == {}
 
 
+def _catalog_identity(name: str) -> str:
+    compatible = unicodedata.normalize("NFKC", name)
+    return " ".join(compatible.split()).casefold()
+
+
+def test_reverse_aliases_do_not_shadow_a_different_production_catalog_id() -> None:
+    aliases_by_name = strong_dictionary.build_reverse_strong_aliases()
+    catalog = json.loads(CATALOG_INDEX_PATH.read_text(encoding="utf-8"))
+    catalog_ids_by_name: dict[str, set[int]] = {}
+    for exercise_id, row in enumerate(catalog, start=1):
+        catalog_ids_by_name.setdefault(_catalog_identity(row["name"]), set()).add(
+            exercise_id
+        )
+
+    collisions = []
+    for target_name, aliases in aliases_by_name.items():
+        target_ids = catalog_ids_by_name.get(_catalog_identity(target_name), set())
+        for alias in aliases:
+            canonical_ids = catalog_ids_by_name.get(_catalog_identity(alias), set())
+            conflicting_ids = canonical_ids - target_ids
+            if conflicting_ids:
+                collisions.append((alias, target_ids, conflicting_ids))
+
+    assert collisions == []
+    for unsafe_prefix in (
+        "Barbell Squat",
+        "Barbell Deadlift",
+        "Barbell Hip Thrust",
+    ):
+        assert _catalog_identity(unsafe_prefix) in catalog_ids_by_name
+        assert all(
+            unsafe_prefix not in aliases
+            for aliases in aliases_by_name.values()
+        )
+
+
+@pytest.mark.parametrize(
+    ("strong_name", "russian_name"),
+    [
+        ("Squat (Barbell)", "Приседания со штангой"),
+        ("Deadlift (Barbell)", "Становая тяга"),
+        ("Hip Thrust (Barbell)", "Подъем ягодиц со штангой"),
+    ],
+)
+def test_real_strong_suffix_names_parse_and_match_their_catalog_target(
+    strong_name: str,
+    russian_name: str,
+) -> None:
+    base, equipment = strong_dictionary.split_equipment(strong_name)
+
+    assert base == strong_name.rsplit(" (", 1)[0]
+    assert equipment == ["barbell"]
+    assert strong_dictionary.lookup_ru_name(strong_name) == russian_name
+    assert strong_name in strong_dictionary.build_reverse_strong_aliases()[russian_name]
+
+
 @pytest.mark.asyncio
 async def test_full_catalog_bulk_attaches_canonical_and_current_user_aliases() -> None:
     bench = _exercise(1, BENCH_PRESS_RU)
@@ -189,7 +251,7 @@ async def test_full_catalog_bulk_attaches_canonical_and_current_user_aliases() -
 
     assert len(session.statements) == 3
     assert bench.name == BENCH_PRESS_RU
-    assert set(bench.aliases) == {"Barbell Bench Press", "Bench Press (Barbell)"}
+    assert set(bench.aliases) == {"Bench Press (Barbell)"}
     assert bench.personal_aliases == [
         {
             "source": "strong",
@@ -229,7 +291,6 @@ async def test_text_search_bulk_attaches_aliases_to_matcher_dicts(monkeypatch) -
     assert len(session.statements) == 2
     assert items[0]["name"] == BENCH_PRESS_RU
     assert set(items[0]["aliases"]) == {
-        "Barbell Bench Press",
         "Bench Press (Barbell)",
     }
     assert items[0]["personal_aliases"] == [
@@ -253,7 +314,6 @@ async def test_private_alias_query_is_scoped_to_authenticated_user() -> None:
     assert "exercise_import_aliases.app_user_id" in sql
     assert 73 in query.params.values()
     assert set(item["aliases"]) == {
-        "Barbell Bench Press",
         "Bench Press (Barbell)",
     }
     assert item["personal_aliases"] == [
