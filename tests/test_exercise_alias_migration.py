@@ -40,13 +40,16 @@ class _Rows:
 
 
 class _Bind:
-    def __init__(self):
+    def __init__(self, select_rows=None):
         self.calls = []
+        self.select_rows = select_rows
 
     def execute(self, statement, parameters=None):
         sql = str(statement)
         self.calls.append((sql, parameters))
         if sql.lstrip().upper().startswith("SELECT"):
+            if self.select_rows is not None:
+                return _Rows(self.select_rows)
             return _Rows(
                 [
                     {"id": 1, "external_name": "  Stra\u00dfe\u00a0Press "},
@@ -61,8 +64,8 @@ class _Bind:
 
 
 class _Operations:
-    def __init__(self):
-        self.bind = _Bind()
+    def __init__(self, bind=None):
+        self.bind = bind or _Bind()
         self.calls = []
 
     def get_bind(self):
@@ -215,10 +218,14 @@ def test_upgrade_backfills_deduplicates_then_adds_source_aware_uniqueness(monkey
 
 def test_downgrade_removes_only_new_alias_schema(monkeypatch) -> None:
     migration = _migration()
-    operations = _Operations()
+    operations = _Operations(_Bind(select_rows=[]))
     monkeypatch.setattr(migration, "op", operations)
 
     migration.downgrade()
+
+    assert operations.bind.calls[0][0].strip() == (
+        "LOCK TABLE exercise_import_aliases IN SHARE ROW EXCLUSIVE MODE"
+    )
 
     assert operations.calls == [
         (
@@ -242,6 +249,80 @@ def test_downgrade_removes_only_new_alias_schema(monkeypatch) -> None:
         ("drop_column", "exercise_import_aliases", "normalized_external_name_sha256"),
         ("drop_column", "exercise_import_aliases", "normalized_external_name"),
     ]
+
+
+def test_downgrade_reconciles_same_target_cross_source_rows(monkeypatch) -> None:
+    migration = _migration()
+    operations = _Operations(
+        _Bind(
+            select_rows=[
+                {
+                    "id": 11,
+                    "app_user_id": 7,
+                    "normalized_external_name": "strasse press",
+                    "exercise_id": 101,
+                },
+                {
+                    "id": 12,
+                    "app_user_id": 7,
+                    "normalized_external_name": "strasse press",
+                    "exercise_id": 101,
+                },
+            ]
+        )
+    )
+    monkeypatch.setattr(migration, "op", operations)
+
+    migration.downgrade()
+
+    delete_calls = [
+        (sql, parameters)
+        for sql, parameters in operations.bind.calls
+        if sql.lstrip().upper().startswith("DELETE")
+    ]
+    assert delete_calls == [
+        (
+            delete_calls[0][0],
+            [{"row_id": 11}],
+        )
+    ]
+    assert "WHERE id = :row_id" in delete_calls[0][0]
+    assert operations.calls[-2:] == [
+        ("drop_column", "exercise_import_aliases", "normalized_external_name_sha256"),
+        ("drop_column", "exercise_import_aliases", "normalized_external_name"),
+    ]
+
+
+def test_downgrade_refuses_divergent_cross_source_targets(monkeypatch) -> None:
+    migration = _migration()
+    operations = _Operations(
+        _Bind(
+            select_rows=[
+                {
+                    "id": 11,
+                    "app_user_id": 7,
+                    "normalized_external_name": "strasse press",
+                    "exercise_id": 101,
+                },
+                {
+                    "id": 12,
+                    "app_user_id": 7,
+                    "normalized_external_name": "strasse press",
+                    "exercise_id": 202,
+                },
+            ]
+        )
+    )
+    monkeypatch.setattr(migration, "op", operations)
+
+    with pytest.raises(RuntimeError, match="divergent exercise alias targets"):
+        migration.downgrade()
+
+    assert operations.calls == []
+    assert not any(
+        sql.lstrip().upper().startswith("DELETE")
+        for sql, _ in operations.bind.calls
+    )
 
 
 def test_upgrade_refuses_to_merge_distinct_names_on_digest_collision(monkeypatch) -> None:

@@ -167,6 +167,51 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    # The pre-migration reader has no source dimension. Keep the table stable
+    # while we prove every collapsed identity has one target and reconcile the
+    # safe duplicates. Divergent choices must be handled explicitly by an
+    # operator rather than becoming nondeterministic after downgrade.
+    bind.execute(
+        sa.text(
+            "LOCK TABLE exercise_import_aliases IN SHARE ROW EXCLUSIVE MODE"
+        )
+    )
+    rows = bind.execute(
+        sa.text(
+            """
+            SELECT id, app_user_id, normalized_external_name, exercise_id
+            FROM exercise_import_aliases
+            ORDER BY id
+            """
+        )
+    ).mappings().all()
+    rows_by_legacy_identity: dict[tuple[int, str], list[dict]] = {}
+    for row in rows:
+        identity = (row["app_user_id"], row["normalized_external_name"])
+        rows_by_legacy_identity.setdefault(identity, []).append(row)
+
+    duplicate_ids: list[int] = []
+    for identity, identity_rows in rows_by_legacy_identity.items():
+        target_ids = {row["exercise_id"] for row in identity_rows}
+        if len(target_ids) > 1:
+            raise RuntimeError(
+                "downgrade refused: divergent exercise alias targets for "
+                f"user {identity[0]} and normalized name {identity[1]!r}"
+            )
+        duplicate_ids.extend(row["id"] for row in identity_rows[:-1])
+
+    if duplicate_ids:
+        bind.execute(
+            sa.text(
+                """
+                DELETE FROM exercise_import_aliases
+                WHERE id = :row_id
+                """
+            ),
+            [{"row_id": row_id} for row_id in duplicate_ids],
+        )
+
     op.drop_constraint(
         "uq_exercise_import_alias_user_source_name",
         "exercise_import_aliases",

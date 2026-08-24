@@ -227,8 +227,10 @@ def build_reverse_strong_aliases() -> dict[str, set[str]]:
     """Каноническое русское имя -> безопасные английские имена импорта.
 
     Названия, смысл которых зависит от оборудования, выдаются только в
-    квалифицированной форме (например, ``Barbell Bench Press``). Голое имя
-    добавляется лишь когда оно ведёт ровно к одному русскому упражнению.
+    реальной Strong-форме с суффиксом (например, ``Bench Press (Barbell)``).
+    Установленные ранее префиксные формы остаются совместимыми только когда
+    полный словарный аудит показывает единственную цель. Голое имя добавляется
+    лишь когда оно ведёт ровно к одному русскому упражнению.
     """
     targets_by_base: dict[str, set[str]] = {}
     for base, ru_name in _GENERIC.items():
@@ -236,17 +238,27 @@ def build_reverse_strong_aliases() -> dict[str, set[str]]:
     for (base, _equipment), ru_name in _BY_EQUIPMENT_NORMALIZED.items():
         targets_by_base.setdefault(base, set()).add(ru_name)
 
-    reverse: dict[str, set[str]] = {}
+    candidates: list[tuple[str, str]] = []
     for base, ru_name in _GENERIC.items():
         if len(targets_by_base[base]) == 1:
-            reverse.setdefault(ru_name, set()).add(_alias_title(base))
+            candidates.append((ru_name, _alias_title(base)))
 
     for (base, equipment), ru_name in _BY_EQUIPMENT_NORMALIZED.items():
         equipment_label = _EQUIPMENT_ALIAS_LABELS.get(equipment)
         if not equipment_label:
             continue
-        alias = f"{equipment_label} {_alias_title(base)}"
-        reverse.setdefault(ru_name, set()).add(alias)
+        title = _alias_title(base)
+        candidates.append((ru_name, f"{title} ({equipment_label})"))
+        candidates.append((ru_name, f"{equipment_label} {title}"))
+
+    targets_by_alias: dict[str, set[str]] = {}
+    for ru_name, alias in candidates:
+        targets_by_alias.setdefault(alias.casefold(), set()).add(ru_name)
+
+    reverse: dict[str, set[str]] = {}
+    for ru_name, alias in candidates:
+        if len(targets_by_alias[alias.casefold()]) == 1:
+            reverse.setdefault(ru_name, set()).add(alias)
 
     return reverse
 

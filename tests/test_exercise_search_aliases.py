@@ -16,17 +16,17 @@ DUMBBELL_BENCH_PRESS_RU = "Жим гантелей лежа на горизон�
 GENERIC_EQUIPMENT_COLLISIONS = [
     (
         "Тяга штанги в наклоне",
-        "Barbell Bent Over Row",
+        "Bent Over Row (Barbell)",
         "Bent Over Row",
     ),
     (
         "Разведение рук в стороны с гантелями стоя",
-        "Dumbbell Lateral Raise",
+        "Lateral Raise (Dumbbell)",
         "Lateral Raise",
     ),
     (
         "Обратная бабочка",
-        "Machine Reverse Fly",
+        "Reverse Fly (Machine)",
         "Reverse Fly",
     ),
 ]
@@ -113,14 +113,23 @@ def test_search_schema_uses_a_fresh_empty_alias_list() -> None:
     )
 
     first.aliases.append("Private alias")
+    first.personal_aliases.append(
+        {"source": "notes", "external_name": "Private alias"}
+    )
 
     assert first.aliases == ["Private alias"]
     assert second.aliases == []
+    assert len(first.personal_aliases) == 1
+    assert second.personal_aliases == []
 
 
 def test_reverse_strong_aliases_are_equipment_aware_and_exclude_bare_collisions() -> None:
     aliases_by_name = strong_dictionary.build_reverse_strong_aliases()
 
+    assert "Bench Press (Barbell)" in aliases_by_name[BENCH_PRESS_RU]
+    assert "Bench Press (Dumbbell)" in aliases_by_name[DUMBBELL_BENCH_PRESS_RU]
+    # The installed prefix spellings remain compatibility aliases only while
+    # the dictionary-wide collision audit below proves they are safe.
     assert "Barbell Bench Press" in aliases_by_name[BENCH_PRESS_RU]
     assert "Dumbbell Bench Press" in aliases_by_name[DUMBBELL_BENCH_PRESS_RU]
     assert all(
@@ -168,8 +177,8 @@ async def test_full_catalog_bulk_attaches_canonical_and_current_user_aliases() -
         [bench, unknown],
         [],
         [
-            (1, "my bench"),
-            (1, "barbell bench press"),
+            (1, "notes", "my bench", "my bench"),
+            (1, "strong", "bench press (barbell)", "bench press (barbell)"),
         ],
     )
 
@@ -180,8 +189,16 @@ async def test_full_catalog_bulk_attaches_canonical_and_current_user_aliases() -
 
     assert len(session.statements) == 3
     assert bench.name == BENCH_PRESS_RU
-    assert bench.aliases == ["Barbell Bench Press", "my bench"]
+    assert set(bench.aliases) == {"Barbell Bench Press", "Bench Press (Barbell)"}
+    assert bench.personal_aliases == [
+        {
+            "source": "strong",
+            "external_name": "bench press (barbell)",
+        },
+        {"source": "notes", "external_name": "my bench"},
+    ]
     assert unknown.aliases == []
+    assert unknown.personal_aliases == []
     alias_query = session.statements[-1].compile()
     assert 41 in alias_query.params.values()
     assert [1, 2] in alias_query.params.values()
@@ -198,7 +215,10 @@ async def test_text_search_bulk_attaches_aliases_to_matcher_dicts(monkeypatch) -
         "api.services.exercise_search_service.ExerciseMatcher.find_or_create_exercise",
         fake_matcher,
     )
-    session = _QueuedSession([], [(1, "my imported bench")])
+    session = _QueuedSession(
+        [],
+        [(1, "notes", "my imported bench", "my imported bench")],
+    )
 
     items = await ExerciseSearchService.search_exercises(
         session=session,
@@ -208,13 +228,19 @@ async def test_text_search_bulk_attaches_aliases_to_matcher_dicts(monkeypatch) -
 
     assert len(session.statements) == 2
     assert items[0]["name"] == BENCH_PRESS_RU
-    assert items[0]["aliases"] == ["Barbell Bench Press", "my imported bench"]
+    assert set(items[0]["aliases"]) == {
+        "Barbell Bench Press",
+        "Bench Press (Barbell)",
+    }
+    assert items[0]["personal_aliases"] == [
+        {"source": "notes", "external_name": "my imported bench"}
+    ]
 
 
 @pytest.mark.asyncio
 async def test_private_alias_query_is_scoped_to_authenticated_user() -> None:
     item = _search_dict(1, BENCH_PRESS_RU)
-    session = _QueuedSession([(1, "mine")])
+    session = _QueuedSession([(1, "strong", "mine", "mine")])
 
     await ExerciseSearchService.attach_aliases(
         session=session,
@@ -226,7 +252,40 @@ async def test_private_alias_query_is_scoped_to_authenticated_user() -> None:
     sql = str(query)
     assert "exercise_import_aliases.app_user_id" in sql
     assert 73 in query.params.values()
-    assert item["aliases"] == ["Barbell Bench Press", "mine"]
+    assert set(item["aliases"]) == {
+        "Barbell Bench Press",
+        "Bench Press (Barbell)",
+    }
+    assert item["personal_aliases"] == [
+        {"source": "strong", "external_name": "mine"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_same_private_name_keeps_distinct_source_metadata() -> None:
+    first = _search_dict(1, BENCH_PRESS_RU)
+    second = _search_dict(2, DUMBBELL_BENCH_PRESS_RU)
+    session = _QueuedSession(
+        [
+            (1, "strong", "My Press", "my press"),
+            (2, "notes", "MY PRESS", "my press"),
+        ]
+    )
+
+    await ExerciseSearchService.attach_aliases(
+        session=session,
+        user_id=73,
+        items=[first, second],
+    )
+
+    assert first["personal_aliases"] == [
+        {"source": "strong", "external_name": "My Press"}
+    ]
+    assert second["personal_aliases"] == [
+        {"source": "notes", "external_name": "MY PRESS"}
+    ]
+    assert "My Press" not in first["aliases"]
+    assert "MY PRESS" not in second["aliases"]
 
 
 @pytest.mark.asyncio
@@ -235,13 +294,18 @@ async def test_search_router_serializes_aliases_for_both_result_shapes(
     monkeypatch,
     result_shape: str,
 ) -> None:
-    aliases = ["Barbell Bench Press", "my bench"]
+    aliases = ["Bench Press (Barbell)", "Barbell Bench Press"]
+    personal_aliases = [
+        {"source": "notes", "external_name": "my bench"}
+    ]
     if result_shape == "dict":
         result = _search_dict(1, BENCH_PRESS_RU)
         result["aliases"] = aliases
+        result["personal_aliases"] = personal_aliases
     else:
         result = _exercise(1, BENCH_PRESS_RU)
         result.aliases = aliases
+        result.personal_aliases = personal_aliases
 
     async def fake_search(**_kwargs):
         return [result]
@@ -259,3 +323,6 @@ async def test_search_router_serializes_aliases_for_both_result_shapes(
     )
 
     assert response[0].aliases == aliases
+    assert [alias.model_dump() for alias in response[0].personal_aliases] == (
+        personal_aliases
+    )
