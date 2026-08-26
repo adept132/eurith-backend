@@ -5,7 +5,7 @@ import importlib.util
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import CheckConstraint, UniqueConstraint
+from sqlalchemy import CheckConstraint, String, UniqueConstraint
 
 from api.services import models
 
@@ -37,6 +37,14 @@ def test_carry_over_has_source_uniqueness_and_restrictive_foreign_keys():
     assert source_exercise_fk.ondelete == "RESTRICT"
 
 
+def test_carry_over_persists_a_required_source_exercise_name_snapshot():
+    column = _carry_over_model().__table__.c.source_exercise_name
+
+    assert isinstance(column.type, String)
+    assert column.type.length == 255
+    assert column.nullable is False
+
+
 def test_carry_over_database_checks_counts_and_statuses():
     carry_over = _carry_over_model()
     checks = {
@@ -65,6 +73,7 @@ def test_carry_over_schema_rejects_inconsistent_counts_and_discard_reasons():
     valid = schema.CarryOverPreviewItem(
         carry_over_id=7,
         source_exercise_id=11,
+        source_exercise_name="Bench press",
         requested_sets=4,
         placed_sets=2,
         discarded_sets=2,
@@ -73,6 +82,8 @@ def test_carry_over_schema_rejects_inconsistent_counts_and_discard_reasons():
                 "calendar_day_id": 31,
                 "target_date": "2026-08-24",
                 "exercise_id": 5,
+                "target_exercise_name": "Incline bench press",
+                "target_day_name": "Sunday upper body",
                 "delta_sets": 2,
                 "match_kind": "exact",
             }
@@ -86,6 +97,61 @@ def test_carry_over_schema_rejects_inconsistent_counts_and_discard_reasons():
             carry_over_id=7,
             source_exercise_id=11,
             requested_sets=4,
+            placed_sets=0,
+            discarded_sets=4,
+            discarded=[{"sets": 4, "reason": "session_cap"}],
+        )
+
+    with pytest.raises(ValidationError):
+        schema.CarryOverPreviewItem(
+            carry_over_id=7,
+            source_exercise_id=11,
+            source_exercise_name="",
+            requested_sets=4,
+            placed_sets=2,
+            discarded_sets=2,
+            placements=[
+                {
+                    "calendar_day_id": 31,
+                    "target_date": "2026-08-24",
+                    "exercise_id": 5,
+                    "target_exercise_name": "",
+                    "target_day_name": "Sunday upper body",
+                    "delta_sets": 2,
+                    "match_kind": "exact",
+                }
+            ],
+            discarded=[{"sets": 2, "reason": "session_cap"}],
+        )
+
+    with pytest.raises(ValidationError):
+        schema.CarryOverPreviewItem(
+            carry_over_id=7,
+            source_exercise_id=11,
+            source_exercise_name="Bench press",
+            requested_sets=4,
+            placed_sets=2,
+            discarded_sets=2,
+            placements=[
+                {
+                    "calendar_day_id": 31,
+                    "target_date": "2026-08-24",
+                    "exercise_id": 5,
+                    "target_exercise_name": "Incline bench press",
+                    "target_day_name": "x" * 256,
+                    "delta_sets": 2,
+                    "match_kind": "exact",
+                }
+            ],
+            discarded=[{"sets": 2, "reason": "session_cap"}],
+        )
+
+    with pytest.raises(ValidationError):
+        schema.CarryOverPreviewItem(
+            carry_over_id=7,
+            source_exercise_id=11,
+            source_exercise_name="Bench press",
+            requested_sets=4,
             placed_sets=3,
             discarded_sets=0,
             placements=[],
@@ -96,6 +162,7 @@ def test_carry_over_schema_rejects_inconsistent_counts_and_discard_reasons():
         schema.CarryOverPreviewItem(
             carry_over_id=7,
             source_exercise_id=11,
+            source_exercise_name="Bench press",
             requested_sets=4,
             placed_sets=2,
             discarded_sets=2,

@@ -463,6 +463,7 @@ class WorkoutCarryOver(Base):
         nullable=False,
         index=True,
     )
+    source_exercise_name: Mapped[str] = mapped_column(String(255), nullable=False)
     requested_sets: Mapped[int] = mapped_column(Integer, nullable=False)
     placed_sets: Mapped[int] = mapped_column(Integer, nullable=False)
     discarded_sets: Mapped[int] = mapped_column(Integer, nullable=False)

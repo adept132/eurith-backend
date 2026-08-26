@@ -24,6 +24,8 @@ class CarryOverPlacement(BaseModel):
     calendar_day_id: int = Field(gt=0)
     target_date: date
     exercise_id: int = Field(gt=0)
+    target_exercise_name: str = Field(min_length=1, max_length=255)
+    target_day_name: str = Field(min_length=1, max_length=255)
     delta_sets: int = Field(gt=0)
     match_kind: CarryOverMatchKind
 
@@ -36,6 +38,7 @@ class CarryOverDiscard(BaseModel):
 class CarryOverPreviewItem(BaseModel):
     carry_over_id: int = Field(gt=0)
     source_exercise_id: int = Field(gt=0)
+    source_exercise_name: str = Field(min_length=1, max_length=255)
     requested_sets: int = Field(ge=0)
     placed_sets: int = Field(ge=0)
     discarded_sets: int = Field(ge=0)
