@@ -8,6 +8,8 @@ def carry_over_candidate(**overrides):
         "calendar_day_id": 1,
         "target_date": date(2026, 8, 24),
         "exercise_id": 10,
+        "target_exercise_name": "Bench press",
+        "target_day_name": "Upper body",
         "muscle": "chest",
         "match_kind": "exact",
         "session_cap_remaining": 4,

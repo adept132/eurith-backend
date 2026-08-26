@@ -181,7 +181,20 @@ async def test_preview_is_deterministic_idempotent_and_has_no_calendar_side_effe
     assert first.json() == second.json()
     body = first.json()
     assert len(body["preview_token"]) == 64
-    assert [item["delta_sets"] for item in body["items"][0]["placements"]] == [2, 2]
+    item = body["items"][0]
+    source_name = await db.scalar(
+        select(Exercise.name).where(Exercise.id == source_exercise.exercise_id)
+    )
+    assert item["source_exercise_name"] == source_name
+    assert [placement["target_exercise_name"] for placement in item["placements"]] == [
+        source_name,
+        source_name,
+    ]
+    assert [placement["target_day_name"] for placement in item["placements"]] == [
+        "push",
+        "push",
+    ]
+    assert [item["delta_sets"] for item in item["placements"]] == [2, 2]
     await db.rollback()
     days = (
         await db.execute(
@@ -229,6 +242,12 @@ async def test_apply_is_explicit_atomic_and_idempotent(client, db, test_user):
         json=_preview_payload(source_exercise.id),
     )
     assert preview.status_code == 200, preview.text
+    preview_item = preview.json()["items"][0]
+    exercise = await db.get(Exercise, source_exercise.exercise_id)
+    exercise.name = "Renamed after preview"
+    for day in receiving_days:
+        day.day_tag = "Renamed day after preview"
+    await db.commit()
     payload = {"preview_token": preview.json()["preview_token"]}
 
     first = await client.post(
@@ -240,6 +259,7 @@ async def test_apply_is_explicit_atomic_and_idempotent(client, db, test_user):
 
     assert first.status_code == 200, first.text
     assert replay.status_code == 200, replay.text
+    assert first.json()["items"][0] == preview_item
     assert replay.json() == first.json()
     await db.rollback()
     days = (
@@ -328,8 +348,13 @@ async def test_stale_apply_returns_fresh_preview_without_carry_over_mutation(
         json=_preview_payload(source_exercise.id),
     )
     stale_token = preview.json()["preview_token"]
-    receiving_days[0].status = "completed"
-    receiving_days[0].actual_workout_session_id = 999999
+    preview_item = preview.json()["items"][0]
+    exercise = await db.get(Exercise, source_exercise.exercise_id)
+    exercise.name = "Renamed after preview"
+    receiving_days[0].day_tag = "Renamed day after preview"
+    receiving_days[1].day_tag = "Renamed day after preview"
+    source_plan = await db.get(WorkoutPlan, session.plan_id)
+    source_plan.revision += 1
     await db.commit()
 
     applied = await client.post(
@@ -340,6 +365,7 @@ async def test_stale_apply_returns_fresh_preview_without_carry_over_mutation(
     assert applied.status_code == 409, applied.text
     assert applied.json()["detail"]["error"] == "stale_preview"
     assert applied.json()["detail"]["preview"]["preview_token"] != stale_token
+    assert applied.json()["detail"]["preview"]["items"][0] == preview_item
     await db.rollback()
     days = (
         await db.execute(
@@ -362,6 +388,12 @@ async def test_dismiss_has_no_calendar_side_effects_and_blocks_apply(
         json=_preview_payload(source_exercise.id),
     )
     token = preview.json()["preview_token"]
+    preview_item = preview.json()["items"][0]
+    exercise = await db.get(Exercise, source_exercise.exercise_id)
+    exercise.name = "Renamed after preview"
+    for day in receiving_days:
+        day.day_tag = "Renamed day after preview"
+    await db.commit()
 
     dismissed = await client.post(
         f"/workouts/{session.id}/carry-over/dismiss",
@@ -374,6 +406,7 @@ async def test_dismiss_has_no_calendar_side_effects_and_blocks_apply(
 
     assert dismissed.status_code == 200, dismissed.text
     assert dismissed.json()["status"] == "dismissed"
+    assert dismissed.json()["items"][0] == preview_item
     assert applied.status_code == 409
     await db.rollback()
     days = (

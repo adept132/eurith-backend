@@ -73,6 +73,8 @@ class CarryOverCandidate:
     calendar_day_id: int
     target_date: date
     exercise_id: int
+    target_exercise_name: str
+    target_day_name: str
     muscle: str
     match_kind: MatchKind
     session_cap_remaining: int
@@ -103,6 +105,8 @@ class CarryOverPlacement:
     calendar_day_id: int
     target_date: date
     exercise_id: int
+    target_exercise_name: str
+    target_day_name: str
     delta_sets: int
     match_kind: MatchKind
 
@@ -125,6 +129,7 @@ class CarryOverDistribution:
 @dataclass(frozen=True)
 class SourceCarryOverDistribution:
     source_exercise_id: int
+    source_exercise_name: str
     exercise_id: int
     muscle: str
     distribution: CarryOverDistribution
@@ -133,6 +138,7 @@ class SourceCarryOverDistribution:
 @dataclass(frozen=True)
 class CarryOverSourceRequest:
     source_exercise_id: int
+    source_exercise_name: str
     exercise_id: int
     muscle: str
     requested_sets: int
@@ -230,6 +236,8 @@ def distribute_carry_over(
             calendar_day_id=by_key[key].calendar_day_id,
             target_date=by_key[key].target_date,
             exercise_id=by_key[key].exercise_id,
+            target_exercise_name=by_key[key].target_exercise_name,
+            target_day_name=by_key[key].target_day_name,
             delta_sets=count,
             match_kind=by_key[key].match_kind,
         )
@@ -303,6 +311,7 @@ def distribute_carry_over_sources(
         results.append(
             SourceCarryOverDistribution(
                 source_exercise_id=request.source_exercise_id,
+                source_exercise_name=request.source_exercise_name,
                 exercise_id=request.exercise_id,
                 muscle=request.muscle,
                 distribution=distribution,
@@ -439,6 +448,13 @@ def _phase_is_deload(day, block) -> bool:
         if phase.get("phase_number") == phase_number:
             return str(phase.get("effort_tier") or "").lower() == "deload"
     return False
+
+
+def _target_day_name(day_name: str | None, index: int) -> str:
+    """Keep the scheduled day label chosen when the preview is built."""
+
+    explicit_name = str(day_name or "").strip()
+    return explicit_name or f"Тренировка {index + 1}"
 
 
 async def preview_carry_over(
@@ -682,6 +698,11 @@ async def preview_carry_over(
                     calendar_day_id=day.id,
                     target_date=day.target_date,
                     exercise_id=target_plan_exercise.exercise_id,
+                    target_exercise_name=target_exercise.name,
+                    target_day_name=_target_day_name(
+                        day.day_tag,
+                        max(0, int(day.microcycle_day_number or 1) - 1),
+                    ),
                     muscle=muscle,
                     match_kind="exact" if exact else "compatible",
                     session_cap_remaining=max(
@@ -706,6 +727,7 @@ async def preview_carry_over(
         source_requests.append(
             CarryOverSourceRequest(
                 source_exercise_id=source_exercise.id,
+                source_exercise_name=exercise.name,
                 exercise_id=exercise.id,
                 muscle=muscle,
                 requested_sets=requested,
@@ -752,17 +774,43 @@ class StaleCarryOverPreview(CarryOverWorkflowError):
         self.preview = preview
 
 
-def _placement_payload(distribution: CarryOverDistribution) -> list[dict]:
-    return [
-        {
-            "calendar_day_id": item.calendar_day_id,
-            "target_date": item.target_date.isoformat(),
-            "exercise_id": item.exercise_id,
-            "delta_sets": item.delta_sets,
-            "match_kind": item.match_kind,
-        }
-        for item in distribution.placements
-    ]
+def _placement_payload(
+    distribution: CarryOverDistribution,
+    snapshots: list[dict] | None = None,
+) -> list[dict]:
+    snapshot_by_target = {
+        (
+            int(snapshot["calendar_day_id"]),
+            int(snapshot["exercise_id"]),
+            snapshot["match_kind"],
+        ): snapshot
+        for snapshot in snapshots or []
+    }
+    payload: list[dict] = []
+    for item in distribution.placements:
+        snapshot = snapshot_by_target.get(
+            (item.calendar_day_id, item.exercise_id, item.match_kind)
+        )
+        payload.append(
+            {
+                "calendar_day_id": item.calendar_day_id,
+                "target_date": item.target_date.isoformat(),
+                "exercise_id": item.exercise_id,
+                "target_exercise_name": (
+                    snapshot["target_exercise_name"]
+                    if snapshot is not None
+                    else item.target_exercise_name
+                ),
+                "target_day_name": (
+                    snapshot["target_day_name"]
+                    if snapshot is not None
+                    else item.target_day_name
+                ),
+                "delta_sets": item.delta_sets,
+                "match_kind": item.match_kind,
+            }
+        )
+    return payload
 
 
 def _discarded_payload(distribution: CarryOverDistribution) -> list[dict]:
@@ -777,6 +825,7 @@ def _item_schema(row) -> CarryOverPreviewItem:
     return CarryOverPreviewItem(
         carry_over_id=row.id,
         source_exercise_id=row.source_exercise_id,
+        source_exercise_name=row.source_exercise_name,
         requested_sets=row.requested_sets,
         placed_sets=row.placed_sets,
         discarded_sets=row.discarded_sets,
@@ -1147,6 +1196,21 @@ async def create_carry_over_preview(
         )
     ).scalars().all()
     await _validate_unfinished_sets(db, user_id, session_id, unfinished_sets)
+    if existing_rows:
+        if {
+            row.source_exercise_id for row in existing_rows
+        } != set(unfinished_sets):
+            raise InvalidUnfinishedSets
+        for row in existing_rows:
+            if row.status != "draft":
+                raise CarryOverDecisionConflict
+            if row.idempotency_key != _derived_idempotency_key(
+                idempotency_key, row.source_exercise_id
+            ):
+                raise CarryOverIdempotencyConflict
+            if row.requested_sets != int(unfinished_sets[row.source_exercise_id]):
+                raise InvalidUnfinishedSets
+        return _response_from_rows(existing_rows, status="draft")
     try:
         preview = await preview_carry_over(
             db, user_id, session_id, unfinished_sets, now
@@ -1173,6 +1237,7 @@ async def create_carry_over_preview(
                 app_user_id=user_id,
                 source_session_id=session_id,
                 source_exercise_id=item.source_exercise_id,
+                source_exercise_name=item.source_exercise_name,
                 requested_sets=item.distribution.requested_sets,
                 placed_sets=0,
                 discarded_sets=item.distribution.requested_sets,
@@ -1357,7 +1422,7 @@ async def _apply_carry_over_once(
             item = by_source[row.source_exercise_id]
             row.placed_sets = item.distribution.placed_sets
             row.discarded_sets = item.distribution.discarded_sets
-            row.placements = _placement_payload(item.distribution)
+            row.placements = _placement_payload(item.distribution, row.placements)
             row.discarded = _discarded_payload(item.distribution)
             row.microcycle_end = preview.microcycle_end
             row.preview_token = fresh_token

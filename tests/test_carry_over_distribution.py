@@ -129,6 +129,52 @@ def test_compatible_muscle_day_is_used_when_exact_capacity_is_exhausted():
     ]
 
 
+def test_distribution_keeps_exact_and_compatible_display_context_snapshots():
+    """A later rename must not change the labels selected for this preview."""
+    service = _service()
+    requests = [
+        service.CarryOverSourceRequest(
+            source_exercise_id=101,
+            source_exercise_name="Source press",
+            exercise_id=10,
+            muscle="chest",
+            requested_sets=2,
+            candidates=[
+                service.CarryOverCandidate(
+                    **carry_over_candidate(
+                        calendar_day_id=10,
+                        target_exercise_name="Exact press",
+                        target_day_name="Upper A",
+                        session_cap_remaining=1,
+                    )
+                ),
+                service.CarryOverCandidate(
+                    **carry_over_candidate(
+                        calendar_day_id=20,
+                        target_date=date(2026, 8, 26),
+                        exercise_id=11,
+                        match_kind="compatible",
+                        target_exercise_name="Compatible fly",
+                        target_day_name="Upper B",
+                        session_cap_remaining=1,
+                    )
+                ),
+            ],
+        )
+    ]
+
+    result = service.distribute_carry_over_sources(requests)[0]
+
+    assert result.source_exercise_name == "Source press"
+    assert [
+        (item.target_exercise_name, item.target_day_name, item.match_kind)
+        for item in result.distribution.placements
+    ] == [
+        ("Exact press", "Upper A", "exact"),
+        ("Compatible fly", "Upper B", "compatible"),
+    ]
+
+
 def test_session_cap_discards_every_set_that_cannot_fit():
     result = _distribute(
         3,
@@ -219,6 +265,7 @@ def test_session_and_mrv_budgets_are_shared_across_source_exercises():
     requests = [
         service.CarryOverSourceRequest(
             source_exercise_id=101,
+            source_exercise_name="First press",
             exercise_id=10,
             muscle="chest",
             requested_sets=2,
@@ -226,6 +273,7 @@ def test_session_and_mrv_budgets_are_shared_across_source_exercises():
         ),
         service.CarryOverSourceRequest(
             source_exercise_id=102,
+            source_exercise_name="Second press",
             exercise_id=11,
             muscle="chest",
             requested_sets=2,
