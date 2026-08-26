@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -43,6 +44,25 @@ def test_carry_over_persists_a_required_source_exercise_name_snapshot():
     assert isinstance(column.type, String)
     assert column.type.length == 255
     assert column.nullable is False
+
+
+def test_display_context_migration_backfills_legacy_placement_snapshots():
+    migration_path = (
+        Path(__file__).parents[1]
+        / "migrations"
+        / "versions"
+        / "20260826_01_carry_over_display_context.py"
+    )
+    migration = migration_path.read_text(encoding="utf-8")
+
+    assert models.WorkoutCarryOver.__tablename__ == "workout_carry_overs"
+    assert models.Exercise.__tablename__ == "exercises"
+    assert models.UserCalendarDay.__tablename__ == "user_calendar"
+    assert "jsonb_array_elements" in migration
+    assert "calendar_day_id" in migration
+    assert "target_exercise_name" in migration
+    assert "target_day_name" in migration
+    assert "cannot enforce carry-over placement display context" in migration
 
 
 def test_carry_over_database_checks_counts_and_statuses():

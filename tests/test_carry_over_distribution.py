@@ -175,6 +175,63 @@ def test_distribution_keeps_exact_and_compatible_display_context_snapshots():
     ]
 
 
+def test_decision_payload_excludes_target_display_names():
+    service = _service()
+    original = _distribute(
+        1,
+        carry_over_candidate(
+            target_exercise_name="Original press",
+            target_day_name="Original upper",
+        ),
+    )
+    renamed = _distribute(
+        1,
+        carry_over_candidate(
+            target_exercise_name="Renamed press",
+            target_day_name="Renamed upper",
+        ),
+    )
+
+    assert service._placement_decision_payload(original) == (
+        service._placement_decision_payload(renamed)
+    ) == [
+        {
+            "calendar_day_id": 1,
+            "target_date": "2026-08-24",
+            "exercise_id": 10,
+            "delta_sets": 1,
+            "match_kind": "exact",
+        }
+    ]
+
+
+def test_stale_snapshot_labels_follow_target_identity_across_match_kind_change():
+    service = _service()
+    original = _distribute(
+        1,
+        carry_over_candidate(
+            target_exercise_name="Original press",
+            target_day_name="Original upper",
+            match_kind="compatible",
+        ),
+    )
+    refreshed = _distribute(
+        1,
+        carry_over_candidate(
+            target_exercise_name="Renamed press",
+            target_day_name="Renamed upper",
+            match_kind="exact",
+        ),
+    )
+
+    persisted = service._placement_payload(original)
+    restored = service._placement_payload(refreshed, persisted)
+
+    assert restored[0]["match_kind"] == "exact"
+    assert restored[0]["target_exercise_name"] == "Original press"
+    assert restored[0]["target_day_name"] == "Original upper"
+
+
 def test_session_cap_discards_every_set_that_cannot_fit():
     result = _distribute(
         3,

@@ -35,6 +35,91 @@ def upgrade() -> None:
             """
         )
     )
+
+    missing_placement_context_count = bind.scalar(
+        sa.text(
+            """
+            SELECT count(*)
+            FROM workout_carry_overs AS carry_over
+            CROSS JOIN LATERAL jsonb_array_elements(carry_over.placements) AS placement(value)
+            LEFT JOIN exercises
+                ON exercises.id = NULLIF(placement.value ->> 'exercise_id', '')::integer
+            LEFT JOIN user_calendar AS calendar_day
+                ON calendar_day.id = NULLIF(placement.value ->> 'calendar_day_id', '')::integer
+            WHERE exercises.id IS NULL
+               OR NULLIF(BTRIM(exercises.name), '') IS NULL
+               OR calendar_day.id IS NULL
+            """
+        )
+    )
+    if missing_placement_context_count:
+        raise RuntimeError(
+            "cannot enforce carry-over placement display context: "
+            f"{missing_placement_context_count} placement snapshots could not be resolved"
+        )
+
+    bind.execute(
+        sa.text(
+            """
+            WITH rebuilt_placements AS (
+                SELECT
+                    carry_over.id,
+                    jsonb_agg(
+                        jsonb_set(
+                            jsonb_set(
+                                placement.value,
+                                '{target_exercise_name}',
+                                to_jsonb(exercises.name),
+                                true
+                            ),
+                            '{target_day_name}',
+                            to_jsonb(
+                                COALESCE(
+                                    NULLIF(BTRIM(calendar_day.day_tag), ''),
+                                    'Тренировка ' || GREATEST(
+                                        COALESCE(calendar_day.microcycle_day_number, 1),
+                                        1
+                                    )::text
+                                )
+                            ),
+                            true
+                        )
+                        ORDER BY placement.ordinality
+                    ) AS placements
+                FROM workout_carry_overs AS carry_over
+                CROSS JOIN LATERAL jsonb_array_elements(carry_over.placements)
+                    WITH ORDINALITY AS placement(value, ordinality)
+                JOIN exercises
+                    ON exercises.id = (placement.value ->> 'exercise_id')::integer
+                JOIN user_calendar AS calendar_day
+                    ON calendar_day.id = (placement.value ->> 'calendar_day_id')::integer
+                GROUP BY carry_over.id
+            )
+            UPDATE workout_carry_overs AS carry_over
+            SET placements = rebuilt_placements.placements
+            FROM rebuilt_placements
+            WHERE carry_over.id = rebuilt_placements.id
+            """
+        )
+    )
+
+    missing_display_snapshot_count = bind.scalar(
+        sa.text(
+            """
+            SELECT count(*)
+            FROM workout_carry_overs AS carry_over
+            CROSS JOIN LATERAL jsonb_array_elements(carry_over.placements) AS placement(value)
+            WHERE NULLIF(BTRIM(placement.value ->> 'target_exercise_name'), '') IS NULL
+               OR NULLIF(BTRIM(placement.value ->> 'target_day_name'), '') IS NULL
+            """
+        )
+    )
+    if missing_display_snapshot_count:
+        raise RuntimeError(
+            "cannot enforce carry-over placement display context: "
+            f"{missing_display_snapshot_count} placement snapshots are incomplete"
+        )
+
     missing_snapshot_count = bind.scalar(
         sa.text(
             """

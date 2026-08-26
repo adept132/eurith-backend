@@ -782,14 +782,13 @@ def _placement_payload(
         (
             int(snapshot["calendar_day_id"]),
             int(snapshot["exercise_id"]),
-            snapshot["match_kind"],
         ): snapshot
         for snapshot in snapshots or []
     }
     payload: list[dict] = []
     for item in distribution.placements:
         snapshot = snapshot_by_target.get(
-            (item.calendar_day_id, item.exercise_id, item.match_kind)
+            (item.calendar_day_id, item.exercise_id)
         )
         payload.append(
             {
@@ -811,6 +810,21 @@ def _placement_payload(
             }
         )
     return payload
+
+
+def _placement_decision_payload(distribution: CarryOverDistribution) -> list[dict]:
+    """Canonical placement decisions, intentionally excluding display snapshots."""
+
+    return [
+        {
+            "calendar_day_id": item.calendar_day_id,
+            "target_date": item.target_date.isoformat(),
+            "exercise_id": item.exercise_id,
+            "delta_sets": item.delta_sets,
+            "match_kind": item.match_kind,
+        }
+        for item in distribution.placements
+    ]
 
 
 def _discarded_payload(distribution: CarryOverDistribution) -> list[dict]:
@@ -1133,7 +1147,7 @@ async def _preview_state_token(
                 "exercise_id": item.exercise_id,
                 "muscle": item.muscle,
                 "requested_sets": item.distribution.requested_sets,
-                "placements": _placement_payload(item.distribution),
+                "placements": _placement_decision_payload(item.distribution),
                 "discarded_reasons": item.distribution.discarded_reasons,
             }
             for item in preview.items
