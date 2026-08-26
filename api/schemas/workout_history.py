@@ -104,6 +104,14 @@ class WorkoutHistoryDraft(StrictHistoryModel):
         return self
 
 
+class WorkoutHistoryServerExerciseSnapshot(WorkoutHistoryExerciseDraft):
+    sets: list[WorkoutHistorySetDraft] = Field(default_factory=list)
+
+
+class WorkoutHistoryServerSnapshot(WorkoutHistoryDraft):
+    exercises: list[WorkoutHistoryServerExerciseSnapshot] = Field(default_factory=list)
+
+
 class WorkoutHistoryListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

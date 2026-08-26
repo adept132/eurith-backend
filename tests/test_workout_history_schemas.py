@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
+import api.schemas.workout_history as workout_history_schemas
 from api.schemas.workout_history import WorkoutHistoryDraft
 from api.services.models import WorkoutRecalculationOperation, WorkoutSession
 
@@ -89,6 +90,35 @@ def test_history_draft_requires_sets_field():
 
     with pytest.raises(ValidationError):
         WorkoutHistoryDraft.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "exercises",
+    [
+        [],
+        [
+            {
+                "client_uuid": "legacy-exercise-without-sets",
+                "exercise_id": 101,
+                "order_index": 0,
+                "superset_group": None,
+                "notes": None,
+                "sets": [],
+            }
+        ],
+    ],
+    ids=["no-exercises", "exercise-without-sets"],
+)
+def test_history_server_snapshot_preserves_legacy_empty_content(exercises):
+    snapshot_model = getattr(
+        workout_history_schemas,
+        "WorkoutHistoryServerSnapshot",
+        None,
+    )
+
+    assert snapshot_model is not None
+    snapshot = snapshot_model.model_validate(_draft(exercises=exercises))
+    assert snapshot.model_dump()["exercises"] == exercises
 
 
 def test_history_draft_rejects_duplicate_set_numbers():

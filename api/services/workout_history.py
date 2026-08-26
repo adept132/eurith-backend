@@ -13,6 +13,7 @@ from api.schemas.workout_history import (
     WorkoutHistoryDraft,
     WorkoutHistoryExerciseDraft,
     WorkoutHistoryListItem,
+    WorkoutHistoryServerSnapshot,
     WorkoutHistorySetDraft,
 )
 from api.services.exercise_utils import get_base_exercise_query
@@ -52,14 +53,18 @@ class WorkoutHistoryInvalidExercise(WorkoutHistoryError):
 
 
 class WorkoutHistoryRevisionConflict(WorkoutHistoryError):
-    def __init__(self, server_revision: int, server_draft: WorkoutHistoryDraft):
+    def __init__(
+        self,
+        server_revision: int,
+        server_draft: WorkoutHistoryServerSnapshot,
+    ):
         self.server_revision = server_revision
         self.server_draft = server_draft
         super().__init__(str(server_revision))
 
 
 class WorkoutHistoryIdempotencyConflict(WorkoutHistoryError):
-    def __init__(self, server_draft: WorkoutHistoryDraft):
+    def __init__(self, server_draft: WorkoutHistoryServerSnapshot):
         self.server_draft = server_draft
         super().__init__(server_draft.client_uuid)
 
@@ -424,8 +429,8 @@ def _draft_sets_from_exercise(
     ]
 
 
-def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryDraft:
-    return WorkoutHistoryDraft(
+def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryServerSnapshot:
+    return WorkoutHistoryServerSnapshot(
         client_uuid=workout.client_uuid or f"server-workout-{workout.id}",
         base_revision=workout.revision,
         entry_mode=workout.entry_mode,

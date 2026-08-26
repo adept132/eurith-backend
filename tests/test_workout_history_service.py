@@ -1,9 +1,50 @@
-from api.schemas.workout_history import WorkoutHistorySetDraft
-from api.services.models import WorkoutSessionExercise, WorkoutSessionSet
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+import api.services.workout_history as workout_history_service
+from api.schemas.workout_history import WorkoutHistoryDraft, WorkoutHistorySetDraft
+from api.services.models import WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet
 from api.services.workout_history import (
+    WorkoutHistoryIdempotencyConflict,
+    WorkoutHistoryRevisionConflict,
+    _require_exact_history_replay,
     _apply_set_parent_links,
     _draft_sets_from_exercise,
+    draft_from_workout,
+    replace_history_workout,
 )
+
+
+T0 = datetime(2026, 8, 21, 18, 0, tzinfo=timezone.utc)
+T1 = T0 + timedelta(hours=1)
+
+
+def _legacy_workout(*, with_empty_exercise: bool) -> WorkoutSession:
+    exercises = []
+    if with_empty_exercise:
+        exercises.append(
+            WorkoutSessionExercise(
+                id=7,
+                workout_session_id=3,
+                client_uuid="legacy-exercise",
+                exercise_id=9,
+                order_index=0,
+                sets=[],
+            )
+        )
+    return WorkoutSession(
+        id=3,
+        app_user_id=1,
+        client_uuid="legacy-workout",
+        source="free",
+        status="finished",
+        entry_mode="manual",
+        revision=2,
+        started_at=T0,
+        finished_at=T1,
+        exercises=exercises,
+    )
 
 
 def _set(*, set_id: int, client_uuid: str, set_number: int) -> WorkoutSessionSet:
@@ -74,3 +115,73 @@ def test_draft_sets_round_trip_existing_parent_as_client_uuid():
 
     assert result[0]["parent_client_uuid"] is None
     assert result[1]["parent_client_uuid"] == "root"
+
+
+@pytest.mark.parametrize("with_empty_exercise", [False, True])
+def test_draft_from_workout_preserves_legacy_empty_content(with_empty_exercise):
+    snapshot = draft_from_workout(
+        _legacy_workout(with_empty_exercise=with_empty_exercise)
+    )
+
+    assert len(snapshot.exercises) == int(with_empty_exercise)
+    if with_empty_exercise:
+        assert snapshot.exercises[0].sets == []
+
+
+def test_idempotency_conflict_carries_legacy_empty_snapshot():
+    workout = _legacy_workout(with_empty_exercise=True)
+    workout.history_request_fingerprint = "stored-fingerprint"
+
+    with pytest.raises(WorkoutHistoryIdempotencyConflict) as error:
+        _require_exact_history_replay(workout, "different-fingerprint")
+
+    assert error.value.server_draft.exercises[0].sets == []
+
+
+@pytest.mark.asyncio
+async def test_revision_conflict_carries_legacy_empty_snapshot(monkeypatch):
+    workout = _legacy_workout(with_empty_exercise=False)
+
+    async def load_legacy_workout(*args, **kwargs):
+        return workout
+
+    class FakeDb:
+        rolled_back = False
+
+        async def rollback(self):
+            self.rolled_back = True
+
+    monkeypatch.setattr(
+        workout_history_service,
+        "_load_owned_workout",
+        load_legacy_workout,
+    )
+    db = FakeDb()
+    request = WorkoutHistoryDraft(
+        client_uuid="correction-request",
+        base_revision=1,
+        entry_mode="manual",
+        started_at=T0,
+        finished_at=T1,
+        exercises=[
+            {
+                "client_uuid": "request-exercise",
+                "exercise_id": 9,
+                "order_index": 0,
+                "sets": [
+                    {
+                        "client_uuid": "request-set",
+                        "set_number": 1,
+                        "reps": 8,
+                    }
+                ],
+            }
+        ],
+    )
+
+    with pytest.raises(WorkoutHistoryRevisionConflict) as error:
+        await replace_history_workout(db, 1, workout.id, request)
+
+    assert error.value.server_revision == 2
+    assert error.value.server_draft.exercises == []
+    assert db.rolled_back is True
