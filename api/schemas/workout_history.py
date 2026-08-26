@@ -50,7 +50,7 @@ class WorkoutHistoryExerciseDraft(StrictHistoryModel):
     order_index: int = Field(ge=0)
     superset_group: str | None = Field(default=None, max_length=64)
     notes: str | None = None
-    sets: list[WorkoutHistorySetDraft] = Field(default_factory=list)
+    sets: list[WorkoutHistorySetDraft] = Field(min_length=1)
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)
     _normalize_superset = field_validator("superset_group", mode="before")(_blank_to_none)
@@ -87,7 +87,7 @@ class WorkoutHistoryDraft(StrictHistoryModel):
     finished_at: datetime
     notes: str | None = None
     session_rpe: float | None = Field(default=None, ge=0, le=10)
-    exercises: list[WorkoutHistoryExerciseDraft] = Field(default_factory=list)
+    exercises: list[WorkoutHistoryExerciseDraft] = Field(min_length=1)
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)
 

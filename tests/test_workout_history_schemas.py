@@ -53,6 +53,44 @@ def test_history_draft_rejects_negative_duration():
         WorkoutHistoryDraft(**_draft(started_at=T1, finished_at=T0))
 
 
+@pytest.mark.parametrize(
+    "exercises",
+    [
+        [],
+        [
+            {
+                "client_uuid": "exercise-without-sets",
+                "exercise_id": 101,
+                "order_index": 0,
+                "superset_group": None,
+                "notes": None,
+                "sets": [],
+            }
+        ],
+    ],
+    ids=["no-exercises", "exercise-without-sets"],
+)
+def test_history_draft_rejects_empty_training_content(exercises):
+    with pytest.raises(ValidationError):
+        WorkoutHistoryDraft.model_validate(_draft(exercises=exercises))
+
+
+def test_history_draft_requires_exercises_field():
+    payload = _draft()
+    payload.pop("exercises")
+
+    with pytest.raises(ValidationError):
+        WorkoutHistoryDraft.model_validate(payload)
+
+
+def test_history_draft_requires_sets_field():
+    payload = _draft()
+    payload["exercises"][0].pop("sets")
+
+    with pytest.raises(ValidationError):
+        WorkoutHistoryDraft.model_validate(payload)
+
+
 def test_history_draft_rejects_duplicate_set_numbers():
     payload = _draft()
     payload["exercises"][0]["sets"] = [
