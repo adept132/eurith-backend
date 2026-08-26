@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 
 CarryOverStatus = Literal["draft", "applied", "dismissed", "expired"]
@@ -18,14 +18,22 @@ CarryOverDiscardReason = Literal[
     "microcycle_end",
     "no_compatible_day",
 ]
+DisplayName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
+]
+PreviewToken = Annotated[
+    str,
+    StringConstraints(pattern=r"^[0-9a-f]{64}$"),
+]
 
 
 class CarryOverPlacement(BaseModel):
     calendar_day_id: int = Field(gt=0)
     target_date: date
     exercise_id: int = Field(gt=0)
-    target_exercise_name: str = Field(min_length=1, max_length=255)
-    target_day_name: str = Field(min_length=1, max_length=255)
+    target_exercise_name: DisplayName
+    target_day_name: DisplayName
     delta_sets: int = Field(gt=0)
     match_kind: CarryOverMatchKind
 
@@ -38,7 +46,7 @@ class CarryOverDiscard(BaseModel):
 class CarryOverPreviewItem(BaseModel):
     carry_over_id: int = Field(gt=0)
     source_exercise_id: int = Field(gt=0)
-    source_exercise_name: str = Field(min_length=1, max_length=255)
+    source_exercise_name: DisplayName
     requested_sets: int = Field(ge=0)
     placed_sets: int = Field(ge=0)
     discarded_sets: int = Field(ge=0)
@@ -74,12 +82,12 @@ class CarryOverPreviewRequest(BaseModel):
 
 
 class CarryOverDecisionRequest(BaseModel):
-    preview_token: str = Field(min_length=64, max_length=64)
+    preview_token: PreviewToken
 
 
 class CarryOverResponse(BaseModel):
     status: CarryOverStatus
     source_session_id: int = Field(gt=0)
     microcycle_end: date
-    preview_token: str = Field(min_length=64, max_length=64)
+    preview_token: PreviewToken
     items: list[CarryOverPreviewItem]

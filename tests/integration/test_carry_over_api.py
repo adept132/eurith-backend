@@ -191,8 +191,8 @@ async def test_preview_is_deterministic_idempotent_and_has_no_calendar_side_effe
         source_name,
     ]
     assert [placement["target_day_name"] for placement in item["placements"]] == [
-        "push",
-        "push",
+        (await db.get(WorkoutPlan, day.plan_id)).name
+        for day in receiving_days
     ]
     assert [item["delta_sets"] for item in item["placements"]] == [2, 2]
     await db.rollback()

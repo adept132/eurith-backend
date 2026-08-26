@@ -58,8 +58,11 @@ def test_display_context_migration_backfills_legacy_placement_snapshots():
     assert models.WorkoutCarryOver.__tablename__ == "workout_carry_overs"
     assert models.Exercise.__tablename__ == "exercises"
     assert models.UserCalendarDay.__tablename__ == "user_calendar"
+    assert models.WorkoutPlan.__tablename__ == "workout_plans"
     assert "jsonb_array_elements" in migration
     assert "calendar_day_id" in migration
+    assert "calendar_day.plan_id" in migration
+    assert "workout_plans" in migration
     assert "target_exercise_name" in migration
     assert "target_day_name" in migration
     assert "cannot enforce carry-over placement display context" in migration
@@ -93,7 +96,7 @@ def test_carry_over_schema_rejects_inconsistent_counts_and_discard_reasons():
     valid = schema.CarryOverPreviewItem(
         carry_over_id=7,
         source_exercise_id=11,
-        source_exercise_name="Bench press",
+        source_exercise_name="  Bench press  ",
         requested_sets=4,
         placed_sets=2,
         discarded_sets=2,
@@ -102,8 +105,8 @@ def test_carry_over_schema_rejects_inconsistent_counts_and_discard_reasons():
                 "calendar_day_id": 31,
                 "target_date": "2026-08-24",
                 "exercise_id": 5,
-                "target_exercise_name": "Incline bench press",
-                "target_day_name": "Sunday upper body",
+                "target_exercise_name": "  Incline bench press  ",
+                "target_day_name": "  Sunday upper body  ",
                 "delta_sets": 2,
                 "match_kind": "exact",
             }
@@ -111,6 +114,18 @@ def test_carry_over_schema_rejects_inconsistent_counts_and_discard_reasons():
         discarded=[{"sets": 2, "reason": "session_cap"}],
     )
     assert valid.requested_sets == 4
+    assert valid.source_exercise_name == "Bench press"
+    assert valid.placements[0].target_exercise_name == "Incline bench press"
+    assert valid.placements[0].target_day_name == "Sunday upper body"
+
+    with pytest.raises(ValidationError):
+        schema.CarryOverResponse(
+            status="draft",
+            source_session_id=7,
+            microcycle_end="2026-08-24",
+            preview_token="A" * 64,
+            items=[],
+        )
 
     with pytest.raises(ValidationError):
         schema.CarryOverPreviewItem(

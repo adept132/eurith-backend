@@ -205,6 +205,19 @@ def test_decision_payload_excludes_target_display_names():
     ]
 
 
+def test_target_day_name_prefers_selected_workout_plan_over_calendar_tag():
+    service = _service()
+
+    assert service._target_day_name("Upper body", "push", 2) == "Upper body"
+
+
+def test_target_day_name_uses_nonblank_calendar_tag_then_training_number():
+    service = _service()
+
+    assert service._target_day_name("  ", "  Lower body  ", 2) == "Lower body"
+    assert service._target_day_name(None, "  ", 2) == "Тренировка 3"
+
+
 def test_stale_snapshot_labels_follow_target_identity_across_match_kind_change():
     service = _service()
     original = _distribute(

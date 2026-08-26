@@ -450,11 +450,20 @@ def _phase_is_deload(day, block) -> bool:
     return False
 
 
-def _target_day_name(day_name: str | None, index: int) -> str:
-    """Keep the scheduled day label chosen when the preview is built."""
+def _target_day_name(
+    plan_name: str | None, day_name: str | None, index: int
+) -> str:
+    """Select the immutable target workout label with explicit fallbacks."""
 
-    explicit_name = str(day_name or "").strip()
-    return explicit_name or f"Тренировка {index + 1}"
+    for candidate in (plan_name, day_name):
+        explicit_name = str(candidate or "").strip()
+        if explicit_name:
+            return explicit_name
+    return f"Тренировка {max(0, index) + 1}"
+
+
+def _display_name(value: str | None) -> str:
+    return str(value or "").strip()
 
 
 async def preview_carry_over(
@@ -689,7 +698,7 @@ async def preview_carry_over(
             matches = exact or compatible
             if not matches:
                 continue
-            target_plan_exercise, target_exercise, _ = matches[0]
+            target_plan_exercise, target_exercise, target_plan = matches[0]
             target_readiness = level_for_exercise(
                 readiness_verdict, build_exercise_target(target_exercise)
             )
@@ -698,8 +707,9 @@ async def preview_carry_over(
                     calendar_day_id=day.id,
                     target_date=day.target_date,
                     exercise_id=target_plan_exercise.exercise_id,
-                    target_exercise_name=target_exercise.name,
+                    target_exercise_name=_display_name(target_exercise.name),
                     target_day_name=_target_day_name(
+                        target_plan.name,
                         day.day_tag,
                         max(0, int(day.microcycle_day_number or 1) - 1),
                     ),
@@ -727,7 +737,7 @@ async def preview_carry_over(
         source_requests.append(
             CarryOverSourceRequest(
                 source_exercise_id=source_exercise.id,
-                source_exercise_name=exercise.name,
+                source_exercise_name=_display_name(exercise.name),
                 exercise_id=exercise.id,
                 muscle=muscle,
                 requested_sets=requested,

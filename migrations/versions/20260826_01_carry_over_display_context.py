@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.text(
             """
             UPDATE workout_carry_overs AS carry_over
-            SET source_exercise_name = exercises.name
+            SET source_exercise_name = BTRIM(exercises.name)
             FROM workout_session_exercises AS source_session_exercise
             JOIN exercises ON exercises.id = source_session_exercise.exercise_id
             WHERE source_session_exercise.id = carry_over.source_exercise_id
@@ -46,8 +46,11 @@ def upgrade() -> None:
                 ON exercises.id = NULLIF(placement.value ->> 'exercise_id', '')::integer
             LEFT JOIN user_calendar AS calendar_day
                 ON calendar_day.id = NULLIF(placement.value ->> 'calendar_day_id', '')::integer
+            LEFT JOIN workout_plans AS target_plan
+                ON target_plan.id = calendar_day.plan_id
             WHERE exercises.id IS NULL
                OR NULLIF(BTRIM(exercises.name), '') IS NULL
+               OR length(BTRIM(exercises.name)) > 255
                OR calendar_day.id IS NULL
             """
         )
@@ -69,12 +72,13 @@ def upgrade() -> None:
                             jsonb_set(
                                 placement.value,
                                 '{target_exercise_name}',
-                                to_jsonb(exercises.name),
+                                to_jsonb(BTRIM(exercises.name)),
                                 true
                             ),
                             '{target_day_name}',
                             to_jsonb(
                                 COALESCE(
+                                    NULLIF(BTRIM(target_plan.name), ''),
                                     NULLIF(BTRIM(calendar_day.day_tag), ''),
                                     'Тренировка ' || GREATEST(
                                         COALESCE(calendar_day.microcycle_day_number, 1),
@@ -93,6 +97,8 @@ def upgrade() -> None:
                     ON exercises.id = (placement.value ->> 'exercise_id')::integer
                 JOIN user_calendar AS calendar_day
                     ON calendar_day.id = (placement.value ->> 'calendar_day_id')::integer
+                LEFT JOIN workout_plans AS target_plan
+                    ON target_plan.id = calendar_day.plan_id
                 GROUP BY carry_over.id
             )
             UPDATE workout_carry_overs AS carry_over
@@ -111,6 +117,8 @@ def upgrade() -> None:
             CROSS JOIN LATERAL jsonb_array_elements(carry_over.placements) AS placement(value)
             WHERE NULLIF(BTRIM(placement.value ->> 'target_exercise_name'), '') IS NULL
                OR NULLIF(BTRIM(placement.value ->> 'target_day_name'), '') IS NULL
+               OR length(BTRIM(placement.value ->> 'target_exercise_name')) > 255
+               OR length(BTRIM(placement.value ->> 'target_day_name')) > 255
             """
         )
     )
@@ -125,7 +133,8 @@ def upgrade() -> None:
             """
             SELECT count(*)
             FROM workout_carry_overs
-            WHERE source_exercise_name IS NULL
+            WHERE NULLIF(BTRIM(source_exercise_name), '') IS NULL
+               OR length(BTRIM(source_exercise_name)) > 255
             """
         )
     )
