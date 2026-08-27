@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import UniqueConstraint
 
 import api.schemas.workout_history as workout_history_schemas
 from api.schemas.workout_history import WorkoutHistoryDraft
@@ -52,6 +53,33 @@ def _draft(**overrides) -> dict:
 def test_history_draft_rejects_negative_duration():
     with pytest.raises(ValidationError):
         WorkoutHistoryDraft(**_draft(started_at=T1, finished_at=T0))
+
+
+@pytest.mark.parametrize("reps", [None, 0, 1001, 8.5])
+def test_history_draft_rejects_reps_outside_integer_1_to_1000(reps):
+    payload = _draft()
+    payload["exercises"][0]["sets"][0]["reps"] = reps
+
+    with pytest.raises(ValidationError):
+        WorkoutHistoryDraft.model_validate(payload)
+
+
+@pytest.mark.parametrize("reps", [1, 1000])
+def test_history_draft_accepts_reps_boundaries(reps):
+    payload = _draft()
+    payload["exercises"][0]["sets"][0]["reps"] = reps
+
+    assert WorkoutHistoryDraft.model_validate(payload).exercises[0].sets[0].reps == reps
+
+
+@pytest.mark.parametrize("legacy_reps", [None, 0])
+def test_history_server_snapshot_preserves_legacy_reps(legacy_reps):
+    payload = _draft()
+    payload["exercises"][0]["sets"][0]["reps"] = legacy_reps
+
+    snapshot = workout_history_schemas.WorkoutHistoryServerSnapshot.model_validate(payload)
+
+    assert snapshot.exercises[0].sets[0].reps == legacy_reps
 
 
 @pytest.mark.parametrize(
@@ -118,7 +146,10 @@ def test_history_server_snapshot_preserves_legacy_empty_content(exercises):
 
     assert snapshot_model is not None
     snapshot = snapshot_model.model_validate(_draft(exercises=exercises))
-    assert snapshot.model_dump()["exercises"] == exercises
+    snapshot_exercises = snapshot.model_dump()["exercises"]
+    for exercise in snapshot_exercises:
+        exercise.pop("exercise_name", None)
+    assert snapshot_exercises == exercises
 
 
 def test_history_draft_rejects_duplicate_set_numbers():
@@ -196,3 +227,18 @@ def test_history_metadata_models_expose_revision_and_durable_operation_key():
         for constraint in operation_constraints
         if hasattr(constraint, "columns")
     )
+
+
+def test_workout_client_uuid_is_unique_per_user_while_remaining_nullable():
+    constraints = [
+        constraint
+        for constraint in WorkoutSession.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
+    ]
+
+    assert any(
+        constraint.name == "uq_workout_sessions_user_client_uuid"
+        and list(constraint.columns.keys()) == ["app_user_id", "client_uuid"]
+        for constraint in constraints
+    )
+    assert WorkoutSession.__table__.c.client_uuid.nullable is True

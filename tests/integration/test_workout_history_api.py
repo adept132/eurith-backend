@@ -222,7 +222,9 @@ async def test_manual_create_changed_replay_returns_typed_conflict(
     assert second.status_code == 409, second.text
     detail = second.json()["detail"]
     assert detail["error"] == "history_idempotency_conflict"
+    assert detail["server_workout_id"] == first.json()["workout"]["id"]
     assert detail["server_draft"]["notes"] == "Session note"
+    assert detail["server_draft"]["exercises"][0]["exercise_name"] == history_exercise.name
 
 
 @pytest.mark.asyncio
@@ -281,6 +283,60 @@ async def test_patch_rejects_stale_revision_with_server_draft(
     assert detail["error"] == "history_revision_conflict"
     assert detail["server_revision"] == 1
     assert detail["server_draft"]["base_revision"] == 1
+    assert detail["server_draft"]["exercises"][0]["exercise_name"] == history_exercise.name
+
+
+@pytest.mark.asyncio
+async def test_patch_exact_replay_after_lost_response_is_idempotent(
+    client, db: AsyncSession, test_user: AppUser, history_exercise: Exercise
+):
+    workout = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    body = history_body(
+        history_exercise.id,
+        base_revision=workout.revision,
+        entry_mode="live",
+        weight="82.50",
+    )
+
+    first = await client.patch(f"/workouts/{workout.id}/history", json=body)
+    replay = await client.patch(f"/workouts/{workout.id}/history", json=body)
+
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["workout"]["id"] == workout.id
+    assert replay.json()["workout"]["revision"] == body["base_revision"] + 1
+
+
+@pytest.mark.asyncio
+async def test_patch_different_edit_at_same_stale_revision_remains_conflict(
+    client, db: AsyncSession, test_user: AppUser, history_exercise: Exercise
+):
+    workout = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    body = history_body(
+        history_exercise.id,
+        base_revision=workout.revision,
+        entry_mode="live",
+        weight="82.50",
+    )
+
+    first = await client.patch(f"/workouts/{workout.id}/history", json=body)
+    changed = {**body, "notes": "different concurrent edit"}
+    conflict = await client.patch(f"/workouts/{workout.id}/history", json=changed)
+
+    assert first.status_code == 200, first.text
+    assert conflict.status_code == 409, conflict.text
+    assert conflict.json()["detail"]["error"] == "history_revision_conflict"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reps", [None, 0, 1001])
+async def test_history_router_rejects_invalid_reps(client, history_exercise: Exercise, reps):
+    body = history_body(history_exercise.id)
+    body["exercises"][0]["sets"][0]["reps"] = reps
+
+    response = await client.post("/workouts/history", json=body)
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

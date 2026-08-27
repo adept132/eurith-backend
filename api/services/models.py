@@ -283,8 +283,8 @@ class WorkoutSession(Base):
     __tablename__ = "workout_sessions"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # Клиентский идемпотентный ключ для offline-синхронизации (см. /sync/workouts).
-    # Уникальность обеспечивается на уровне приложения в рамках app_user (как import_key):
-    # init_db добавляет колонку, но не создаёт констрейнты/индексы.
+    # Nullable нужен для совместимости с legacy-строками; ненулевые ключи
+    # уникальны в рамках пользователя на уровне базы данных.
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     # Счётчик успешных синхронизаций — основа оптимистичной блокировки: клиент шлёт
     # base_version, сервер при расхождении отвечает 409 с актуальным состоянием.
@@ -382,6 +382,11 @@ class WorkoutSession(Base):
                                                                      order_by="WorkoutSessionExercise.order_index")
 
     __table_args__ = (
+        UniqueConstraint(
+            "app_user_id",
+            "client_uuid",
+            name="uq_workout_sessions_user_client_uuid",
+        ),
         CheckConstraint("source IN ('free', 'split_day', 'plan')", name="ck_workout_sessions_source"),
         CheckConstraint(
             "status IN ('active', 'paused', 'finished')",

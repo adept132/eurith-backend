@@ -36,7 +36,7 @@ class WorkoutHistorySetDraft(StrictHistoryModel):
     set_number: int = Field(ge=1)
     set_type: WorkoutSetType = "normal"
     weight: Decimal | None = Field(default=None, ge=0, le=2000)
-    reps: int | None = Field(default=None, ge=0, le=1000)
+    reps: int = Field(strict=True, ge=1, le=1000)
     effort_level: WorkoutEffortLevel | None = None
     notes: str | None = None
     is_completed: bool = True
@@ -104,8 +104,15 @@ class WorkoutHistoryDraft(StrictHistoryModel):
         return self
 
 
+class WorkoutHistoryServerSetSnapshot(WorkoutHistorySetDraft):
+    # Older completed sessions may predate strict history-entry validation.
+    # Keep those snapshots readable while new writes require 1..1000 reps.
+    reps: int | None = Field(default=None, ge=0, le=1000)
+
+
 class WorkoutHistoryServerExerciseSnapshot(WorkoutHistoryExerciseDraft):
-    sets: list[WorkoutHistorySetDraft] = Field(default_factory=list)
+    exercise_name: str | None = Field(default=None, min_length=1, max_length=255)
+    sets: list[WorkoutHistoryServerSetSnapshot] = Field(default_factory=list)
 
 
 class WorkoutHistoryServerSnapshot(WorkoutHistoryDraft):

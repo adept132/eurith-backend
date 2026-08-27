@@ -56,6 +56,7 @@ def _translate_history_error(exc: Exception) -> HTTPException:
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "error": "history_idempotency_conflict",
+                "server_workout_id": exc.server_workout_id,
                 "server_revision": exc.server_draft.base_revision,
                 "server_draft": exc.server_draft.model_dump(mode="json"),
             },

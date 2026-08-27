@@ -9,9 +9,11 @@ from api.services.workout_history import (
     WorkoutHistoryIdempotencyConflict,
     WorkoutHistoryRevisionConflict,
     _require_exact_history_replay,
+    _history_request_fingerprint,
     _apply_set_parent_links,
     _draft_sets_from_exercise,
     draft_from_workout,
+    create_history_workout,
     replace_history_workout,
 )
 
@@ -76,6 +78,65 @@ def _draft_set(
         notes=None,
         is_completed=True,
     )
+
+
+def _matching_correction() -> tuple[WorkoutSession, WorkoutHistoryDraft]:
+    exercise = WorkoutSessionExercise(
+        id=7,
+        workout_session_id=3,
+        client_uuid="request-exercise",
+        exercise_id=9,
+        order_index=0,
+        superset_group=None,
+        notes="exercise note",
+        sets=[_set(set_id=101, client_uuid="request-set", set_number=1)],
+    )
+    exercise.exercise = workout_history_service.Exercise(id=9, name="Жим лёжа")
+    workout = WorkoutSession(
+        id=3,
+        app_user_id=1,
+        client_uuid="persisted-workout",
+        source="free",
+        status="finished",
+        entry_mode="manual",
+        revision=2,
+        started_at=T0,
+        finished_at=T1,
+        notes="server note",
+        session_rpe=7,
+        exercises=[exercise],
+    )
+    request = WorkoutHistoryDraft(
+        client_uuid="correction-request",
+        base_revision=1,
+        entry_mode="manual",
+        started_at=T0,
+        finished_at=T1,
+        notes="server note",
+        session_rpe=7,
+        exercises=[
+            {
+                "client_uuid": "request-exercise",
+                "exercise_id": 9,
+                "order_index": 0,
+                "superset_group": None,
+                "notes": "exercise note",
+                "sets": [
+                    {
+                        "client_uuid": "request-set",
+                        "set_number": 1,
+                        "set_type": "normal",
+                        "weight": 80,
+                        "reps": 8,
+                        "effort_level": "medium",
+                        "notes": None,
+                        "is_completed": True,
+                    }
+                ],
+            }
+        ],
+    )
+    return workout, request
 
 
 def test_apply_set_parent_links_resolves_client_uuid_to_persistence_id():
@@ -185,3 +246,99 @@ async def test_revision_conflict_carries_legacy_empty_snapshot(monkeypatch):
     assert error.value.server_revision == 2
     assert error.value.server_draft.exercises == []
     assert db.rolled_back is True
+
+
+@pytest.mark.asyncio
+async def test_exact_correction_replay_after_lost_response_returns_current_workout(
+    monkeypatch,
+):
+    workout, request = _matching_correction()
+
+    async def load_workout(*args, **kwargs):
+        return workout
+
+    class FakeDb:
+        rolled_back = False
+
+        async def rollback(self):
+            self.rolled_back = True
+
+    monkeypatch.setattr(workout_history_service, "_load_owned_workout", load_workout)
+    db = FakeDb()
+
+    result = await replace_history_workout(db, 1, workout.id, request)
+
+    assert result is workout
+    assert result.revision == request.base_revision + 1
+    assert db.rolled_back is False
+
+
+@pytest.mark.asyncio
+async def test_different_correction_at_same_stale_revision_remains_a_conflict(monkeypatch):
+    workout, request = _matching_correction()
+    request = request.model_copy(update={"notes": "different concurrent edit"})
+
+    async def load_workout(*args, **kwargs):
+        return workout
+
+    class FakeDb:
+        rolled_back = False
+
+        async def rollback(self):
+            self.rolled_back = True
+
+    monkeypatch.setattr(workout_history_service, "_load_owned_workout", load_workout)
+    db = FakeDb()
+
+    with pytest.raises(WorkoutHistoryRevisionConflict) as error:
+        await replace_history_workout(db, 1, workout.id, request)
+
+    assert error.value.server_revision == 2
+    assert error.value.server_draft.exercises[0].exercise_name == "Жим лёжа"
+    assert db.rolled_back is True
+
+
+@pytest.mark.asyncio
+async def test_create_integrity_race_reloads_exact_winner_deterministically(monkeypatch):
+    workout, correction = _matching_correction()
+    request = correction.model_copy(
+        update={"base_revision": 0, "client_uuid": "racing-create"}
+    )
+    workout.client_uuid = request.client_uuid
+    workout.entry_mode = request.entry_mode
+    workout.revision = 0
+    workout.history_request_fingerprint = _history_request_fingerprint(request)
+    loads = iter([None, workout])
+
+    async def load_by_client_uuid(*args, **kwargs):
+        return next(loads)
+
+    async def validate_exercises(*args, **kwargs):
+        return {9: workout.exercises[0].exercise}
+
+    class FakeDb:
+        rollback_count = 0
+
+        def add(self, value):
+            return None
+
+        async def flush(self):
+            from sqlalchemy.exc import IntegrityError
+
+            raise IntegrityError("INSERT", {}, Exception("unique race"))
+
+        async def rollback(self):
+            self.rollback_count += 1
+
+    monkeypatch.setattr(
+        workout_history_service,
+        "_load_workout_by_client_uuid",
+        load_by_client_uuid,
+    )
+    monkeypatch.setattr(workout_history_service, "_validate_exercises", validate_exercises)
+    db = FakeDb()
+
+    result = await create_history_workout(db, 1, request)
+
+    assert result is workout
+    assert db.rollback_count == 1

@@ -64,7 +64,12 @@ class WorkoutHistoryRevisionConflict(WorkoutHistoryError):
 
 
 class WorkoutHistoryIdempotencyConflict(WorkoutHistoryError):
-    def __init__(self, server_draft: WorkoutHistoryServerSnapshot):
+    def __init__(
+        self,
+        server_workout_id: int,
+        server_draft: WorkoutHistoryServerSnapshot,
+    ):
+        self.server_workout_id = server_workout_id
         self.server_draft = server_draft
         super().__init__(server_draft.client_uuid)
 
@@ -89,7 +94,69 @@ def _require_exact_history_replay(
         and existing.history_request_fingerprint == request_fingerprint
     ):
         return existing
-    raise WorkoutHistoryIdempotencyConflict(draft_from_workout(existing))
+    raise WorkoutHistoryIdempotencyConflict(
+        existing.id,
+        draft_from_workout(existing),
+    )
+
+
+def _history_set_state(item: WorkoutHistorySetDraft) -> tuple[object, ...]:
+    return (
+        item.client_uuid,
+        item.parent_client_uuid,
+        item.set_number,
+        item.set_type,
+        item.weight,
+        item.reps,
+        item.effort_level,
+        item.notes,
+        item.is_completed,
+    )
+
+
+def _history_exercise_state(item: WorkoutHistoryExerciseDraft) -> tuple[object, ...]:
+    return (
+        item.client_uuid,
+        item.exercise_id,
+        item.order_index,
+        item.superset_group,
+        item.notes,
+        tuple(
+            _history_set_state(workout_set)
+            for workout_set in sorted(
+                item.sets,
+                key=lambda value: (value.set_number, value.client_uuid),
+            )
+        ),
+    )
+
+
+def _history_mutable_state(draft: WorkoutHistoryDraft) -> tuple[object, ...]:
+    return (
+        draft.entry_mode,
+        draft.started_at,
+        draft.finished_at,
+        draft.notes,
+        draft.session_rpe,
+        tuple(
+            _history_exercise_state(exercise)
+            for exercise in sorted(
+                draft.exercises,
+                key=lambda value: (value.order_index, value.client_uuid),
+            )
+        ),
+    )
+
+
+def _is_exact_history_correction_replay(
+    workout: WorkoutSession,
+    draft: WorkoutHistoryDraft,
+) -> bool:
+    return (
+        workout.revision == draft.base_revision + 1
+        and _history_mutable_state(draft_from_workout(workout))
+        == _history_mutable_state(draft)
+    )
 
 
 def _workout_options():
@@ -372,6 +439,8 @@ async def replace_history_workout(
         if workout.status != "finished":
             raise WorkoutHistoryNotFinished
         if workout.revision != draft.base_revision:
+            if _is_exact_history_correction_replay(workout, draft):
+                return workout
             raise WorkoutHistoryRevisionConflict(
                 workout.revision, draft_from_workout(workout)
             )
@@ -442,6 +511,7 @@ def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryServerSnapshot:
             {
                 "client_uuid": item.client_uuid or f"server-exercise-{item.id}",
                 "exercise_id": item.exercise_id,
+                "exercise_name": item.exercise.name if item.exercise is not None else None,
                 "order_index": item.order_index,
                 "superset_group": item.superset_group,
                 "notes": item.notes,

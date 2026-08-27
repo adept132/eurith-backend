@@ -24,9 +24,10 @@ def test_revision_conflict_returns_structured_legacy_empty_workout_snapshot():
 def test_idempotency_conflict_returns_structured_legacy_empty_sets_snapshot():
     snapshot = draft_from_workout(_legacy_workout(with_empty_exercise=True))
 
-    response = _translate_history_error(WorkoutHistoryIdempotencyConflict(snapshot))
+    response = _translate_history_error(WorkoutHistoryIdempotencyConflict(3, snapshot))
 
     assert response.status_code == 409
     assert response.detail["error"] == "history_idempotency_conflict"
+    assert response.detail["server_workout_id"] == 3
     assert response.detail["server_revision"] == 2
     assert response.detail["server_draft"]["exercises"][0]["sets"] == []
