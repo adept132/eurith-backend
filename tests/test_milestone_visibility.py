@@ -21,14 +21,15 @@ def test_one_milestone_per_lift_at_most():
 
 
 def test_taken_milestone_is_hidden_and_the_next_one_shows():
-    """Присед 130 при весе 80: сотка и «свой вес на пять» взяты, полтора — нет."""
+    """Присед 130 при весе 80: взяты 80, 100 и 120 — первая невзятая двойной вес."""
     result = visible_milestones(
         current_e1rm={"squat": 130.0},
         bodyweight=80.0,
         experience_level="intermediate",
         ceiling_pct=INTERMEDIATE_CAP,
     )
-    assert _codes(result) == ["squat_1_5x_bw"]
+    squat = [v for v in result if v.milestone.lift == "squat"]
+    assert [v.milestone.code for v in squat] == ["squat_2x_bw"]
 
 
 def test_unreachable_milestone_is_hidden_entirely():
@@ -51,7 +52,7 @@ def test_beginner_sees_only_the_lowest_rung_of_each_lift():
         ceiling_pct=0.01,
     )
     assert _codes(result) == [
-        "squat_100kg", "bench_bw", "deadlift_100kg",
+        "squat_bw_5reps", "bench_bw", "deadlift_100kg",
         "ohp_0_5x_bw", "pullup_first", "row_bw_8reps",
     ]
     assert all(v.has_history is False for v in result)
@@ -77,7 +78,7 @@ def test_relative_milestones_vanish_without_bodyweight():
         experience_level="intermediate",
         ceiling_pct=INTERMEDIATE_CAP,
     )
-    assert set(_codes(result)) <= {"squat_100kg", "deadlift_100kg"}
+    assert set(_codes(result)) == {"squat_100kg", "bench_100kg", "deadlift_100kg"}
 
 
 def test_remaining_is_the_gap_to_the_threshold():
