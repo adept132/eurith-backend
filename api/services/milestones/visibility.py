@@ -32,12 +32,8 @@ def _reachable(current: float, target: float, ceiling_pct: float) -> bool:
     """Успеет ли лифт дойти до порога за горизонт при потолочном темпе."""
     if current <= 0 or ceiling_pct <= 0:
         return False
-    # Взятая веха (target < current) считается "достижимой" (уже достигнута).
-    # Невзятая проверяется на реальную достижимость.
-    if target > current:
-        weekly = current * ceiling_pct
-        return (target - current) / weekly <= MAX_WEEKS_TO_TARGET
-    return True  # Взятая веха всегда "достижима"
+    weekly = current * ceiling_pct
+    return (target - current) / weekly <= MAX_WEEKS_TO_TARGET
 
 
 def visible_milestones(
@@ -55,8 +51,6 @@ def visible_milestones(
     остальным нижняя ступень показывается без чисел и без срока (решение 9).
     """
     beginner = (experience_level or "").strip().lower() == "beginner"
-    has_any_history = bool(current_e1rm)
-
     by_lift: dict[str, list[tuple[float, Milestone]]] = {}
     for m in MILESTONES:
         target = target_kg(m, bodyweight)
@@ -67,67 +61,27 @@ def visible_milestones(
 
     result: list[VisibleMilestone] = []
     for lift, rungs in by_lift.items():
+        # Лестница задаётся килограммами, а не порядком объявления в каталоге.
+        rungs.sort(key=lambda pair: (pair[0], pair[1].target_reps))
         current = current_e1rm.get(lift)
 
         if current is None:
-            if not has_any_history:
-                # Без истории вообще показываем первую в каталоге, которая может быть посчитана.
-                # (Первая in MILESTONES, которая попала в by_lift.)
-                for m in MILESTONES:
-                    if m.lift != lift:
-                        continue
-                    target = target_kg(m, bodyweight)
-                    if target is not None:
-                        result.append(VisibleMilestone(m, target, None, False))
-                    break  # Всегда break после первой вехи этого движения в каталоге
+            lowest_target, lowest = rungs[0]
+            result.append(VisibleMilestone(lowest, lowest_target, None, False))
             continue
-
-        # Есть история по этому движению, сортируем по килограммам.
-        # Лестница задаётся килограммами, а не порядком объявления в каталоге.
-        rungs.sort(key=lambda pair: (pair[0], pair[1].target_reps))
 
         if beginner:
             # У новичка история уже есть, но лестницу всё равно не открываем
             # целиком: пусть берёт ближайшую, а не цель на три года.
             rungs = rungs[:1] if rungs[0][0] > current else rungs
 
-        # Показываем ближайшую в разумном диапазоне (±20% от текущего).
-        # С приоритетом: выше текущего, затем ниже.
-        range_low = current * 0.8
-        range_high = current * 1.2
-
-        best_m_above = None
-        best_target_above = None
-        best_diff_above = float('inf')
-
-        best_m_below = None
-        best_target_below = None
-        best_diff_below = float('inf')
-
         for target, m in rungs:
-            if target < range_low:
+            if current >= target:
                 continue
-            if target > range_high:
-                break
             if not _reachable(current, target, ceiling_pct):
-                continue
-            diff = abs(target - current)
-
-            if target > current:
-                if diff < best_diff_above:
-                    best_diff_above = diff
-                    best_m_above = m
-                    best_target_above = target
-            elif target < current:
-                if diff < best_diff_below:
-                    best_diff_below = diff
-                    best_m_below = m
-                    best_target_below = target
-
-        if best_m_above is not None:
-            result.append(VisibleMilestone(best_m_above, best_target_above, round(best_target_above - current, 1), True))
-        elif best_m_below is not None:
-            result.append(VisibleMilestone(best_m_below, best_target_below, round(best_target_below - current, 1), True))
+                break
+            result.append(VisibleMilestone(m, target, round(target - current, 1), True))
+            break
 
     # Порядок движений — как в каталоге, чтобы витрина не прыгала между вызовами.
     order = {m.lift: i for i, m in enumerate(MILESTONES)}

@@ -103,3 +103,43 @@ def test_lowest_unmet_threshold_wins_not_declaration_order():
     )
     deadlift = [v for v in result if v.milestone.lift == "deadlift"][0]
     assert deadlift.milestone.code == "deadlift_100kg", "сотка ниже полутора своих (150)"
+
+
+def test_lift_without_history_still_shows_when_another_lift_has_history():
+    """История по приседу не должна прятать остальные пять движений."""
+    result = visible_milestones(
+        current_e1rm={"squat": 130.0},
+        bodyweight=80.0,
+        experience_level="intermediate",
+        ceiling_pct=INTERMEDIATE_CAP,
+    )
+    lifts = {v.milestone.lift for v in result}
+    assert "bench" in lifts, "жим без истории обязан показаться"
+    assert "deadlift" in lifts
+    assert len(lifts) == 6, "показываются все шесть движений"
+
+
+def test_far_but_reachable_milestone_is_shown():
+    """Веха на 50% выше текущего достижима за горизонт и обязана показаться."""
+    result = visible_milestones(
+        current_e1rm={"squat": 100.0},
+        bodyweight=80.0,
+        experience_level="intermediate",
+        ceiling_pct=INTERMEDIATE_CAP,
+    )
+    squat = [v for v in result if v.milestone.lift == "squat"][0]
+    assert squat.milestone.code == "squat_1_5x_bw"
+    assert squat.target == 120.0
+
+
+def test_taken_milestones_are_never_returned():
+    """Ни одна показанная веха не может быть уже взятой: остаток строго > 0."""
+    result = visible_milestones(
+        current_e1rm={"squat": 130.0, "bench": 95.0, "deadlift": 145.0},
+        bodyweight=80.0,
+        experience_level="intermediate",
+        ceiling_pct=INTERMEDIATE_CAP,
+    )
+    for v in result:
+        if v.remaining is not None:
+            assert v.remaining > 0, f"{v.milestone.code}: показана взятая веха"
