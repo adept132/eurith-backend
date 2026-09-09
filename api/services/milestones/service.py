@@ -214,18 +214,22 @@ async def accept_milestone(
     else:
         existing_pref.preference = "favorite"
 
-    # Правило вехи и вес тела на момент принятия — для строки дрейфа (§5.5).
-    # У UserGoal нет JSONB-поля, поэтому храним в settings профиля рядом с
+    await session.flush()
+
+    # Правило вехи, вес тела и id САМОЙ ЦЕЛИ на момент принятия — для строки
+    # дрейфа (§5.5). Флаш выше уже присвоил goal.id: без него следующая
+    # ведущая цель (принятая не через веху, а обычным PATCH /goals) могла бы
+    # получить чужой дрейф просто по совпадению кода/веса. У UserGoal нет
+    # JSONB-поля, поэтому храним в settings профиля рядом с
     # progression.overrides; ведущая цель одна, одной записи достаточно.
     profile = (await session.execute(
         select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
     )).scalars().first()
     if profile is not None:
         settings = dict(profile.settings or {})
-        settings["milestone"] = {"code": code, "bodyweight": bodyweight}
+        settings["milestone"] = {"code": code, "bodyweight": bodyweight, "goal_id": goal.id}
         profile.settings = settings
 
-    await session.flush()
     return goal
 
 
@@ -249,9 +253,17 @@ async def bodyweight_drift(
 ) -> Optional[BodyweightDrift]:
     """Насколько уехал вес тела с момента принятия вехи.
 
-    None во всех случаях, когда предлагать нечего: веху не принимали, она
-    абсолютная (от веса не зависит), ведущей цели больше нет, вес тела не
-    заполнен, расхождение меньше порога.
+    None во всех случаях, когда предлагать нечего:
+    - веху не принимали;
+    - веха абсолютная и от веса тела не зависит;
+    - ведущей цели нет;
+    - ведущая цель — не та, под которую принимали веху (id не совпадает —
+      например, человек принял веху, а потом сделал ведущей свою цель
+      через PATCH /goals/{id}: settings при этом не трогаются, и без
+      сверки id строка дрейфа досталась бы чужой цели);
+    - веху убрали из каталога;
+    - вес тела не заполнен;
+    - расхождение меньше порога.
 
     Цель при этом НЕ правится молча — правку подтверждает человек через
     существующий PATCH /goals/{id} (решение 4: цель заморожена).
@@ -262,6 +274,7 @@ async def bodyweight_drift(
     stored = ((profile.settings or {}).get("milestone") or {}) if profile else {}
     code = stored.get("code")
     stored_bw = stored.get("bodyweight")
+    stored_goal_id = stored.get("goal_id")
     if not code or stored_bw is None:
         return None
 
@@ -279,7 +292,9 @@ async def bodyweight_drift(
             UserGoal.is_primary.is_(True),
         )
     )).scalars().first()
-    if goal is None:
+    # Записей без goal_id в проде нет (фича не выпущена) — отсутствие ключа
+    # тоже трактуем как несовпадение, без обратной совместимости.
+    if goal is None or goal.id != stored_goal_id:
         return None
 
     current_bw = await repository.latest_bodyweight(session, app_user_id)

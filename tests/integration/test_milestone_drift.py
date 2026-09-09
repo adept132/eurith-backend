@@ -72,6 +72,41 @@ async def test_absolute_milestone_never_drifts(client, auth_headers, test_user):
     assert r.json() is None
 
 
+async def test_drift_is_silent_when_primary_goal_is_not_the_milestones_goal(
+    client, auth_headers, test_user, fresh_exercise,
+):
+    """Находка ревью: принята веха squat_2x_bw, но ведущей потом сделали
+    чужую силовую цель (жим) через сессию — как это делает PATCH /goals/{id},
+    который settings не трогает. Дрейф не должен подставляться под чужую цель."""
+    await _prepare(test_user.id, 80.0)
+    assert (await client.post("/goals/milestones/squat_2x_bw/accept",
+                              headers=auth_headers)).status_code == 201
+
+    from datetime import date, timedelta
+
+    from sqlalchemy import update as sa_update
+    from api.services.models import UserGoal
+
+    async with SessionLocal() as db:
+        await db.execute(
+            sa_update(UserGoal)
+            .where(UserGoal.app_user_id == test_user.id, UserGoal.is_primary.is_(True))
+            .values(is_primary=False)
+        )
+        db.add(UserGoal(
+            app_user_id=test_user.id, goal_type="strength", target_value=120.0,
+            exercise_id=fresh_exercise.id, target_reps=1, is_primary=True,
+            deadline=date.today() + timedelta(days=90),
+        ))
+        await db.commit()
+
+    await _add_weight(test_user.id, 86.0, datetime(2026, 7, 1, tzinfo=timezone.utc))
+
+    r = await client.get("/goals/milestones/drift", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json() is None
+
+
 async def test_drift_disappears_when_the_goal_is_gone(client, auth_headers, test_user):
     """Ведущей цели нет — правку предлагать нечему."""
     await _prepare(test_user.id, 80.0)
