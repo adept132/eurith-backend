@@ -216,18 +216,28 @@ async def accept_milestone(
 
     await session.flush()
 
-    # Правило вехи, вес тела и id САМОЙ ЦЕЛИ на момент принятия — для строки
-    # дрейфа (§5.5). Флаш выше уже присвоил goal.id: без него следующая
-    # ведущая цель (принятая не через веху, а обычным PATCH /goals) могла бы
-    # получить чужой дрейф просто по совпадению кода/веса. У UserGoal нет
-    # JSONB-поля, поэтому храним в settings профиля рядом с
-    # progression.overrides; ведущая цель одна, одной записи достаточно.
+    # Правило вехи, вес тела, id САМОЙ ЦЕЛИ на момент принятия (для строки
+    # дрейфа §5.5) и условия под цель (§5.3). Флаш выше уже присвоил goal.id:
+    # без него следующая ведущая цель (принятая не через веху, а обычным
+    # PATCH /goals) могла бы получить чужой дрейф просто по совпадению
+    # кода/веса. У UserGoal нет JSONB-поля, поэтому храним в settings
+    # профиля рядом с progression.overrides; ведущая цель одна, одной записи
+    # достаточно. Условия читает генерация (routers/plans.py) — §5.3
+    # обещает, что они подставляются КАЖДЫЙ раз, когда план генерируется, а
+    # не разово.
+    cond = conditions_for(milestone.lift)
     profile = (await session.execute(
         select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
     )).scalars().first()
     if profile is not None:
         settings = dict(profile.settings or {})
-        settings["milestone"] = {"code": code, "bodyweight": bodyweight, "goal_id": goal.id}
+        settings["milestone"] = {
+            "code": code,
+            "bodyweight": bodyweight,
+            "goal_id": goal.id,
+            "accents": list(cond.accents),
+            "split_requirement": cond.split_requirement,
+        }
         profile.settings = settings
 
     return goal
@@ -316,3 +326,14 @@ async def bodyweight_drift(
         current_bodyweight=float(current_bw),
         current_target=current_target,
     )
+
+
+def milestone_accents(profile_settings: Optional[dict]) -> list[str]:
+    """Акценты принятой вехи из настроек профиля.
+
+    Пустой список во всех случаях «вехи нет» — вызывающая сторона не обязана
+    разбираться, чего именно не хватает.
+    """
+    milestone = ((profile_settings or {}).get("milestone") or {})
+    accents = milestone.get("accents") or []
+    return [str(a) for a in accents]

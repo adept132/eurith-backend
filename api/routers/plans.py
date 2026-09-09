@@ -26,6 +26,7 @@ from api.services.plan_duration import DurationConfig, estimate_duration_seconds
 from api.services.progression import repository as progression_repo
 from api.services.progression.engine import plan_exercise
 from api.services.progression.resolve import override_for
+from api.services.milestones.service import milestone_accents
 from api.schemas.plan import (
     GeneratePlanRequest, GeneratePlanResponse, GeneratedDayOut, GeneratedExerciseOut,
     ConfirmPlanRequest, ConfirmPlanResponse, GenerationInputSummary,
@@ -183,6 +184,27 @@ async def _load_generation_context(db, current_user, blueprint_id):
     return profile, blueprint, pool
 
 
+def _resolve_accents(config, profile) -> list[str]:
+    """Акценты для генерации по убыванию приоритета.
+
+    Явный выбор человека сильнее всего: он выбирал руками и только что.
+    Дальше акценты принятой вехи — они конкретны и относятся к цели, которую
+    человек себе поставил (§5.3: условия подставляются при КАЖДОЙ генерации).
+    Последними — фокус-мышцы профиля, давняя общая настройка.
+
+    Обрезка до двух — прежнее поведение, не трогаем: генератор больше двух
+    акцентов не различает. Поэтому порядок мышц в курируемой таблице значим —
+    первые две и доедут.
+    """
+    budget = profile.volume_budget or {}
+    return list(dict.fromkeys(
+        config.accent_muscles
+        or ([config.accent_muscle] if config.accent_muscle else [])
+        or milestone_accents(profile.settings)
+        or list((budget.get("meta") or {}).get("focus_muscles") or [])
+    ))[:2]
+
+
 def _generation_input_summary(profile, blueprint, request) -> GenerationInputSummary:
     budget = profile.volume_budget or {}
     weekly = budget.get("weekly_targets") or {}
@@ -194,11 +216,7 @@ def _generation_input_summary(profile, blueprint, request) -> GenerationInputSum
     locations = list(settings.get("locations") or ["gym"])
     allowed = _allowed_equipment(locations)
     config = request.config
-    resolved_accents = list(dict.fromkeys(
-        config.accent_muscles
-        or ([config.accent_muscle] if config.accent_muscle else [])
-        or list((budget.get("meta") or {}).get("focus_muscles") or [])
-    ))[:2]
+    resolved_accents = _resolve_accents(config, profile)
     return GenerationInputSummary(
         blueprint_id=blueprint.id,
         split_name=blueprint.name,
@@ -363,11 +381,7 @@ async def generate_plan(request: GeneratePlanRequest,
         ))).all()
     favorite_ids = {exercise_id for exercise_id, value in preference_rows if value == "favorite"}
     disliked_ids = {exercise_id for exercise_id, value in preference_rows if value == "disliked"}
-    resolved_accents = list(dict.fromkeys(
-        request.config.accent_muscles
-        or ([request.config.accent_muscle] if request.config.accent_muscle else [])
-        or list(((profile.volume_budget or {}).get("meta") or {}).get("focus_muscles") or [])
-    ))[:2]
+    resolved_accents = _resolve_accents(request.config, profile)
     cfg = SelectionConfig(use_supersets=request.config.use_supersets,
                           max_superset_size=request.config.max_superset_size,
                           accent_muscle=request.config.accent_muscle,
