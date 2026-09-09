@@ -40,14 +40,20 @@ def test_mesocycle_presets_exist_in_the_catalog():
 
 
 def test_barbell_lifts_get_the_strength_preset():
-    """Две силовые фазы подряд переводят тяжёлую штангу на percent_1rm."""
+    """У пресета strength две силовые фазы вместо одной, то есть вдвое больше
+    недель, где resolve_scheme переводит движение на проценты от максимума."""
     for lift in ("squat", "bench", "deadlift", "ohp", "row"):
         assert conditions_for(lift).mesocycle_preset == "strength"
 
 
 def test_pullup_gets_a_linear_preset_not_the_strength_one():
-    """Подтягивание не is_heavy_compound (не штанга) — percent_1rm к нему не
-    применяется ни автопилотом, ни через фазы, силовой блок ему ничего не даёт."""
+    """Подтягиванию нужно МЕНЬШЕ недель на процентах, а не ноль.
+
+    resolve_scheme переключает на percent_1rm по одному лишь fatigue_tier == 1
+    (progression/resolve.py, слой 2), проверки снаряда там нет, а подтягивание
+    как раз tier 1 — так что проценты к нему применяются. Но своим весом с
+    блинами точное %1ПМ-планирование ведётся хуже, чем штангой, поэтому берём
+    пресет с одной силовой фазой вместо двух."""
     assert conditions_for("pullup").mesocycle_preset != "strength"
 
 

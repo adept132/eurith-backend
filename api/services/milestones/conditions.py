@@ -46,6 +46,10 @@ CONDITIONS: dict[str, LiftConditions] = {
         split_requirement={"any_of": ["push", "upper", "arms_shoulders", "full_body"], "min": 2},
         mesocycle_preset="strength",
     ),
+    # Подтягиванию дан пресет с ОДНОЙ силовой фазой, а не с двумя: проценты
+    # от максимума к нему применяются (resolve_scheme смотрит только на
+    # fatigue_tier == 1, а подтягивание именно tier 1), но своим весом с
+    # блинами по %1ПМ планируется хуже, чем штангой.
     "pullup": LiftConditions(
         accents=("lats", "biceps", "mid_back"),
         split_requirement={"any_of": ["pull", "upper", "full_body"], "min": 2},
