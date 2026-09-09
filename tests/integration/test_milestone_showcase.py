@@ -66,6 +66,11 @@ async def test_card_without_history_has_no_numbers(test_user):
 
 
 async def test_card_with_history_reports_the_gap(test_user):
+    """Остаток — разница e1RM, не «целевые кг минус current» (финальное
+    ревью, Critical): target_e1rm(bench_100kg) = 100 × 31/30 = 103.3(3) ->
+    103.3; remaining = 103.3 - 87.5 = 15.8. `target` на карточке остаётся
+    голыми килограммами штанги (100.0) — меняется только то, по чему
+    считается остаток."""
     await _set_bodyweight(test_user.id, 80.0)
     await _set_level(test_user.id, "intermediate")
     await _set_e1rm(test_user.id, "bench", 87.5)
@@ -75,7 +80,7 @@ async def test_card_with_history_reports_the_gap(test_user):
 
     bench = [c for c in cards if c.lift == "bench"][0]
     assert bench.has_history is True
-    assert bench.remaining == 12.5
+    assert bench.remaining == 15.8
     assert bench.target == 100.0
 
 

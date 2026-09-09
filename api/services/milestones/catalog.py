@@ -97,3 +97,23 @@ def target_kg(milestone: Milestone, bodyweight: Optional[float]) -> Optional[flo
     if bodyweight is None:
         return None
     return round(bodyweight * milestone.bodyweight_multiple + milestone.bodyweight_addend, 1)
+
+
+def target_e1rm(milestone: Milestone, bodyweight: Optional[float]) -> Optional[float]:
+    """Целевой e1RM вехи: тот же порог в кг, домноженный по формуле Эпли.
+
+    ФОРМУЛА ОБЯЗАНА СОВПАДАТЬ с `_goal_target_e1rm`
+    (api/services/goal/service.py: `target_value * (1 + target_reps / 30)`) —
+    именно в этой шкале автопилот решает, достигнута ли цель, и лестница вех
+    обязана мерить взятость тем же прибором, иначе ступень захлопывается на
+    пороге, которого автопилот не разделяет (финальное ревью, Critical).
+    Не импортируется оттуда напрямую: этот модуль остаётся чистым, без
+    зависимостей от моделей.
+
+    None — если посчитать нечем (см. target_kg): у многоповторной вехи без
+    веса тела своя e1RM-шкала тоже недостижима.
+    """
+    kg = target_kg(milestone, bodyweight)
+    if kg is None:
+        return None
+    return round(kg * (1.0 + milestone.target_reps / 30.0), 1)

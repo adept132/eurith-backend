@@ -80,16 +80,25 @@ def test_no_history_gives_no_remaining_but_still_shows():
 
 
 def test_relative_milestones_vanish_without_bodyweight():
-    """Вес тела не заполнен — остаются только абсолютные (§7)."""
+    """Вес тела не заполнен — остаются абсолютные и подтягивания (§7,
+    финальное ревью Important 5): подтягивания считаются числом повторов,
+    свой вес отягощает автоматически, знать его точно не требуется."""
     result = visible_milestones(
         current_e1rm={},
         bodyweight=None,
         ceiling_pct=INTERMEDIATE_CAP,
     )
-    assert set(_codes(result)) == {"squat_100kg", "bench_100kg", "deadlift_100kg"}
+    assert set(_codes(result)) == {
+        "squat_100kg", "bench_100kg", "deadlift_100kg", "pullup_first",
+    }
 
 
 def test_remaining_is_the_gap_to_the_threshold():
+    """Остаток — это разница e1RM (финальное ревью, Critical), не «целевые кг
+    минус current». bench_100kg: target_reps=1, target_e1rm = 100 × 31/30 =
+    103.3(3) -> округление 103.3; remaining = 103.3 - 87.5 = 15.8. `target`
+    на карточке при этом остаётся голыми килограммами штанги (100.0) — это
+    решение 5.1 не меняется, меняется только то, ПО ЧЕМУ считается остаток."""
     result = visible_milestones(
         current_e1rm={"bench": 87.5},
         bodyweight=80.0,
@@ -97,7 +106,7 @@ def test_remaining_is_the_gap_to_the_threshold():
     )
     bench = [v for v in result if v.milestone.lift == "bench"][0]
     assert bench.milestone.code == "bench_100kg"
-    assert bench.remaining == 12.5
+    assert bench.remaining == 15.8
     assert bench.target == 100.0
 
 
@@ -126,15 +135,74 @@ def test_lift_without_history_still_shows_when_another_lift_has_history():
 
 
 def test_far_but_reachable_milestone_is_shown():
-    """Веха на 50% выше текущего достижима за горизонт и обязана показаться."""
+    """Полтора своих веса достижимо за горизонт и обязано показаться.
+
+    current=110 взят выше target_e1rm обеих ступеней ниже (squat_bw_5reps
+    93.3, squat_100kg 103.3 при 80 кг) — обе уже взяты по e1RM, а не по
+    голым кг (было бы 100 до правки Critical: 100 kg current совпадало бы с
+    squat_100kg=100 кг ровно и подменяло бы «взято» дырой в округлении)."""
     result = visible_milestones(
-        current_e1rm={"squat": 100.0},
+        current_e1rm={"squat": 110.0},
         bodyweight=80.0,
         ceiling_pct=INTERMEDIATE_CAP,
     )
     squat = [v for v in result if v.milestone.lift == "squat"][0]
     assert squat.milestone.code == "squat_1_5x_bw"
     assert squat.target == 120.0
+    assert squat.remaining == 14.0
+
+
+def test_pullup_without_bodyweight_has_no_numbers():
+    """Подтягивание без веса тела показывается «слепым»: без target и без
+    remaining — так же, как у вех без истории (финальное ревью Important 5)."""
+    result = visible_milestones(
+        current_e1rm={}, bodyweight=None, ceiling_pct=INTERMEDIATE_CAP,
+    )
+    pullup = [v for v in result if v.milestone.code == "pullup_first"][0]
+    assert pullup.target is None
+    assert pullup.remaining is None
+    assert pullup.has_history is False
+
+
+def test_row_bw_8reps_uses_target_e1rm_not_bare_kg():
+    """Порог — 101.3 (80 × (1 + 8/30)), а не голые 80 кг штанги: раньше веха
+    пряталась уже при e1RM 80 (финальное ревью, Critical)."""
+    visible = visible_milestones(
+        current_e1rm={"row": 90.0}, bodyweight=80.0, ceiling_pct=INTERMEDIATE_CAP,
+    )
+    row = [v for v in visible if v.milestone.lift == "row"]
+    assert [v.milestone.code for v in row] == ["row_bw_8reps"]
+    assert row[0].target == 80.0, "штанга, которую человек будет поднимать, не меняется"
+    assert row[0].remaining == 11.3
+
+    hidden = visible_milestones(
+        current_e1rm={"row": 105.0}, bodyweight=80.0, ceiling_pct=INTERMEDIATE_CAP,
+    )
+    assert "row_bw_8reps" not in _codes(hidden), "e1RM 105 уже выше настоящего порога 101.3"
+
+
+def test_squat_bw_5reps_uses_target_e1rm_not_bare_kg():
+    """Порог — 93.3 (80 × (1 + 5/30)); по голым кг веха гасла на 13 кг раньше."""
+    result = visible_milestones(
+        current_e1rm={"squat": 85.0}, bodyweight=80.0, ceiling_pct=INTERMEDIATE_CAP,
+    )
+    squat = [v for v in result if v.milestone.lift == "squat"][0]
+    assert squat.milestone.code == "squat_bw_5reps"
+    assert squat.target == 80.0
+    assert squat.remaining == 8.3
+
+
+def test_pullup_10_reps_is_reachable_and_ranks_after_plus20():
+    """pullup_10_reps (e1RM 106.7 при 80 кг) труднее pullup_plus20 (103.3) —
+    лестница по e1RM ставит его дальше, а не рядом с pullup_first (80 по
+    голым кг, откуда и была мёртвая карточка, финальное ревью Critical)."""
+    result = visible_milestones(
+        current_e1rm={"pullup": 104.0}, bodyweight=80.0, ceiling_pct=INTERMEDIATE_CAP,
+    )
+    pullup = [v for v in result if v.milestone.lift == "pullup"][0]
+    assert pullup.milestone.code == "pullup_10_reps"
+    assert pullup.target == 80.0, "штанга тут ни при чём — это счёт повторов своим весом"
+    assert pullup.remaining == 2.7
 
 
 def test_taken_milestones_are_never_returned():

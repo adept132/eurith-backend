@@ -13,7 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from api.services.milestones.catalog import MILESTONES, Milestone, target_kg
+from api.services.milestones.catalog import (
+    MILESTONES, Milestone, target_e1rm, target_kg,
+)
 
 # Горизонт достижимости: веха, до которой при потолочном темпе идти дольше,
 # не показывается вовсе — витрина не торгует недостижимым (§5.2, п. 2).
@@ -56,33 +58,61 @@ def visible_milestones(
     ключ), оно пропадает из выдачи целиком: `_reachable` считает нулевой
     текущий вес недостижимым. Реальный e1RM нулевым не бывает, так что это
     вне контракта, но именно так ведёт себя код.
+
+    Взятость, порядок лестницы и остаток считаются по ЦЕЛЕВОМУ e1RM
+    (`target_e1rm`), а не по голым килограммам штанги (финальное ревью,
+    Critical): `current_e1rm` — тоже e1RM, и сравнивать его с килограммами
+    штанги неверно уже для одноповторных вех (Эпли даёт множитель 31/30, не
+    1), а на многоповторных ошибка растягивается на десятки кг. `target` на
+    карточке при этом остаётся килограммами штанги — это то, что человек
+    реально будет поднимать (решение 5.1), меняется только то, ПО ЧЕМУ
+    считается достижение цели.
     """
-    by_lift: dict[str, list[tuple[float, Milestone]]] = {}
+    by_lift: dict[str, list[tuple[float, float, Milestone]]] = {}
+    # П5 (финальное ревью, Important 5): подтягивания считаются числом
+    # повторов, а не весом — свой вес используется как отягощение
+    # автоматически, знать его точное значение не нужно, чтобы подтянуться.
+    # Без веса тела target_e1rm для ВСЕХ ступеней подтягивания равен None
+    # (все они относительные), но это не повод прятать движение целиком, как
+    # прячутся остальные относительные вехи, — только числа на карточке.
+    blind_pullup: list[Milestone] = []
     for m in MILESTONES:
-        target = target_kg(m, bodyweight)
-        if target is None:
-            # Относительная веха при незаполненном весе тела не считается.
+        e1rm = target_e1rm(m, bodyweight)
+        if e1rm is None:
+            if m.lift == "pullup":
+                blind_pullup.append(m)
+            # Остальные относительные вехи при незаполненном весе тела
+            # действительно нечем посчитать — не показываем (§7).
             continue
-        by_lift.setdefault(m.lift, []).append((target, m))
+        kg = target_kg(m, bodyweight)
+        by_lift.setdefault(m.lift, []).append((e1rm, kg, m))
 
     result: list[VisibleMilestone] = []
     for lift, rungs in by_lift.items():
-        # Лестница задаётся килограммами, а не порядком объявления в каталоге.
-        rungs.sort(key=lambda pair: (pair[0], pair[1].target_reps))
+        # Лестница задаётся целевым e1RM, а не порядком объявления в каталоге
+        # и не голыми килограммами штанги.
+        rungs.sort(key=lambda triple: (triple[0], triple[2].target_reps))
         current = current_e1rm.get(lift)
 
         if current is None:
-            lowest_target, lowest = rungs[0]
-            result.append(VisibleMilestone(lowest, lowest_target, None, False))
+            _, lowest_kg, lowest = rungs[0]
+            result.append(VisibleMilestone(lowest, lowest_kg, None, False))
             continue
 
-        for target, m in rungs:
-            if current >= target:
+        for e1rm, kg, m in rungs:
+            if current >= e1rm:
                 continue
-            if not _reachable(current, target, ceiling_pct):
+            if not _reachable(current, e1rm, ceiling_pct):
                 break
-            result.append(VisibleMilestone(m, target, round(target - current, 1), True))
+            result.append(VisibleMilestone(m, kg, round(e1rm - current, 1), True))
             break
+
+    if blind_pullup:
+        # Вес тела не заполнен вообще — по построению это ВСЕ ступени
+        # подтягивания разом (target_e1rm для них либо все None, либо ни
+        # одна), так что by_lift["pullup"] не заводится. Каталог уже несёт
+        # подтягивания по возрастанию сложности — берём первую запись.
+        result.append(VisibleMilestone(blind_pullup[0], None, None, False))
 
     # Порядок движений — как в каталоге, чтобы витрина не прыгала между вызовами.
     order = {m.lift: i for i, m in enumerate(MILESTONES)}
