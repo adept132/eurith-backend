@@ -151,6 +151,28 @@ async def test_accept_survives_autopilot_crash(client, auth_headers, test_user, 
     assert r.status_code == 201, r.text
 
 
+async def test_accept_without_a_profile_creates_one_and_remembers_the_milestone(
+    client, auth_headers, test_user,
+):
+    """Финальное ревью, Important 4: раньше accept_milestone писала память о
+    вехе только `if profile is not None` — у человека без AppUserProfile не
+    сохранялось ничего, и молча отваливались и строка дрейфа
+    (bodyweight_drift), и акценты в генераторе (milestone_accents). Без
+    _prepare — этот тест намеренно не заводит профиль заранее; сотка в жиме
+    от веса тела не зависит, так что не нужна и запись UserAnthropometry.
+    """
+    r = await client.post("/goals/milestones/bench_100kg/accept", headers=auth_headers)
+    assert r.status_code == 201, r.text
+
+    async with SessionLocal() as db:
+        profile = (await db.execute(
+            select(AppUserProfile).where(AppUserProfile.app_user_id == test_user.id)
+        )).scalars().first()
+    assert profile is not None, "профиль обязан завестись"
+    stored = (profile.settings or {}).get("milestone") or {}
+    assert stored.get("code") == "bench_100kg"
+
+
 async def test_unknown_code_gives_404(client, auth_headers, test_user):
     await _prepare(test_user.id)
     r = await client.post("/goals/milestones/no-such-milestone/accept", headers=auth_headers)

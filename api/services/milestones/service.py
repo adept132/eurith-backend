@@ -288,16 +288,25 @@ async def accept_milestone(
     profile = (await session.execute(
         select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
     )).scalars().first()
-    if profile is not None:
-        settings = dict(profile.settings or {})
-        settings["milestone"] = {
-            "code": code,
-            "bodyweight": bodyweight,
-            "goal_id": goal.id,
-            "accents": list(cond.accents),
-            "split_requirement": cond.split_requirement,
-        }
-        profile.settings = settings
+    if profile is None:
+        # Финальное ревью, Important 4: без профиля память о вехе раньше
+        # молча не писалась НИКУДА — вместе с ней отваливались строка дрейфа
+        # (bodyweight_drift) и подстановка акцентов в генератор
+        # (milestone_accents), а человек об этом не узнавал. Заводим профиль
+        # тем же ленивым способом, что и остальной проект (см.
+        # api/routers/profile.py, PATCH /profile/onboarding) — остальные поля
+        # уже несут корректные server_default в модели.
+        profile = AppUserProfile(app_user_id=app_user_id)
+        session.add(profile)
+    settings = dict(profile.settings or {})
+    settings["milestone"] = {
+        "code": code,
+        "bodyweight": bodyweight,
+        "goal_id": goal.id,
+        "accents": list(cond.accents),
+        "split_requirement": cond.split_requirement,
+    }
+    profile.settings = settings
 
     return goal
 
