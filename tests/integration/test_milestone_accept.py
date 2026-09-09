@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from api.services.milestones.repository import resolve_lift_exercises
 from api.services.models import (
-    AppUserProfile, PeriodizationProposal, TrainingBlock, UserAnthropometry,
+    AppUser, AppUserProfile, PeriodizationProposal, TrainingBlock, UserAnthropometry,
     UserExercisePreference, UserGoal,
 )
 from api.services.periodization import params as periodization_params
@@ -338,6 +338,50 @@ async def _make_pending_goal_next(*, app_user_id: int, block_id: int, closed_goa
         await db.commit()
         await db.refresh(proposal)
         return proposal.id
+
+
+async def test_accepting_a_milestone_leaves_other_proposals_alone(
+    client, auth_headers, test_user,
+):
+    """Парный к предыдущему: гасится нужное — и НЕ гасится лишнее.
+
+    Фильтр, тушащий чужие карточки, — такой же дефект, как фильтр, не тушащий
+    свои, и поймать его можно только парой тестов.
+    """
+    await _prepare(test_user.id)
+    my_block = await _make_block(test_user.id)
+
+    # Чужая висящая карточка — трогать нельзя. Второго пользователя заводим
+    # прямо здесь: общей фикстуры для этого в проекте нет.
+    async with SessionLocal() as db:
+        alien_user = AppUser(
+            firebase_uid=f"alien-{test_user.id}", email=f"alien-{test_user.id}@example.com",
+        )
+        db.add(alien_user)
+        await db.commit()
+        alien_user_id = alien_user.id
+    other_block = await _make_block(alien_user_id)
+    alien_id = await _make_pending_goal_next(
+        app_user_id=alien_user_id, block_id=other_block, closed_goal_id=2,
+    )
+    # Своя, но уже решённая — переоткрывать или переписывать нельзя.
+    decided_id = await _make_pending_goal_next(
+        app_user_id=test_user.id, block_id=my_block, closed_goal_id=3,
+    )
+    async with SessionLocal() as db:
+        decided = await db.get(PeriodizationProposal, decided_id)
+        decided.status = periodization_params.STATUS_DECLINED
+        await db.commit()
+
+    assert (await client.post(
+        "/goals/milestones/squat_2x_bw/accept", headers=auth_headers
+    )).status_code == 201
+
+    async with SessionLocal() as db:
+        alien = await db.get(PeriodizationProposal, alien_id)
+        decided = await db.get(PeriodizationProposal, decided_id)
+    assert alien.status == periodization_params.STATUS_PENDING, "чужая карточка не наша"
+    assert decided.status == periodization_params.STATUS_DECLINED, "решённую не трогаем"
 
 
 async def test_accepting_a_milestone_closes_the_pending_goal_next_proposal(

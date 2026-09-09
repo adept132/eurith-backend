@@ -294,10 +294,14 @@ async def accept_milestone(
         # (bodyweight_drift) и подстановка акцентов в генератор
         # (milestone_accents), а человек об этом не узнавал. Заводим профиль
         # тем же ленивым способом, что и остальной проект (см.
-        # api/routers/profile.py, PATCH /profile/onboarding) — остальные поля
-        # уже несут корректные server_default в модели.
+        # api/routers/profile.py, PATCH /profile/onboarding).
         profile = AppUserProfile(app_user_id=app_user_id)
         session.add(profile)
+        # flush нужен, чтобы SQLAlchemy проставил python-дефолт колонки
+        # settings (units, locations, prehab_flags и прочее). Без него
+        # присваивание ниже затёрло бы дефолт пустым словарём, и профиль,
+        # заведённый через веху, отличался бы от заведённого онбордингом.
+        await session.flush()
     settings = dict(profile.settings or {})
     settings["milestone"] = {
         "code": code,
