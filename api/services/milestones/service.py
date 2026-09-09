@@ -77,6 +77,10 @@ async def _active_mesocycle_code(
             AppUserMesocycle.app_user_id == app_user_id,
             AppUserMesocycle.is_active.is_(True),
         )
+        # Активная запись должна быть одна, но БД этого не гарантирует.
+        # Без явного порядка выбор был бы недетерминирован, и подсказка
+        # про мезоцикл прыгала бы между вызовами: берём последнюю.
+        .order_by(AppUserMesocycle.id.desc())
         .limit(1)
     )).scalars().first()
     if row is None:
