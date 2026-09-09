@@ -58,6 +58,19 @@ async def test_bodyweight_takes_the_latest_record(test_user):
         assert await latest_bodyweight(db, test_user.id) == 85.0
 
 
+async def test_bodyweight_breaks_ties_by_insertion_order(test_user):
+    """Офлайн-синк шлёт пачку с одной меткой времени — берём вставленную последней."""
+    async with SessionLocal() as db:
+        stamp = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        db.add(UserAnthropometry(app_user_id=test_user.id, weight=70.0, recorded_at=stamp))
+        await db.flush()
+        db.add(UserAnthropometry(app_user_id=test_user.id, weight=90.0, recorded_at=stamp))
+        await db.commit()
+
+    async with SessionLocal() as db:
+        assert await latest_bodyweight(db, test_user.id) == 90.0
+
+
 async def test_bodyweight_is_none_without_records(test_user):
     async with SessionLocal() as db:
         assert await latest_bodyweight(db, test_user.id) is None

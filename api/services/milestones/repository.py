@@ -75,7 +75,11 @@ async def latest_bodyweight(session: AsyncSession, app_user_id: int) -> Optional
             UserAnthropometry.app_user_id == app_user_id,
             UserAnthropometry.weight.is_not(None),
         )
-        .order_by(UserAnthropometry.recorded_at.desc())
+        # Тай-брейк по id: таблица append-only, и офлайн-синк присылает пачку
+        # записей с ОДНОЙ клиентской меткой времени. Postgres при равном
+        # ключе сортировки порядок не гарантирует, так что без второго поля
+        # «последний вес» выбирался бы произвольно.
+        .order_by(UserAnthropometry.recorded_at.desc(), UserAnthropometry.id.desc())
         .limit(1)
     )).scalars().first()
     return float(row) if row is not None else None
