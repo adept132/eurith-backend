@@ -107,4 +107,19 @@ async def accept(
             "Укажите вес тела — без него порог этой вехи не посчитать",
         )
     await db.commit()
+
+    # P0-12: принятие вехи меняет ведущую цель — тот же случай, что и
+    # создание/правка цели (api/routers/goals.py) или смена входов плана
+    # (api/routers/profile.py), автопилот пересчитывает предложение немедленно.
+    # refresh_goal_proposals коммитит СЕБЯ САМА на каждом пути записи (см. её
+    # докстринг, финальное ревью Important 9) — второго commit() здесь не
+    # нужен и не нужен после этого вызова.
+    from api.services.goal.service import refresh_goal_proposals
+    from api.services.volume.repository import guarded, utc_today
+
+    await guarded(
+        db, "обновление автопилота цели",
+        refresh_goal_proposals(db, current_user.id, utc_today()),
+    )
+
     return {"goal_id": goal.id, "target_value": goal.target_value}

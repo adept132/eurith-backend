@@ -116,6 +116,41 @@ async def test_absolute_milestone_works_without_bodyweight(client, auth_headers,
     assert r.status_code == 201, r.text
 
 
+async def test_accept_wakes_the_goal_autopilot(client, auth_headers, test_user, monkeypatch):
+    """Финальное ревью, Important 1: принятие вехи меняет ведущую цель — та
+    же дисциплина, что и у создания/правки цели (api/routers/goals.py) и
+    смены входов плана (api/routers/profile.py): refresh_goal_proposals
+    обязана позваться немедленно, а не молчать до постороннего запроса."""
+    await _prepare(test_user.id)
+
+    called = False
+
+    async def _spy(session, app_user_id, today):
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr("api.services.goal.service.refresh_goal_proposals", _spy)
+
+    r = await client.post("/goals/milestones/squat_2x_bw/accept", headers=auth_headers)
+    assert r.status_code == 201, r.text
+    assert called, "автопилот обязан пересчитаться сразу же, а не молчать"
+
+
+async def test_accept_survives_autopilot_crash(client, auth_headers, test_user, monkeypatch):
+    """guarded() не должен позволить упавшему решателю уронить сам accept —
+    та же живучесть, что и у соседних точек (test_goal_refresh_points.py)."""
+    await _prepare(test_user.id)
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("solver exploded")
+
+    monkeypatch.setattr("api.services.goal.service.refresh_goal_proposals", _boom)
+
+    r = await client.post("/goals/milestones/squat_2x_bw/accept", headers=auth_headers)
+    assert r.status_code == 201, r.text
+
+
 async def test_unknown_code_gives_404(client, auth_headers, test_user):
     await _prepare(test_user.id)
     r = await client.post("/goals/milestones/no-such-milestone/accept", headers=auth_headers)
