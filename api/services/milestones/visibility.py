@@ -40,17 +40,23 @@ def visible_milestones(
     *,
     current_e1rm: dict[str, float],
     bodyweight: Optional[float],
-    experience_level: str,
     ceiling_pct: float,
 ) -> list[VisibleMilestone]:
     """Ближайшая невзятая и достижимая веха по каждому движению.
 
     `current_e1rm` — рабочий e1RM по коду движения; отсутствие ключа значит
     «истории нет». Без истории отфильтровать недостижимое нечем, поэтому
-    новичку открыта только нижняя ступень каждого движения (решение 10), а
-    остальным нижняя ступень показывается без чисел и без срока (решение 9).
+    нижняя ступень показывается без чисел и без срока, а сама эта ступень —
+    и есть ближайшая невзятая (решение 9): для новичка это правило спеки
+    «открыта только нижняя ступень» соблюдается само по себе, отдельного
+    режима не нужно. Уровень опыта в этой функции не участвует — он уже учтён
+    вызывающей стороной при вычислении `ceiling_pct`.
+
+    Если для движения в `current_e1rm` лежит ровно 0.0 (а не отсутствующий
+    ключ), оно пропадает из выдачи целиком: `_reachable` считает нулевой
+    текущий вес недостижимым. Реальный e1RM нулевым не бывает, так что это
+    вне контракта, но именно так ведёт себя код.
     """
-    beginner = (experience_level or "").strip().lower() == "beginner"
     by_lift: dict[str, list[tuple[float, Milestone]]] = {}
     for m in MILESTONES:
         target = target_kg(m, bodyweight)
@@ -69,11 +75,6 @@ def visible_milestones(
             lowest_target, lowest = rungs[0]
             result.append(VisibleMilestone(lowest, lowest_target, None, False))
             continue
-
-        if beginner:
-            # У новичка история уже есть, но лестницу всё равно не открываем
-            # целиком: пусть берёт ближайшую, а не цель на три года.
-            rungs = rungs[:1] if rungs[0][0] > current else rungs
 
         for target, m in rungs:
             if current >= target:
