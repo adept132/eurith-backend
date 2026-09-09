@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -34,6 +35,9 @@ from api.services.models import (
     UserGoal,
 )
 from api.services.periodization import params as periodization_params
+from api.services.periodization.repository import get_active_block
+
+logger = logging.getLogger(__name__)
 
 _HORIZON_TAIL_DAYS = 120  # запас за дедлайном, чтобы увидеть «не успеваем»
 
@@ -93,6 +97,43 @@ async def _retire_finished_primary_goal(
         )
         .values(status=periodization_params.STATUS_EXPIRED)
     )
+
+    # P1-03 ч.2 §5.6: момент закрытия цели — лучший за весь цикл, и молча
+    # освобождать слот значит его потерять. Карточка ведёт в витрину вех.
+    block = await get_active_block(session, app_user_id)
+    if block is None:
+        # Предложению некуда привязаться: block_id NOT NULL. Это деградация
+        # пользователя без активного блока, а не ошибка — та же развилка, что
+        # у обзора объёма в volume/service.py.
+        logger.info(
+            "P1-03: карточка goal_next пропущена для app_user_id=%s — нет активного блока",
+            app_user_id,
+        )
+    else:
+        already = (await session.execute(
+            select(PeriodizationProposal.id).where(
+                PeriodizationProposal.app_user_id == app_user_id,
+                PeriodizationProposal.kind == periodization_params.KIND_GOAL_NEXT,
+                PeriodizationProposal.status == periodization_params.STATUS_PENDING,
+                PeriodizationProposal.payload["closed_goal_id"].astext == str(goal.id),
+            ).limit(1)
+        )).scalars().first()
+        if already is None:
+            session.add(PeriodizationProposal(
+                app_user_id=app_user_id,
+                block_id=block.id,
+                kind=periodization_params.KIND_GOAL_NEXT,
+                reason_code=(
+                    periodization_params.REASON_GOAL_ACHIEVED if achieved
+                    else periodization_params.REASON_GOAL_OVERDUE
+                ),
+                payload={
+                    "closed_goal_id": goal.id,
+                    "exercise_id": goal.exercise_id,
+                    "target_value": goal.target_value,
+                },
+            ))
+
     await session.commit()
     return True
 
