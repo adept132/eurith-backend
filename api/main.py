@@ -23,6 +23,7 @@ from api.routers.microcycles import router as microcycles_router
 from api.routers.plans import router as plans_router
 from api.routers.calendar import router as calendar_router
 from api.routers.data_io import router as data_io_router
+from api.routers.milestones import router as milestones_router
 from api.routers.goals import router as goals_router
 from api.routers.body import router as body_router
 from api.routers.sync import router as sync_router
@@ -94,6 +95,7 @@ app.include_router(profile_router)
 app.include_router(calendar_router)
 app.include_router(workout_supersets_router)
 app.include_router(data_io_router)
+app.include_router(milestones_router)
 app.include_router(goals_router)
 app.include_router(body_router)
 app.include_router(sync_router)
