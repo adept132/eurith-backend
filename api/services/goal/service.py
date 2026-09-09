@@ -214,11 +214,24 @@ async def evaluate(
         session, app_user_id, goal.exercise_id
     )
 
+    # ФИКС дублирования (P1-03 ч.2, снижение стоимости витрины вех): контекст
+    # упражнения нужен и симуляции ниже (scheme_context), и наружу
+    # (payload["exercise"]) — читаем его ОДИН раз и передаём в оба места,
+    # вместо того чтобы scheme_context читала его заново внутри себя, а
+    # evaluate() — второй раз в конце (было 2 вызова exercise_context = 4
+    # запроса на одну и ту же пару таблиц за один evaluate()).
+    exercise_ctx = await repository.exercise_context(session, app_user_id, goal.exercise_id)
+
     # КРИТИЧЕСКАЯ ПОПРАВКА К БРИФУ (см. поправки постановщика Задачи 6):
     # simulate.run принимает SchemeContext ПЕРВЫМ аргументом, а не голый
     # start_e1rm — прокрутка идёт через настоящий движок прогрессии
     # (progression.engine.plan_exercise), а не по арифметике "шаг × частота".
-    ctx = await repository.scheme_context(session, app_user_id, goal.exercise_id, profile)
+    # current/exercise_ctx уже прочитаны выше — передаём их, чтобы scheme_
+    # context не читала working_e1rm и контекст упражнения заново.
+    ctx = await repository.scheme_context(
+        session, app_user_id, goal.exercise_id, profile,
+        known_working_e1rm=current, exercise_ctx=exercise_ctx,
+    )
     if ctx is None:
         return None
 
@@ -262,10 +275,9 @@ async def evaluate(
         "horizon_start": today + timedelta(days=1),
         "horizon_until": until,
         # Контекст рычагов: параметры упражнения (схема, тяжесть базы) для
-        # применимости LEVER_SCHEME — из БД через repository.
-        "exercise": await repository.exercise_context(
-            session, app_user_id, goal.exercise_id
-        ),
+        # применимости LEVER_SCHEME — уже прочитан выше (exercise_ctx), второй
+        # раз за ним в БД не ходим.
+        "exercise": exercise_ctx,
     }
 
 
