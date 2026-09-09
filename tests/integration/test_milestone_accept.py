@@ -116,6 +116,22 @@ async def test_absolute_milestone_works_without_bodyweight(client, auth_headers,
     assert r.status_code == 201, r.text
 
 
+async def test_pullup_without_bodyweight_is_still_refused_on_accept(client, auth_headers, test_user):
+    """Финальное ревью, Important 5: подтягивание видно на витрине и без
+    веса тела (visibility.py), но порог этой вехи по-прежнему кратен весу
+    тела — принять её и создать цель с выдуманным числом нельзя, отказ
+    обязан остаться отказом, как у любой другой относительной вехи."""
+    await _prepare(test_user.id, kg=None)
+    r = await client.post("/goals/milestones/pullup_first/accept", headers=auth_headers)
+    assert r.status_code == 409, r.text
+
+    async with SessionLocal() as db:
+        goals = (await db.execute(
+            select(UserGoal).where(UserGoal.app_user_id == test_user.id)
+        )).scalars().all()
+    assert goals == [], "отказ не должен оставлять недоделанную цель"
+
+
 async def test_accept_wakes_the_goal_autopilot(client, auth_headers, test_user, monkeypatch):
     """Финальное ревью, Important 1: принятие вехи меняет ведущую цель — та
     же дисциплина, что и у создания/правки цели (api/routers/goals.py) и

@@ -84,6 +84,23 @@ async def test_card_with_history_reports_the_gap(test_user):
     assert bench.target == 100.0
 
 
+async def test_showcase_keeps_pullups_without_bodyweight(test_user):
+    """Финальное ревью, Important 5: без веса тела остаются абсолютные вехи
+    И подтягивания — подтягивание считается числом повторов, а не весом."""
+    await _set_level(test_user.id, "intermediate")
+    # Веса тела намеренно не заводим — сравни с _set_bodyweight в других тестах.
+
+    async with SessionLocal() as db:
+        cards = (await build_showcase(db, test_user.id, date.today())).cards
+
+    lifts = {c.lift for c in cards}
+    assert "pullup" in lifts, "подтягивание не должно прятаться без веса тела"
+    pullup = [c for c in cards if c.lift == "pullup"][0]
+    assert pullup.code == "pullup_first"
+    assert pullup.target is None
+    assert pullup.remaining is None
+
+
 async def test_endpoint_returns_the_same_cards(client, auth_headers, test_user):
     await _set_bodyweight(test_user.id, 80.0)
     await _set_level(test_user.id, "intermediate")
