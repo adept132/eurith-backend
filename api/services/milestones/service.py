@@ -91,9 +91,13 @@ async def _active_mesocycle_code(
     return None
 
 
+_UNSET = object()  # маркер «профиль не передан» — отличим от «профиля нет» (None валиден)
+
+
 async def _simulated_deadline(
     session: AsyncSession, app_user_id: int, exercise_id: int,
     target: float, target_reps: int, today: date,
+    *, profile=_UNSET,
 ) -> Optional[date]:
     """Дата пересечения цели по симуляции, либо None.
 
@@ -101,6 +105,10 @@ async def _simulated_deadline(
     ДО того, как человек что-то принял. `evaluate` требует дедлайн только
     чтобы задать горизонт прокрутки, поэтому подставляем горизонт видимости —
     сам ответ (`eta`) от этой подстановки не зависит.
+
+    `profile` (P1-03 ч.2, снижение стоимости витрины вех): пробрасывается в
+    evaluate() как есть — build_showcase читает профиль ОДИН раз для всех
+    карточек (см. её докстринг), а не заново на каждый вызов этой функции.
     """
     probe = UserGoal(
         app_user_id=app_user_id,
@@ -110,7 +118,8 @@ async def _simulated_deadline(
         exercise_id=exercise_id,
         deadline=today + timedelta(weeks=MAX_WEEKS_TO_TARGET),
     )
-    state = await evaluate(session, app_user_id, probe, today)
+    kwargs = {} if profile is _UNSET else {"profile": profile}
+    state = await evaluate(session, app_user_id, probe, today, **kwargs)
     return state["eta"] if state else None
 
 
@@ -120,9 +129,17 @@ async def build_showcase(
     lift_exercises = await repository.resolve_lift_exercises(session)
     current = await repository.current_e1rm_by_lift(session, app_user_id, lift_exercises)
     bodyweight = await repository.latest_bodyweight(session, app_user_id)
+    # ФИКС дублирования (P1-03 ч.2, снижение стоимости витрины вех): профиль
+    # читаем ОДИН раз и передаём и в experience_and_cap (уровень/потолок), и
+    # в evaluate() каждой карточки ниже (_simulated_deadline) — иначе на
+    # каждую из до шести карточек он читался бы заново, хотя не меняется
+    # между ними.
+    profile = (await session.execute(
+        select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
+    )).scalars().first()
     # Уровень нужен только чтобы получить потолок: сам по себе он на
     # видимость не влияет (правка по ревью Задачи 2).
-    _level, cap_pct = await repository.experience_and_cap(session, app_user_id)
+    _level, cap_pct = await repository.experience_and_cap(session, app_user_id, profile=profile)
 
     cards: list[MilestoneCard] = []
     for v in visible_milestones(
@@ -139,6 +156,7 @@ async def build_showcase(
             deadline = await _simulated_deadline(
                 session, app_user_id, lift_exercises[lift],
                 v.target, v.milestone.target_reps, today,
+                profile=profile,
             )
         cond = conditions_for(lift)
         cards.append(MilestoneCard(

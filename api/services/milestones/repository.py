@@ -86,15 +86,21 @@ async def latest_bodyweight(session: AsyncSession, app_user_id: int) -> Optional
 
 
 async def experience_and_cap(
-    session: AsyncSession, app_user_id: int
+    session: AsyncSession, app_user_id: int, *, profile: Optional[AppUserProfile] = None,
 ) -> tuple[str, float]:
     """Уровень и биологический потолок недельного прироста e1RM.
 
     Тот же источник, что у автопилота цели (goal/service.evaluate), — чтобы
     витрина и экран цели не расходились в оценке достижимого.
+
+    `profile` (P1-03 ч.2, снижение стоимости витрины вех): необязательный
+    уже загруженный профиль — build_showcase читает его сам, чтобы передать
+    и сюда, и в evaluate() (см. её докстринг), вместо трёх независимых
+    чтений одной и той же строки. Не передан — читаем сами, как раньше.
     """
-    profile = (await session.execute(
-        select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
-    )).scalars().first()
+    if profile is None:
+        profile = (await session.execute(
+            select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
+        )).scalars().first()
     level = ((profile.experience_level if profile else None) or "beginner").strip().lower()
     return level, WEEKLY_GROWTH_CAP_PCT.get(level, _DEFAULT_CAP_PCT)

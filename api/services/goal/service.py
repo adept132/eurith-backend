@@ -162,13 +162,25 @@ def _inputs_hash(profile: Optional[AppUserProfile], goal: UserGoal) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+_UNSET = object()  # маркер «профиль не передан» — отличим от «профиля нет» (None валиден)
+
+
 async def evaluate(
-    session: AsyncSession, app_user_id: int, goal: UserGoal, today: date
+    session: AsyncSession, app_user_id: int, goal: UserGoal, today: date,
+    profile=_UNSET,
 ) -> Optional[dict]:
     """Полный расчёт по ведущей цели: обе даты, темпы, рычаги.
 
     None — цели нельзя дать честный прогноз (нет истории лифта). Молчание
     здесь правильнее любого числа.
+
+    `profile` (P1-03 ч.2, снижение стоимости витрины вех): необязательный
+    уже загруженный AppUserProfile. build_showcase зовёт evaluate() до шести
+    раз подряд для ОДНОГО и того же пользователя — профиль между карточками
+    не меняется, и читать его заново на каждой не нужно. Не передан
+    (значение по умолчанию `_UNSET`, а не None — профиль пользователя
+    отсутствовать МОЖЕТ, и это отличается от «не передан вовсе») — читаем
+    сами, как раньше.
     """
     if goal.exercise_id is None or goal.deadline is None:
         return None
@@ -177,9 +189,10 @@ async def evaluate(
     if current is None or current <= 0:
         return None
 
-    profile = (await session.execute(
-        select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
-    )).scalar_one_or_none()
+    if profile is _UNSET:
+        profile = (await session.execute(
+            select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
+        )).scalar_one_or_none()
     level = (profile.experience_level if profile else None) or "beginner"
     cap_pct = WEEKLY_GROWTH_CAP_PCT.get(level.strip().lower(), _DEFAULT_CAP_PCT)
 

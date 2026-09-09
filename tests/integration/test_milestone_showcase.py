@@ -173,7 +173,7 @@ async def test_card_with_history_carries_the_simulated_deadline(
     """Срок на карточке — это дата пересечения из симуляции, а не выдумка."""
     import api.services.milestones.service as milestones_service
 
-    async def _fake_evaluate(session, app_user_id, goal, today):
+    async def _fake_evaluate(session, app_user_id, goal, today, **kwargs):
         return {"eta": date(2026, 12, 1)}
 
     monkeypatch.setattr(milestones_service, "evaluate", _fake_evaluate)
