@@ -13,7 +13,7 @@ from api.services.models import Mesocycle, MesocyclePhase, WorkoutPlan, AppUserP
     WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet
 from api.services.validator import AntiSuicideValidator, PlanExerciseInput
 from api.services.scheduling_engine import SchedulingEngine
-from api.services.models import UserSplit, SplitBlueprint, SplitDaySlot, DayBlueprint, Exercise, UserCalendarDay, UserExercisePreference, AppUserMicrocycle, AdvancedGeneratorPreset
+from api.services.models import UserSplit, SplitBlueprint, SplitDaySlot, DayBlueprint, Exercise, UserCalendarDay, UserExercisePreference, AppUserMicrocycle, AdvancedGeneratorPreset, UserGoal
 from api.services.volume_service import VolumeService
 from api.services.plan_generator_service import build_day
 from api.services.plan_generation_insights import (
@@ -158,6 +158,15 @@ async def _load_generation_context(db, current_user, blueprint_id):
     if not profile or not profile.volume_budget:
         raise HTTPException(400, "Онбординг не завершён: нет объёмного бюджета")
 
+    # П1-03 ч.2, финальное ревью Important 2: _resolve_accents сверяет
+    # акценты вехи с ЭТОЙ id — профиль здесь уже загружен, второго похода в
+    # БД ради него одного заводить незачем.
+    primary_goal_id = (await db.execute(
+        select(UserGoal.id).where(
+            UserGoal.app_user_id == current_user.id, UserGoal.is_primary.is_(True),
+        )
+    )).scalar_one_or_none()
+
     if blueprint_id is None:
         us_res = await db.execute(select(UserSplit).where(
             UserSplit.app_user_id == current_user.id, UserSplit.is_active == True))  # noqa: E712
@@ -181,15 +190,17 @@ async def _load_generation_context(db, current_user, blueprint_id):
     pool_res = await db.execute(select(Exercise).where(
         (Exercise.source == "default") | (Exercise.app_user_id == current_user.id)))
     pool = list(pool_res.scalars().all())
-    return profile, blueprint, pool
+    return profile, blueprint, pool, primary_goal_id
 
 
-def _resolve_accents(config, profile) -> list[str]:
+def _resolve_accents(config, profile, primary_goal_id: _Optional[int] = None) -> list[str]:
     """Акценты для генерации по убыванию приоритета.
 
     Явный выбор человека сильнее всего: он выбирал руками и только что.
     Дальше акценты принятой вехи — они конкретны и относятся к цели, которую
-    человек себе поставил (§5.3: условия подставляются при КАЖДОЙ генерации).
+    человек себе поставил (§5.3: условия подставляются при КАЖДОЙ генерации),
+    и только пока эта веха ещё остаётся ведущей целью (`primary_goal_id`,
+    финальное ревью Important 2 — см. докстринг milestone_accents).
     Последними — фокус-мышцы профиля, давняя общая настройка.
 
     Обрезка до двух — прежнее поведение, не трогаем: генератор больше двух
@@ -200,12 +211,14 @@ def _resolve_accents(config, profile) -> list[str]:
     return list(dict.fromkeys(
         config.accent_muscles
         or ([config.accent_muscle] if config.accent_muscle else [])
-        or milestone_accents(profile.settings)
+        or milestone_accents(profile.settings, primary_goal_id)
         or list((budget.get("meta") or {}).get("focus_muscles") or [])
     ))[:2]
 
 
-def _generation_input_summary(profile, blueprint, request) -> GenerationInputSummary:
+def _generation_input_summary(
+    profile, blueprint, request, primary_goal_id: _Optional[int] = None,
+) -> GenerationInputSummary:
     budget = profile.volume_budget or {}
     weekly = budget.get("weekly_targets") or {}
     weekly_targets = {
@@ -216,7 +229,7 @@ def _generation_input_summary(profile, blueprint, request) -> GenerationInputSum
     locations = list(settings.get("locations") or ["gym"])
     allowed = _allowed_equipment(locations)
     config = request.config
-    resolved_accents = _resolve_accents(config, profile)
+    resolved_accents = _resolve_accents(config, profile, primary_goal_id)
     return GenerationInputSummary(
         blueprint_id=blueprint.id,
         split_name=blueprint.name,
@@ -363,7 +376,7 @@ async def _generation_comparison(db, current_user, blueprint, days, target_date,
 async def generate_plan(request: GeneratePlanRequest,
                         db: AsyncSession = Depends(get_db),
                         current_user=Depends(get_current_app_user)):
-    profile, blueprint, pool = await _load_generation_context(
+    profile, blueprint, pool, primary_goal_id = await _load_generation_context(
         db, current_user, request.blueprint_id)
 
     allowed = _allowed_equipment((profile.settings or {}).get("locations"))
@@ -381,7 +394,7 @@ async def generate_plan(request: GeneratePlanRequest,
         ))).all()
     favorite_ids = {exercise_id for exercise_id, value in preference_rows if value == "favorite"}
     disliked_ids = {exercise_id for exercise_id, value in preference_rows if value == "disliked"}
-    resolved_accents = _resolve_accents(request.config, profile)
+    resolved_accents = _resolve_accents(request.config, profile, primary_goal_id)
     cfg = SelectionConfig(use_supersets=request.config.use_supersets,
                           max_superset_size=request.config.max_superset_size,
                           accent_muscle=request.config.accent_muscle,
@@ -472,7 +485,7 @@ async def generate_plan(request: GeneratePlanRequest,
                 generated_day, profile, blueprint.id, pool, allowed, prehab,
                 request.config, resolved_accents, favorite_ids, effort,
             ))
-    inputs = _generation_input_summary(profile, blueprint, request)
+    inputs = _generation_input_summary(profile, blueprint, request, primary_goal_id)
     comparison = await _generation_comparison(
         db, current_user, blueprint, days_out, request.target_date,
         single_day=request.day_name is not None,
@@ -506,12 +519,12 @@ async def preview_generated_plan(
     current_user=Depends(get_current_app_user),
 ):
     """Refresh explanations after chat/manual draft edits without saving."""
-    profile, blueprint, pool = await _load_generation_context(
+    profile, blueprint, pool, primary_goal_id = await _load_generation_context(
         db, current_user, request.blueprint_id,
     )
     allowed = _allowed_equipment((profile.settings or {}).get("locations"))
     prehab = (profile.settings or {}).get("prehab_flags", [])
-    inputs = _generation_input_summary(profile, blueprint, request)
+    inputs = _generation_input_summary(profile, blueprint, request, primary_goal_id)
     comparison = await _generation_comparison(
         db, current_user, blueprint, request.days, request.target_date,
         single_day=request.day_name is not None,

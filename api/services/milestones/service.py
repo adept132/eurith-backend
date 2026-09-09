@@ -369,12 +369,23 @@ async def bodyweight_drift(
     )
 
 
-def milestone_accents(profile_settings: Optional[dict]) -> list[str]:
+def milestone_accents(
+    profile_settings: Optional[dict], primary_goal_id: Optional[int],
+) -> list[str]:
     """Акценты принятой вехи из настроек профиля.
 
-    Пустой список во всех случаях «вехи нет» — вызывающая сторона не обязана
-    разбираться, чего именно не хватает.
+    Пустой список во всех случаях «вехи нет или она не про текущую ведущую
+    цель» — вызывающая сторона не обязана разбираться, чего именно не хватает.
+
+    Сверка с `primary_goal_id` — та же дисциплина, что уже несёт
+    bodyweight_drift (см. её докстринг): память settings["milestone"] ничем
+    не чистится ни при снятии is_primary, ни при удалении цели. Без сверки
+    акценты достигнутой или брошенной вехи продолжали бы вечно перебивать
+    фокус-мышцы профиля в каждой новой генерации (финальное ревью,
+    Important 2).
     """
     milestone = ((profile_settings or {}).get("milestone") or {})
+    if milestone.get("goal_id") != primary_goal_id:
+        return []
     accents = milestone.get("accents") or []
     return [str(a) for a in accents]

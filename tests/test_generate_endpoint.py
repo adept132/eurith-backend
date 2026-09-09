@@ -32,7 +32,7 @@ def test_generate_returns_days_for_active_split():
 
     req = GeneratePlanRequest(blueprint_id=None, config=GenerateConfig(seed=1))
     with patch.object(plans_mod, "_load_generation_context",
-                      AsyncMock(return_value=(profile, blueprint, pool))), \
+                      AsyncMock(return_value=(profile, blueprint, pool, None))), \
          patch.object(plans_mod.VolumeService, "calculate_session_targets",
                       side_effect=fake_targets), \
          patch.object(plans_mod, "_generation_comparison", AsyncMock(return_value=
@@ -69,7 +69,7 @@ def test_generate_single_day_filters_by_name():
 
     req = GeneratePlanRequest(blueprint_id=None, day_name="Pull", config=GenerateConfig(seed=1))
     with patch.object(plans_mod, "_load_generation_context",
-                      AsyncMock(return_value=(profile, blueprint, pool))), \
+                      AsyncMock(return_value=(profile, blueprint, pool, None))), \
          patch.object(plans_mod.VolumeService, "calculate_session_targets",
                       side_effect=fake_targets), \
          patch.object(plans_mod, "_generation_comparison", AsyncMock(return_value=
