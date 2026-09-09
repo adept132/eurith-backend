@@ -29,23 +29,37 @@ class MilestoneCardOut(BaseModel):
     mesocycle_preset: str
 
 
-@router.get("", response_model=list[MilestoneCardOut])
+class ShowcaseOut(BaseModel):
+    cards: list[MilestoneCardOut]
+    active_mesocycle_preset: str | None
+
+
+@router.get("", response_model=ShowcaseOut)
 async def get_milestones(
     db: AsyncSession = Depends(get_db),
     current_user: AppUser = Depends(get_current_app_user),
 ):
-    """Витрина вех: ближайшая невзятая и достижимая по каждому движению."""
-    cards = await build_showcase(db, current_user.id, date.today())
-    return [
-        MilestoneCardOut(
-            code=c.code, lift=c.lift, title=c.title, target=c.target,
-            remaining=c.remaining, target_reps=c.target_reps,
-            has_history=c.has_history, suggested_deadline=c.suggested_deadline,
-            accents=list(c.accents), split_requirement=c.split_requirement,
-            mesocycle_preset=c.mesocycle_preset,
-        )
-        for c in cards
-    ]
+    """Витрина вех: ближайшая невзятая и достижимая по каждому движению.
+
+    Код активного пресета мезоцикла едет рядом с карточками — экран
+    сравнивает его с `mesocycle_preset` карточки и решает, предложить ли
+    переключение (§5.4 шаг 7). Молчаливая замена невозможна: фазы идущего
+    блока не переписываются, поэтому это только предложение.
+    """
+    showcase = await build_showcase(db, current_user.id, date.today())
+    return ShowcaseOut(
+        cards=[
+            MilestoneCardOut(
+                code=c.code, lift=c.lift, title=c.title, target=c.target,
+                remaining=c.remaining, target_reps=c.target_reps,
+                has_history=c.has_history, suggested_deadline=c.suggested_deadline,
+                accents=list(c.accents), split_requirement=c.split_requirement,
+                mesocycle_preset=c.mesocycle_preset,
+            )
+            for c in showcase.cards
+        ],
+        active_mesocycle_preset=showcase.active_mesocycle_preset,
+    )
 
 
 class BodyweightDriftOut(BaseModel):

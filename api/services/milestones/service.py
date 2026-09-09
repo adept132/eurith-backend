@@ -23,9 +23,11 @@ from api.services.milestones.visibility import (
     MAX_WEEKS_TO_TARGET, visible_milestones,
 )
 from api.services.models import (
-    AppUserProfile, PeriodizationProposal, UserExercisePreference, UserGoal,
+    AppUserMesocycle, AppUserProfile, Mesocycle, PeriodizationProposal,
+    UserExercisePreference, UserGoal,
 )
 from api.services.periodization import params as periodization_params
+from api.services.structure import mesocycle_presets as meso_presets
 
 GOAL_STRENGTH = "strength"
 
@@ -53,6 +55,38 @@ class MilestoneCard:
     mesocycle_preset: str
 
 
+@dataclass(frozen=True)
+class Showcase:
+    cards: list[MilestoneCard]
+    active_mesocycle_preset: Optional[str]
+
+
+async def _active_mesocycle_code(
+    session: AsyncSession, app_user_id: int
+) -> Optional[str]:
+    """Код пресета активного мезоцикла, если он из наших пресетов.
+
+    Личные копии создаются из пресетов по имени (часть 1, §5.5), поэтому
+    сверяем по имени: переименованная руками копия просто не опознается, и
+    предложение не показывается — это лучше, чем угадывать.
+    """
+    row = (await session.execute(
+        select(Mesocycle.name)
+        .join(AppUserMesocycle, AppUserMesocycle.mesocycle_id == Mesocycle.id)
+        .where(
+            AppUserMesocycle.app_user_id == app_user_id,
+            AppUserMesocycle.is_active.is_(True),
+        )
+        .limit(1)
+    )).scalars().first()
+    if row is None:
+        return None
+    for preset in meso_presets.MESOCYCLE_PRESETS:
+        if preset.name == row:
+            return preset.code
+    return None
+
+
 async def _simulated_deadline(
     session: AsyncSession, app_user_id: int, exercise_id: int,
     target: float, target_reps: int, today: date,
@@ -78,7 +112,7 @@ async def _simulated_deadline(
 
 async def build_showcase(
     session: AsyncSession, app_user_id: int, today: date
-) -> list[MilestoneCard]:
+) -> Showcase:
     lift_exercises = await repository.resolve_lift_exercises(session)
     current = await repository.current_e1rm_by_lift(session, app_user_id, lift_exercises)
     bodyweight = await repository.latest_bodyweight(session, app_user_id)
@@ -116,7 +150,10 @@ async def build_showcase(
             split_requirement=cond.split_requirement,
             mesocycle_preset=cond.mesocycle_preset,
         ))
-    return cards
+    return Showcase(
+        cards=cards,
+        active_mesocycle_preset=await _active_mesocycle_code(session, app_user_id),
+    )
 
 
 async def accept_milestone(
