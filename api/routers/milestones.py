@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_db
 from api.services.app_user_service import get_current_app_user
 from api.services.milestones.service import (
-    BodyweightUnknown, LiftNotAvailable, accept_milestone, build_showcase,
+    BodyweightUnknown, LiftNotAvailable, accept_milestone, bodyweight_drift,
+    build_showcase,
 )
 from api.services.models import AppUser
 
@@ -45,6 +46,32 @@ async def get_milestones(
         )
         for c in cards
     ]
+
+
+class BodyweightDriftOut(BaseModel):
+    goal_id: int
+    code: str
+    title: str
+    stored_bodyweight: float
+    current_bodyweight: float
+    current_target: float
+
+
+@router.get("/drift", response_model=BodyweightDriftOut | None)
+async def get_drift(
+    db: AsyncSession = Depends(get_db),
+    current_user: AppUser = Depends(get_current_app_user),
+):
+    """Дрейф веса тела относительно момента принятия вехи, либо null."""
+    drift = await bodyweight_drift(db, current_user.id)
+    if drift is None:
+        return None
+    return BodyweightDriftOut(
+        goal_id=drift.goal_id, code=drift.code, title=drift.title,
+        stored_bodyweight=drift.stored_bodyweight,
+        current_bodyweight=drift.current_bodyweight,
+        current_target=drift.current_target,
+    )
 
 
 @router.post("/{code}/accept", status_code=status.HTTP_201_CREATED)

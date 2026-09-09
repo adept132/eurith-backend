@@ -227,3 +227,76 @@ async def accept_milestone(
 
     await session.flush()
     return goal
+
+
+# Расхождение веса тела, ниже которого строку не показываем: меньше — это
+# вода и колебания дня, а не повод трогать поставленную цель (§5.5).
+DRIFT_THRESHOLD = 0.05
+
+
+@dataclass(frozen=True)
+class BodyweightDrift:
+    goal_id: int
+    code: str
+    title: str
+    stored_bodyweight: float
+    current_bodyweight: float
+    current_target: float
+
+
+async def bodyweight_drift(
+    session: AsyncSession, app_user_id: int
+) -> Optional[BodyweightDrift]:
+    """Насколько уехал вес тела с момента принятия вехи.
+
+    None во всех случаях, когда предлагать нечего: веху не принимали, она
+    абсолютная (от веса не зависит), ведущей цели больше нет, вес тела не
+    заполнен, расхождение меньше порога.
+
+    Цель при этом НЕ правится молча — правку подтверждает человек через
+    существующий PATCH /goals/{id} (решение 4: цель заморожена).
+    """
+    profile = (await session.execute(
+        select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
+    )).scalars().first()
+    stored = ((profile.settings or {}).get("milestone") or {}) if profile else {}
+    code = stored.get("code")
+    stored_bw = stored.get("bodyweight")
+    if not code or stored_bw is None:
+        return None
+
+    try:
+        milestone = milestone_by_code(code)
+    except KeyError:
+        # Веху убрали из каталога — строка теряет смысл, но экран не падает.
+        return None
+    if milestone.bodyweight_multiple is None:
+        return None
+
+    goal = (await session.execute(
+        select(UserGoal).where(
+            UserGoal.app_user_id == app_user_id,
+            UserGoal.is_primary.is_(True),
+        )
+    )).scalars().first()
+    if goal is None:
+        return None
+
+    current_bw = await repository.latest_bodyweight(session, app_user_id)
+    if current_bw is None or stored_bw <= 0:
+        return None
+    if abs(current_bw - stored_bw) / stored_bw < DRIFT_THRESHOLD:
+        return None
+
+    current_target = target_kg(milestone, current_bw)
+    if current_target is None:
+        return None
+
+    return BodyweightDrift(
+        goal_id=goal.id,
+        code=code,
+        title=milestone.title,
+        stored_bodyweight=float(stored_bw),
+        current_bodyweight=float(current_bw),
+        current_target=current_target,
+    )
