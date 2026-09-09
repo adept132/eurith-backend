@@ -277,3 +277,48 @@ async def test_accepting_a_new_milestone_leaves_unrelated_proposals_pending(
         untouched = await db.get(PeriodizationProposal, untouched_id)
     assert expired.status == periodization_params.STATUS_EXPIRED
     assert untouched.status == periodization_params.STATUS_PENDING
+
+
+# --- Принятие вехи закрывает висящее «выбери следующую» (финальное ревью, Important 3) ---
+#
+# KIND_GOAL_NEXT рождается при закрытии ведущей цели (_retire_finished_
+# primary_goal, goal/service.py) и раньше умел уходить с pending только по
+# кнопке «Не сейчас» — принятие новой ведущей цели через веху его не
+# трогало, и предложение копилось по одному на каждую закрытую цель.
+
+async def _make_pending_goal_next(*, app_user_id: int, block_id: int, closed_goal_id: int) -> int:
+    async with SessionLocal() as db:
+        proposal = PeriodizationProposal(
+            app_user_id=app_user_id,
+            block_id=block_id,
+            kind=periodization_params.KIND_GOAL_NEXT,
+            reason_code=periodization_params.REASON_GOAL_ACHIEVED,
+            payload={"closed_goal_id": closed_goal_id},
+            status=periodization_params.STATUS_PENDING,
+        )
+        db.add(proposal)
+        await db.commit()
+        await db.refresh(proposal)
+        return proposal.id
+
+
+async def test_accepting_a_milestone_closes_the_pending_goal_next_proposal(
+    client, auth_headers, test_user,
+):
+    """Спека требует pending -> accepted, когда человек создал новую ведущую
+    цель — веха тоже создаёт ведущую цель и обязана гасить карточку так же,
+    как это уже делает apply_decision по кнопке."""
+    await _prepare(test_user.id)
+    block_id = await _make_block(test_user.id)
+    proposal_id = await _make_pending_goal_next(
+        app_user_id=test_user.id, block_id=block_id, closed_goal_id=1,
+    )
+
+    assert (await client.post(
+        "/goals/milestones/squat_2x_bw/accept", headers=auth_headers
+    )).status_code == 201
+
+    async with SessionLocal() as db:
+        proposal = await db.get(PeriodizationProposal, proposal_id)
+    assert proposal.status == periodization_params.STATUS_ACCEPTED
+    assert proposal.status != periodization_params.STATUS_PENDING

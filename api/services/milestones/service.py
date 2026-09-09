@@ -226,6 +226,24 @@ async def accept_milestone(
         .values(is_primary=False)
     )
 
+    # Предложение «выбери следующую» (KIND_GOAL_NEXT) рождается, когда
+    # закрывается ведущая цель (_retire_finished_primary_goal, goal/service.py),
+    # и обязано перейти pending -> accepted, как только человек ЗАВЁЛ новую
+    # ведущую (финальное ревью, Important 3) — сейчас это единственное
+    # событие, отвечающее на такое предложение делом, а не кнопкой «Не
+    # сейчас». Массовым UPDATE, а не через apply_decision: у этого решения
+    # нет своего proposal_id под рукой, а закрыть нужно ВСЕ висящие карточки
+    # разом (по одной на каждую прежде закрытую цель), не только последнюю.
+    await session.execute(
+        sa_update(PeriodizationProposal)
+        .where(
+            PeriodizationProposal.app_user_id == app_user_id,
+            PeriodizationProposal.kind == periodization_params.KIND_GOAL_NEXT,
+            PeriodizationProposal.status == periodization_params.STATUS_PENDING,
+        )
+        .values(status=periodization_params.STATUS_ACCEPTED)
+    )
+
     goal = UserGoal(
         app_user_id=app_user_id,
         goal_type=GOAL_STRENGTH,
