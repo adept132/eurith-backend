@@ -1,13 +1,15 @@
 """Принятие вехи: ведущая цель, дешёвые рычаги, память о весе (§5.4)."""
 import pytest
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
 from api.services.milestones.repository import resolve_lift_exercises
 from api.services.models import (
-    AppUserProfile, UserAnthropometry, UserExercisePreference, UserGoal,
+    AppUserProfile, PeriodizationProposal, TrainingBlock, UserAnthropometry,
+    UserExercisePreference, UserGoal,
 )
+from api.services.periodization import params as periodization_params
 from app.database import SessionLocal
 
 pytestmark = pytest.mark.asyncio
@@ -118,3 +120,125 @@ async def test_unknown_code_gives_404(client, auth_headers, test_user):
     await _prepare(test_user.id)
     r = await client.post("/goals/milestones/no-such-milestone/accept", headers=auth_headers)
     assert r.status_code == 404, r.text
+
+
+# --- Смена ведущей цели гасит рычаг прежней (docstring accept_milestone) ---
+#
+# accept_milestone экспирует pending goal_plan-предложения СНЯТОЙ ведущей
+# цели: apply_decision (periodization/service.py) не перепроверяет, что
+# goal_id из payload всё ещё ведущая, поэтому непогашенный рычаг снятой цели
+# можно применить к чужому упражнению. Ни один из тестов выше это не трогал.
+
+async def _make_block(app_user_id: int) -> int:
+    """Минимальный блок ради FK PeriodizationProposal.block_id — по образцу
+    test_incomplete_evaluation_leaves_pending_proposal_untouched
+    (test_goal_proposal.py): статус блока принятию вехи не важен."""
+    async with SessionLocal() as db:
+        block = TrainingBlock(
+            app_user_id=app_user_id,
+            block_index=1,
+            phases=[{"phase_number": 1, "name": "medium", "effort_tier": "medium", "length_days": 7}],
+            microcycle_length=7,
+            start_date=date.today() - timedelta(days=30),
+            planned_end_date=date.today() + timedelta(days=10),
+            status="active",
+        )
+        db.add(block)
+        await db.commit()
+        await db.refresh(block)
+        return block.id
+
+
+async def _make_pending_goal_plan(
+    *, app_user_id: int, block_id: int, goal_id: int, exercise_id: int,
+) -> int:
+    async with SessionLocal() as db:
+        proposal = PeriodizationProposal(
+            app_user_id=app_user_id,
+            block_id=block_id,
+            kind=periodization_params.KIND_GOAL_PLAN,
+            reason_code="pace_behind",
+            payload={"goal_id": goal_id, "exercise_id": exercise_id, "inputs_hash": "old"},
+            status=periodization_params.STATUS_PENDING,
+        )
+        db.add(proposal)
+        await db.commit()
+        await db.refresh(proposal)
+        return proposal.id
+
+
+async def test_accepting_a_new_milestone_expires_previous_primarys_pending_proposal(
+    client, auth_headers, test_user,
+):
+    """Рычаг снятой цели (favorite-упражнение, override схемы, перегенерация
+    календаря) не должен пережить смену ведущей цели ни на секунду дольше,
+    чем сама цель — иначе apply_decision применит его не к тому упражнению."""
+    await _prepare(test_user.id)
+    assert (await client.post(
+        "/goals/milestones/squat_2x_bw/accept", headers=auth_headers
+    )).status_code == 201
+
+    async with SessionLocal() as db:
+        goal_a = (await db.execute(
+            select(UserGoal).where(
+                UserGoal.app_user_id == test_user.id, UserGoal.is_primary.is_(True),
+            )
+        )).scalars().one()
+        goal_a_id, squat_exercise_id = goal_a.id, goal_a.exercise_id
+
+    block_id = await _make_block(test_user.id)
+    proposal_id = await _make_pending_goal_plan(
+        app_user_id=test_user.id, block_id=block_id,
+        goal_id=goal_a_id, exercise_id=squat_exercise_id,
+    )
+
+    assert (await client.post(
+        "/goals/milestones/bench_100kg/accept", headers=auth_headers
+    )).status_code == 201
+
+    async with SessionLocal() as db:
+        proposal = await db.get(PeriodizationProposal, proposal_id)
+    assert proposal.status == periodization_params.STATUS_EXPIRED
+
+
+async def test_accepting_a_new_milestone_leaves_unrelated_proposals_pending(
+    client, auth_headers, test_user,
+):
+    """Фильтр, гасящий лишнее (все pending пользователя, а не только
+    прежней ведущей цели), — такой же дефект, как фильтр, не гасящий нужное."""
+    await _prepare(test_user.id)
+    assert (await client.post(
+        "/goals/milestones/squat_2x_bw/accept", headers=auth_headers
+    )).status_code == 201
+
+    async with SessionLocal() as db:
+        goal_a = (await db.execute(
+            select(UserGoal).where(
+                UserGoal.app_user_id == test_user.id, UserGoal.is_primary.is_(True),
+            )
+        )).scalars().one()
+        goal_a_id = goal_a.id
+        resolved = await resolve_lift_exercises(db)
+
+    block_id = await _make_block(test_user.id)
+    # Предложение прежней ведущей — обязано погаснуть.
+    expired_id = await _make_pending_goal_plan(
+        app_user_id=test_user.id, block_id=block_id,
+        goal_id=goal_a_id, exercise_id=resolved["squat"],
+    )
+    # Предложение ЧУЖОЙ цели того же пользователя (другой exercise_id, чтобы
+    # не столкнуться с uq_periodization_proposals_pending) — обязано остаться.
+    untouched_id = await _make_pending_goal_plan(
+        app_user_id=test_user.id, block_id=block_id,
+        goal_id=goal_a_id + 10_000_000, exercise_id=resolved["bench"],
+    )
+
+    assert (await client.post(
+        "/goals/milestones/bench_100kg/accept", headers=auth_headers
+    )).status_code == 201
+
+    async with SessionLocal() as db:
+        expired = await db.get(PeriodizationProposal, expired_id)
+        untouched = await db.get(PeriodizationProposal, untouched_id)
+    assert expired.status == periodization_params.STATUS_EXPIRED
+    assert untouched.status == periodization_params.STATUS_PENDING
