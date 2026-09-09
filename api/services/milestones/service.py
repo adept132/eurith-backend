@@ -24,7 +24,7 @@ from api.services.milestones.visibility import (
 )
 from api.services.models import (
     AppUserMesocycle, AppUserProfile, Mesocycle, PeriodizationProposal,
-    UserExercisePreference, UserGoal,
+    TrainingBlock, UserExercisePreference, UserGoal,
 )
 from api.services.periodization import params as periodization_params
 from api.services.structure import mesocycle_presets as meso_presets
@@ -97,7 +97,7 @@ _UNSET = object()  # маркер «профиль не передан» — о�
 async def _simulated_deadline(
     session: AsyncSession, app_user_id: int, exercise_id: int,
     target: float, target_reps: int, today: date,
-    *, profile=_UNSET,
+    *, profile=_UNSET, microcycle_length=_UNSET,
 ) -> Optional[date]:
     """Дата пересечения цели по симуляции, либо None.
 
@@ -106,9 +106,10 @@ async def _simulated_deadline(
     чтобы задать горизонт прокрутки, поэтому подставляем горизонт видимости —
     сам ответ (`eta`) от этой подстановки не зависит.
 
-    `profile` (P1-03 ч.2, снижение стоимости витрины вех): пробрасывается в
-    evaluate() как есть — build_showcase читает профиль ОДИН раз для всех
-    карточек (см. её докстринг), а не заново на каждый вызов этой функции.
+    `profile`/`microcycle_length` (P1-03 ч.2, снижение стоимости витрины
+    вех): пробрасываются в evaluate() как есть — build_showcase читает их
+    ОДИН раз для всех карточек (см. её докстринг), а не заново на каждый
+    вызов этой функции.
     """
     probe = UserGoal(
         app_user_id=app_user_id,
@@ -118,7 +119,11 @@ async def _simulated_deadline(
         exercise_id=exercise_id,
         deadline=today + timedelta(weeks=MAX_WEEKS_TO_TARGET),
     )
-    kwargs = {} if profile is _UNSET else {"profile": profile}
+    kwargs = {}
+    if profile is not _UNSET:
+        kwargs["profile"] = profile
+    if microcycle_length is not _UNSET:
+        kwargs["microcycle_length"] = microcycle_length
     state = await evaluate(session, app_user_id, probe, today, **kwargs)
     return state["eta"] if state else None
 
@@ -140,6 +145,15 @@ async def build_showcase(
     # Уровень нужен только чтобы получить потолок: сам по себе он на
     # видимость не влияет (правка по ревью Задачи 2).
     _level, cap_pct = await repository.experience_and_cap(session, app_user_id, profile=profile)
+    # ФИКС дублирования (P1-03 ч.2, снижение стоимости витрины вех): та же
+    # причина, что у profile выше — длина микроцикла активного блока одна на
+    # пользователя, evaluate() читала её заново на каждую из до шести карточек.
+    microcycle_length = (await session.execute(
+        select(TrainingBlock.microcycle_length).where(
+            TrainingBlock.app_user_id == app_user_id,
+            TrainingBlock.status == "active",
+        )
+    )).scalar_one_or_none()
 
     cards: list[MilestoneCard] = []
     for v in visible_milestones(
@@ -156,7 +170,7 @@ async def build_showcase(
             deadline = await _simulated_deadline(
                 session, app_user_id, lift_exercises[lift],
                 v.target, v.milestone.target_reps, today,
-                profile=profile,
+                profile=profile, microcycle_length=microcycle_length,
             )
         cond = conditions_for(lift)
         cards.append(MilestoneCard(

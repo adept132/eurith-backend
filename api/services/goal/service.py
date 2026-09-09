@@ -167,7 +167,7 @@ _UNSET = object()  # маркер «профиль не передан» — о�
 
 async def evaluate(
     session: AsyncSession, app_user_id: int, goal: UserGoal, today: date,
-    profile=_UNSET,
+    profile=_UNSET, microcycle_length=_UNSET,
 ) -> Optional[dict]:
     """Полный расчёт по ведущей цели: обе даты, темпы, рычаги.
 
@@ -181,6 +181,11 @@ async def evaluate(
     (значение по умолчанию `_UNSET`, а не None — профиль пользователя
     отсутствовать МОЖЕТ, и это отличается от «не передан вовсе») — читаем
     сами, как раньше.
+
+    `microcycle_length` — та же история, что и `profile`: длина микроцикла
+    активного блока одна на пользователя и не меняется между карточками
+    витрины. `_UNSET`, а не None — отсутствие активного блока (None)
+    отличается от «не передан вовсе».
     """
     if goal.exercise_id is None or goal.deadline is None:
         return None
@@ -206,12 +211,13 @@ async def evaluate(
     # simulate.project_sessions): длина микроцикла активного блока. Нет
     # активного блока — нет ритма, simulate.run() ниже просто не достраивает
     # (microcycle_length=None), горизонт остаётся materialized как раньше.
-    microcycle_length = (await session.execute(
-        select(TrainingBlock.microcycle_length).where(
-            TrainingBlock.app_user_id == app_user_id,
-            TrainingBlock.status == "active",
-        )
-    )).scalar_one_or_none()
+    if microcycle_length is _UNSET:
+        microcycle_length = (await session.execute(
+            select(TrainingBlock.microcycle_length).where(
+                TrainingBlock.app_user_id == app_user_id,
+                TrainingBlock.status == "active",
+            )
+        )).scalar_one_or_none()
     lift_sessions, success_rate = await repository.lift_stats(
         session, app_user_id, goal.exercise_id
     )
