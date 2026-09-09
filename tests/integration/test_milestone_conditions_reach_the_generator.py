@@ -9,7 +9,6 @@ from api.services.milestones.service import milestone_accents
 from api.services.models import AppUserProfile, UserAnthropometry
 from app.database import SessionLocal
 
-pytestmark = pytest.mark.asyncio
 
 
 async def _prepare(user_id: int) -> None:
@@ -23,6 +22,7 @@ async def _prepare(user_id: int) -> None:
         await db.commit()
 
 
+@pytest.mark.asyncio
 async def test_accept_stores_the_conditions(client, auth_headers, test_user):
     await _prepare(test_user.id)
     r = await client.post("/goals/milestones/squat_2x_bw/accept", headers=auth_headers)
@@ -45,6 +45,7 @@ def test_accents_reader_tolerates_empty_settings():
     assert milestone_accents({"milestone": {"accents": ["quads"]}}) == ["quads"]
 
 
+@pytest.mark.asyncio
 async def test_generation_uses_milestone_accents_when_request_is_silent(
     client, auth_headers, test_user,
 ):
