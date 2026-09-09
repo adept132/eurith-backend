@@ -2,10 +2,12 @@
 import pytest
 from datetime import date, datetime, timezone
 
+from sqlalchemy import select
+
 from api.services.milestones.repository import resolve_lift_exercises
 from api.services.milestones.service import build_showcase
 from api.services.models import (
-    AppUserProfile, UserAnthropometry, UserExerciseProgressionState,
+    AppUserProfile, UserAnthropometry, UserExerciseProgressionState, UserGoal,
 )
 from app.database import SessionLocal
 
@@ -96,3 +98,49 @@ async def test_milestones_route_is_not_swallowed_by_the_goal_id_route(
     r = await client.get("/goals/milestones", headers=auth_headers)
     assert r.status_code == 200, r.text
     assert isinstance(r.json(), list)
+
+
+async def test_card_with_history_carries_the_simulated_deadline(
+    test_user, monkeypatch,
+):
+    """Срок на карточке — это дата пересечения из симуляции, а не выдумка."""
+    import api.services.milestones.service as milestones_service
+
+    async def _fake_evaluate(session, app_user_id, goal, today):
+        return {"eta": date(2026, 12, 1)}
+
+    monkeypatch.setattr(milestones_service, "evaluate", _fake_evaluate)
+
+    await _set_bodyweight(test_user.id, 80.0)
+    await _set_level(test_user.id, "intermediate")
+    await _set_e1rm(test_user.id, "bench", 87.5)
+
+    async with SessionLocal() as db:
+        cards = await build_showcase(db, test_user.id, date.today())
+
+    bench = [c for c in cards if c.lift == "bench"][0]
+    assert bench.suggested_deadline == date(2026, 12, 1)
+
+
+async def test_accepted_goal_gets_the_simulated_deadline(
+    client, auth_headers, test_user, monkeypatch,
+):
+    """Срок из симуляции обязан попасть в цель — иначе автопилот к ней слеп."""
+    import api.services.milestones.service as milestones_service
+
+    async def _fake_evaluate(session, app_user_id, goal, today):
+        return {"eta": date(2026, 12, 1)}
+
+    monkeypatch.setattr(milestones_service, "evaluate", _fake_evaluate)
+
+    await _set_bodyweight(test_user.id, 80.0)
+    await _set_level(test_user.id, "intermediate")
+
+    r = await client.post("/goals/milestones/bench_100kg/accept", headers=auth_headers)
+    assert r.status_code == 201, r.text
+
+    async with SessionLocal() as db:
+        goal = (await db.execute(
+            select(UserGoal).where(UserGoal.app_user_id == test_user.id)
+        )).scalars().first()
+    assert goal.deadline == date(2026, 12, 1)

@@ -23,8 +23,9 @@ from api.services.milestones.visibility import (
     MAX_WEEKS_TO_TARGET, visible_milestones,
 )
 from api.services.models import (
-    AppUserProfile, UserExercisePreference, UserGoal,
+    AppUserProfile, PeriodizationProposal, UserExercisePreference, UserGoal,
 )
+from api.services.periodization import params as periodization_params
 
 GOAL_STRENGTH = "strength"
 
@@ -145,9 +146,39 @@ async def accept_milestone(
     if target is None:
         raise BodyweightUnknown(code)
 
+    # Срок — тем же движком симуляции, что и витрина (докстринг модуля):
+    # то же число, которое автопилот потом будет защищать. Истории по
+    # движению нет — evaluate() внутри вернёт None, и это не баг: срок не
+    # выдумывается, состояние «у цели нет срока» система показывает честно.
+    deadline = await _simulated_deadline(
+        session, app_user_id, exercise_id, target, milestone.target_reps, today,
+    )
+
     # Прежняя ведущая теряет флаг: одна ведущая цель на пользователя
     # (решение 2 спеки P0-12 — структурные рычаги не делятся между двумя
-    # хозяевами).
+    # хозяевами). Сначала читаем её id, чтобы погасить её pending
+    # goal_plan-предложения ТОЙ ЖЕ дисциплиной, что и
+    # _retire_finished_primary_goal (goal/service.py) — иначе рычаг снятой
+    # цели остаётся висеть и может быть применён к чужому упражнению.
+    previous_primary_id = (await session.execute(
+        select(UserGoal.id).where(
+            UserGoal.app_user_id == app_user_id, UserGoal.is_primary.is_(True),
+        )
+    )).scalar_one_or_none()
+    if previous_primary_id is not None:
+        await session.execute(
+            sa_update(PeriodizationProposal)
+            .where(
+                PeriodizationProposal.app_user_id == app_user_id,
+                PeriodizationProposal.kind == periodization_params.KIND_GOAL_PLAN,
+                PeriodizationProposal.status == periodization_params.STATUS_PENDING,
+                PeriodizationProposal.payload["goal_id"].astext == str(previous_primary_id),
+            )
+            .values(status=periodization_params.STATUS_EXPIRED)
+        )
+    # Снятие флага — отдельным UPDATE (не через ORM-атрибут), чтобы гарантировать
+    # порядок относительно частичного уникального индекса uq_user_goals_primary:
+    # старая строка обязана уйти из-под индекса ДО insert новой (см. database.py).
     await session.execute(
         sa_update(UserGoal)
         .where(UserGoal.app_user_id == app_user_id, UserGoal.is_primary.is_(True))
@@ -161,6 +192,7 @@ async def accept_milestone(
         target_reps=milestone.target_reps,
         exercise_id=exercise_id,
         is_primary=True,
+        deadline=deadline,
     )
     session.add(goal)
 
