@@ -161,11 +161,18 @@ class _TestControlRouter:
             await self._response(send, 200, [(b"content-length", str(len(value)).encode())], value)
             return
 
-        self.counts["all"] += 1
         if path == "/internal/app-releases/android/direct-apk":
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                if message["type"] == "http.request" and not message.get("more_body", False):
+                    break
+            self.counts["all"] += 1
             self.counts["publish"] += 1
             await self._response(send, 204, [], b"")
             return
+        self.counts["all"] += 1
         if path == "/__caddy_test/unrelated":
             self.counts["other"] += 1
             await self._response(send, 204, [], b"")

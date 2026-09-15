@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ from tests.deploy.caddy_harness import (
     FIXTURE_BYTES,
     MAX_CAPTURE_BYTES,
     CaddyHarness,
+    _TestControlRouter,
     _run,
     require_caddy_database,
     sanitize_output,
@@ -22,6 +24,65 @@ from tests.deploy.caddy_harness import (
 
 
 pytestmark = pytest.mark.caddy_integration
+
+
+def test_publish_disconnect_before_complete_body_does_not_count_or_respond() -> None:
+    """Catches the test upstream publishing before Caddy finishes the upload body."""
+    router = _TestControlRouter(None, "unused")
+    messages = [
+        {"type": "http.request", "body": b"first", "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+    sent: list[dict[str, object]] = []
+
+    async def receive() -> dict[str, object]:
+        return messages.pop(0)
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    asyncio.run(
+        router(
+            {"type": "http", "path": "/internal/app-releases/android/direct-apk"},
+            receive,
+            send,
+        )
+    )
+
+    assert messages == []
+    assert router.counts == {"all": 0, "publish": 0, "other": 0}
+    assert sent == []
+
+
+def test_publish_complete_multi_message_body_counts_once_and_returns_no_content() -> None:
+    """Catches the test upstream responding before it consumes a complete upload body."""
+    router = _TestControlRouter(None, "unused")
+    messages = [
+        {"type": "http.request", "body": b"first", "more_body": True},
+        {"type": "http.request", "body": b"second", "more_body": False},
+    ]
+    sent: list[dict[str, object]] = []
+
+    async def receive() -> dict[str, object]:
+        return messages.pop(0)
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    asyncio.run(
+        router(
+            {"type": "http", "path": "/internal/app-releases/android/direct-apk"},
+            receive,
+            send,
+        )
+    )
+
+    assert messages == []
+    assert router.counts == {"all": 1, "publish": 1, "other": 0}
+    assert sent == [
+        {"type": "http.response.start", "status": 204, "headers": []},
+        {"type": "http.response.body", "body": b""},
+    ]
 
 
 @pytest.mark.parametrize(
