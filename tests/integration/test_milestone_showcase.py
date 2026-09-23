@@ -12,7 +12,7 @@ from api.services.models import (
 )
 from app.database import SessionLocal
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("milestone_catalog")]
 
 
 async def _set_bodyweight(user_id: int, kg: float) -> None:

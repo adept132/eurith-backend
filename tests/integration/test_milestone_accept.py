@@ -12,7 +12,7 @@ from api.services.models import (
 from api.services.periodization import params as periodization_params
 from app.database import SessionLocal
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("milestone_catalog")]
 
 
 async def _prepare(user_id: int, kg: float | None = 80.0) -> None:

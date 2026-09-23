@@ -11,9 +11,11 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest_asyncio
@@ -176,6 +178,39 @@ async def client(test_user: AppUser):
 async def db():
     async with SessionLocal() as session:
         yield session
+
+
+@pytest_asyncio.fixture
+async def milestone_catalog():
+    """Give milestone tests the six system lifts on an empty test database."""
+    from api.services.milestones.catalog import LIFTS
+
+    catalog_path = Path(__file__).resolve().parents[2] / "api/data/exercise_index.json"
+    with catalog_path.open(encoding="utf-8") as catalog_file:
+        entries = {
+            item["name"]: item
+            for item in json.load(catalog_file)
+            if item["name"] in LIFTS.values()
+        }
+    assert set(entries) == set(LIFTS.values())
+
+    async with SessionLocal() as session:
+        existing = set((await session.execute(
+            select(Exercise.name).where(Exercise.name.in_(list(entries)))
+        )).scalars())
+        for name, item in entries.items():
+            if name in existing:
+                continue
+            session.add(Exercise(
+                name=name,
+                category="compound",
+                main_muscle_group=item["main_muscle"],
+                secondary_muscle_groups=item["secondary"],
+                equipment_needed=item["equipment"],
+                difficulty="intermediate",
+                source="catalog",
+            ))
+        await session.commit()
 
 
 @pytest_asyncio.fixture

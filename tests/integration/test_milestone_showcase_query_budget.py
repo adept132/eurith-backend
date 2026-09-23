@@ -27,7 +27,7 @@ from api.services.models import (
 )
 from app.database import SessionLocal, engine
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("milestone_catalog")]
 
 # Достигнуто после дедупликации: 51 запрос. Граница — достигнутое + 10%
 # (округлено вверх), чтобы тест не сыпался от несущественного шума (лишний
