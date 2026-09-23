@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -34,6 +35,9 @@ from api.services.models import (
     UserGoal,
 )
 from api.services.periodization import params as periodization_params
+from api.services.periodization.repository import get_active_block
+
+logger = logging.getLogger(__name__)
 
 _HORIZON_TAIL_DAYS = 120  # запас за дедлайном, чтобы увидеть «не успеваем»
 
@@ -93,6 +97,46 @@ async def _retire_finished_primary_goal(
         )
         .values(status=periodization_params.STATUS_EXPIRED)
     )
+
+    # P1-03 ч.2 §5.6: момент закрытия цели — лучший за весь цикл, и молча
+    # освобождать слот значит его потерять. Карточка ведёт в витрину вех.
+    block = await get_active_block(session, app_user_id)
+    if block is None:
+        # Предложению некуда привязаться: block_id NOT NULL. Это деградация
+        # пользователя без активного блока, а не ошибка — та же развилка, что
+        # у обзора объёма в volume/service.py, но не то же поведение: там при
+        # отсутствии блока функция делает return None и отменяет своё действие
+        # целиком, а здесь ниже по функции is_primary уже снят и коммит всё
+        # равно произойдёт — иначе цель осталась бы ведущей навсегда.
+        logger.info(
+            "P1-03: карточка goal_next пропущена для app_user_id=%s — нет активного блока",
+            app_user_id,
+        )
+    else:
+        already = (await session.execute(
+            select(PeriodizationProposal.id).where(
+                PeriodizationProposal.app_user_id == app_user_id,
+                PeriodizationProposal.kind == periodization_params.KIND_GOAL_NEXT,
+                PeriodizationProposal.status == periodization_params.STATUS_PENDING,
+                PeriodizationProposal.payload["closed_goal_id"].astext == str(goal.id),
+            ).limit(1)
+        )).scalars().first()
+        if already is None:
+            session.add(PeriodizationProposal(
+                app_user_id=app_user_id,
+                block_id=block.id,
+                kind=periodization_params.KIND_GOAL_NEXT,
+                reason_code=(
+                    periodization_params.REASON_GOAL_ACHIEVED if achieved
+                    else periodization_params.REASON_GOAL_OVERDUE
+                ),
+                payload={
+                    "closed_goal_id": goal.id,
+                    "exercise_id": goal.exercise_id,
+                    "target_value": goal.target_value,
+                },
+            ))
+
     await session.commit()
     return True
 
@@ -118,13 +162,30 @@ def _inputs_hash(profile: Optional[AppUserProfile], goal: UserGoal) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+_UNSET = object()  # маркер «профиль не передан» — отличим от «профиля нет» (None валиден)
+
+
 async def evaluate(
-    session: AsyncSession, app_user_id: int, goal: UserGoal, today: date
+    session: AsyncSession, app_user_id: int, goal: UserGoal, today: date,
+    profile=_UNSET, microcycle_length=_UNSET,
 ) -> Optional[dict]:
     """Полный расчёт по ведущей цели: обе даты, темпы, рычаги.
 
     None — цели нельзя дать честный прогноз (нет истории лифта). Молчание
     здесь правильнее любого числа.
+
+    `profile` (P1-03 ч.2, снижение стоимости витрины вех): необязательный
+    уже загруженный AppUserProfile. build_showcase зовёт evaluate() до шести
+    раз подряд для ОДНОГО и того же пользователя — профиль между карточками
+    не меняется, и читать его заново на каждой не нужно. Не передан
+    (значение по умолчанию `_UNSET`, а не None — профиль пользователя
+    отсутствовать МОЖЕТ, и это отличается от «не передан вовсе») — читаем
+    сами, как раньше.
+
+    `microcycle_length` — та же история, что и `profile`: длина микроцикла
+    активного блока одна на пользователя и не меняется между карточками
+    витрины. `_UNSET`, а не None — отсутствие активного блока (None)
+    отличается от «не передан вовсе».
     """
     if goal.exercise_id is None or goal.deadline is None:
         return None
@@ -133,9 +194,10 @@ async def evaluate(
     if current is None or current <= 0:
         return None
 
-    profile = (await session.execute(
-        select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
-    )).scalar_one_or_none()
+    if profile is _UNSET:
+        profile = (await session.execute(
+            select(AppUserProfile).where(AppUserProfile.app_user_id == app_user_id)
+        )).scalar_one_or_none()
     level = (profile.experience_level if profile else None) or "beginner"
     cap_pct = WEEKLY_GROWTH_CAP_PCT.get(level.strip().lower(), _DEFAULT_CAP_PCT)
 
@@ -149,12 +211,13 @@ async def evaluate(
     # simulate.project_sessions): длина микроцикла активного блока. Нет
     # активного блока — нет ритма, simulate.run() ниже просто не достраивает
     # (microcycle_length=None), горизонт остаётся materialized как раньше.
-    microcycle_length = (await session.execute(
-        select(TrainingBlock.microcycle_length).where(
-            TrainingBlock.app_user_id == app_user_id,
-            TrainingBlock.status == "active",
-        )
-    )).scalar_one_or_none()
+    if microcycle_length is _UNSET:
+        microcycle_length = (await session.execute(
+            select(TrainingBlock.microcycle_length).where(
+                TrainingBlock.app_user_id == app_user_id,
+                TrainingBlock.status == "active",
+            )
+        )).scalar_one_or_none()
     lift_sessions, success_rate = await repository.lift_stats(
         session, app_user_id, goal.exercise_id
     )
@@ -170,11 +233,24 @@ async def evaluate(
         session, app_user_id, goal.exercise_id
     )
 
+    # ФИКС дублирования (P1-03 ч.2, снижение стоимости витрины вех): контекст
+    # упражнения нужен и симуляции ниже (scheme_context), и наружу
+    # (payload["exercise"]) — читаем его ОДИН раз и передаём в оба места,
+    # вместо того чтобы scheme_context читала его заново внутри себя, а
+    # evaluate() — второй раз в конце (было 2 вызова exercise_context = 4
+    # запроса на одну и ту же пару таблиц за один evaluate()).
+    exercise_ctx = await repository.exercise_context(session, app_user_id, goal.exercise_id)
+
     # КРИТИЧЕСКАЯ ПОПРАВКА К БРИФУ (см. поправки постановщика Задачи 6):
     # simulate.run принимает SchemeContext ПЕРВЫМ аргументом, а не голый
     # start_e1rm — прокрутка идёт через настоящий движок прогрессии
     # (progression.engine.plan_exercise), а не по арифметике "шаг × частота".
-    ctx = await repository.scheme_context(session, app_user_id, goal.exercise_id, profile)
+    # current/exercise_ctx уже прочитаны выше — передаём их, чтобы scheme_
+    # context не читала working_e1rm и контекст упражнения заново.
+    ctx = await repository.scheme_context(
+        session, app_user_id, goal.exercise_id, profile,
+        known_working_e1rm=current, exercise_ctx=exercise_ctx,
+    )
     if ctx is None:
         return None
 
@@ -218,10 +294,9 @@ async def evaluate(
         "horizon_start": today + timedelta(days=1),
         "horizon_until": until,
         # Контекст рычагов: параметры упражнения (схема, тяжесть базы) для
-        # применимости LEVER_SCHEME — из БД через repository.
-        "exercise": await repository.exercise_context(
-            session, app_user_id, goal.exercise_id
-        ),
+        # применимости LEVER_SCHEME — уже прочитан выше (exercise_ctx), второй
+        # раз за ним в БД не ходим.
+        "exercise": exercise_ctx,
     }
 
 

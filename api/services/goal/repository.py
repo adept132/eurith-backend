@@ -268,20 +268,29 @@ async def adherence_ratios(
 
 
 async def exercise_context(
-    session: AsyncSession, app_user_id: int, exercise_id: int
+    session: AsyncSession, app_user_id: int, exercise_id: int,
+    *, exercise_row=None,
 ) -> dict:
     """Схема, верх диапазона повторов, тяжесть базы и главная мышца.
 
     Схему берём из кэша состояния (last_scheme): это то, что движок реально
     применил в последний раз, а не то, что он выбрал бы в вакууме.
+
+    `exercise_row` (P1-03 ч.2, снижение стоимости витрины вех): строка
+    Exercise (main_muscle_group, fatigue_tier, equipment_needed), если
+    вызывающая сторона уже её прочитала (см. scheme_context ниже) — тогда
+    повторный SELECT по exercise_id не нужен. Не передан — читаем сами, как
+    раньше.
     """
     from api.services.equipment import BARBELL, SMITH, normalize_equipment_list
     from api.services.muscle_keys import to_system_key
 
-    row = (await session.execute(
-        select(Exercise.main_muscle_group, Exercise.fatigue_tier, Exercise.equipment_needed)
-        .where(Exercise.id == exercise_id)
-    )).first()
+    row = exercise_row
+    if row is None:
+        row = (await session.execute(
+            select(Exercise.main_muscle_group, Exercise.fatigue_tier, Exercise.equipment_needed)
+            .where(Exercise.id == exercise_id)
+        )).first()
     if row is None:
         return {"scheme": "e1rm_factor", "rep_max": 8,
                 "is_heavy_compound": False, "muscle": None}
@@ -354,9 +363,18 @@ def _bootstrap_history(
 
 
 async def scheme_context(
-    session: AsyncSession, app_user_id: int, exercise_id: int, profile
+    session: AsyncSession, app_user_id: int, exercise_id: int, profile,
+    *, known_working_e1rm: Optional[float] = None, exercise_ctx: Optional[dict] = None,
 ) -> Optional[SchemeContext]:
     """Стартовый контекст движка для прокрутки вперёд (simulate.run).
+
+    `known_working_e1rm`/`exercise_ctx` (P1-03 ч.2, снижение стоимости
+    витрины вех): evaluate() выше по стеку уже читает current_e1rm и
+    exercise_context для СВОИХ целей до вызова scheme_context — раньше
+    scheme_context читала их ЗАНОВО (тот же working_e1rm, тот же контекст
+    упражнения), удваивая три запроса на каждый вызов evaluate(). Оба
+    параметра необязательные и по умолчанию не переданы — прямые вызовы
+    (тесты, любой другой потребитель) ведут себя ровно как раньше.
 
     КРИТИЧЕСКАЯ ПОПРАВКА К БРИФУ (см. отчёт Задачи 1 и докстринг
     api/services/goal/simulate.py): plan_exercise() ВСЕГДА пересчитывает
@@ -380,7 +398,9 @@ async def scheme_context(
     from api.services.equipment import normalize_equipment_list
     from api.services.progression.repository import load_history
 
-    working = await current_e1rm(session, app_user_id, exercise_id)
+    working = known_working_e1rm
+    if working is None:
+        working = await current_e1rm(session, app_user_id, exercise_id)
     if working is None or working <= 0:
         return None
 
@@ -391,7 +411,9 @@ async def scheme_context(
     if row is None:
         return None
 
-    ctx_bits = await exercise_context(session, app_user_id, exercise_id)
+    ctx_bits = exercise_ctx
+    if ctx_bits is None:
+        ctx_bits = await exercise_context(session, app_user_id, exercise_id, exercise_row=row)
     settings = (profile.settings or {}) if profile else {}
     rep_min = max(1, ctx_bits["rep_max"] - 3)
 

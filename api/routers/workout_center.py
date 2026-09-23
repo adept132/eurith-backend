@@ -182,8 +182,16 @@ async def build_context(
 
     # --- 2. ЗАГРУЗКА МЕЗОЦИКЛОВ (ПЕРИОДИЗАЦИИ) ---
 
-    # А. Получаем все доступные стратегии (шаблоны)
-    mesos_stmt = select(Mesocycle).order_by(Mesocycle.id.asc())
+    # А. Получаем все доступные стратегии (шаблоны): системные (author_id IS
+    # NULL) и собственные. Правка финального ревью P1-03: без фильтра каждый
+    # пользователь видел мезоциклы всех остальных (author_id == чужой id).
+    mesos_stmt = (
+        select(Mesocycle)
+        .where(
+            (Mesocycle.author_id.is_(None)) | (Mesocycle.author_id == app_user.id)
+        )
+        .order_by(Mesocycle.id.asc())
+    )
     mesos_result = await session.execute(mesos_stmt)
     available_mesocycles_db = mesos_result.scalars().all()
 
@@ -409,6 +417,20 @@ async def update_workout_center_split(
             current_day=1,
         )
         session.add(user_split)
+
+    # Финальное ревью P1-03, Critical 1: это ВТОРОЙ вход смены сплита — тот
+    # же blueprint_id меняется и в POST /splits/active (splits.py), и здесь.
+    # Мобильный селектор на экране тренировки бьёт именно сюда, а не в
+    # /splits/active. Без пересборки микроциклы остаются на длине старого
+    # сплита, и scheduling_engine молча уводит раскладку повторов
+    # относительно дней нового сплита — тот самый дефект, ради которого
+    # затевалась вся эта задача. flush ДО вызова обязателен: rebuild_for_active_split
+    # читает активный UserSplit тем же SELECT в этой же сессии, и без flush
+    # он увидел бы старый blueprint_id.
+    from api.services.structure.bootstrap import rebuild_for_active_split
+
+    await session.flush()
+    await rebuild_for_active_split(session, app_user.id)
 
     await session.commit()
     return await build_context(session, app_user)
@@ -862,6 +884,21 @@ async def update_workout_center_mesocycle(
         session: AsyncSession = Depends(get_db),
         app_user: AppUser = Depends(get_current_app_user)
 ):
+    # 0. Правка финального ревью P1-03: без проверки владения можно было
+    # активировать чужой шаблон мезоцикла по id. 404, а не 403 — тот же
+    # приём, что и у PATCH /workout-center/context/microcycle: не палим
+    # чужой записью факт её существования. Проверяем ДО деактивации своих
+    # записей — тот же порядок, что и у микроцикла (см. ниже).
+    if payload.mesocycle_id is not None:
+        owned = (await session.execute(
+            select(Mesocycle.id).where(
+                Mesocycle.id == payload.mesocycle_id,
+                (Mesocycle.author_id.is_(None)) | (Mesocycle.author_id == app_user.id),
+            )
+        )).scalars().first()
+        if owned is None:
+            raise HTTPException(404, "Мезоцикл не найден")
+
     # 1. Деактивируем все предыдущие стратегии
     await session.execute(
         update(AppUserMesocycle)
