@@ -242,6 +242,47 @@ async def _apply_snapshot(
     }
     existing_exercises_by_id = {e.id: e for e in loaded_exercises}
 
+    # A deployed database has a UNIQUE(workout_session_id, order_index) index.
+    # The client sends active exercises before deletion tombstones. After deleting
+    # an exercise it compacts the remaining order indices, so assigning the new
+    # position before the tombstone is flushed collides with the old occupant.
+    # Swapping two existing exercises has the same intermediate collision.
+    # Normalize duplicate client positions and, only when a slot is occupied by
+    # another row, park existing rows above every requested position first.
+    active_order = sorted(
+        enumerate(ex for ex in payload.exercises if not ex.deleted),
+        key=lambda item: (item[1].order_index, item[0]),
+    )
+    target_order_by_snapshot: dict[int, int] = {}
+    next_order = 0
+    for _, ex_snap in active_order:
+        target_order = max(ex_snap.order_index, next_order)
+        target_order_by_snapshot[id(ex_snap)] = target_order
+        next_order = target_order + 1
+
+    current_by_order = {e.order_index: e for e in loaded_exercises}
+
+    def _existing_exercise(ex_snap):
+        return existing_exercises.get(ex_snap.client_uuid) or (
+            existing_exercises_by_id.get(ex_snap.server_id)
+            if ex_snap.server_id is not None else None
+        )
+
+    needs_order_staging = any(
+        (occupant := current_by_order.get(target_order_by_snapshot[id(ex_snap)]))
+        is not None and occupant is not _existing_exercise(ex_snap)
+        for _, ex_snap in active_order
+    )
+    original_order_by_id = {e.id: e.order_index for e in loaded_exercises}
+    staged_existing_ids: set[int] = set()
+    staging_base = max(
+        [*original_order_by_id.values(), *target_order_by_snapshot.values(), -1]
+    ) + 1
+    if needs_order_staging:
+        for offset, exercise in enumerate(sorted(loaded_exercises, key=lambda e: e.id)):
+            exercise.order_index = staging_base + offset
+        await db.flush()
+
     for ex_snap in payload.exercises:
         exercise = existing_exercises.get(ex_snap.client_uuid)
         ex_is_new = False
@@ -249,6 +290,9 @@ async def _apply_snapshot(
             exercise = existing_exercises_by_id.get(ex_snap.server_id)
             if exercise is not None:
                 exercise.client_uuid = ex_snap.client_uuid
+
+        if exercise is not None:
+            staged_existing_ids.add(exercise.id)
 
         if ex_snap.deleted:
             if exercise is not None:
@@ -264,7 +308,7 @@ async def _apply_snapshot(
             ex_is_new = True
 
         exercise.exercise_id = ex_snap.exercise_id
-        exercise.order_index = ex_snap.order_index
+        exercise.order_index = target_order_by_snapshot[id(ex_snap)]
         exercise.superset_group = ex_snap.superset_group
         exercise.notes = ex_snap.notes
         exercise.recommended_rir = ex_snap.recommended_rir
@@ -363,6 +407,25 @@ async def _apply_snapshot(
             if child is None:
                 continue
             child.parent_set_id = id_map.get(set_snap.parent_client_uuid)
+
+    if needs_order_staging:
+        # A partial snapshot leaves other server exercises intact. Restore their
+        # previous positions where free; append only when a client position now
+        # occupies that slot. Temporary positions cannot leak into the response.
+        used_orders = set(target_order_by_snapshot.values())
+        append_order = staging_base + len(loaded_exercises)
+        for exercise in sorted(loaded_exercises, key=lambda e: original_order_by_id[e.id]):
+            if exercise.id in staged_existing_ids:
+                continue
+            prior_order = original_order_by_id[exercise.id]
+            if prior_order in used_orders:
+                exercise.order_index = append_order
+                used_orders.add(append_order)
+                append_order += 1
+            else:
+                exercise.order_index = prior_order
+                used_orders.add(prior_order)
+        await db.flush()
 
     # 5. Новая версия — её клиент сохранит и пришлёт как base_version.
     workout.sync_version = (workout.sync_version or 0) + 1
