@@ -20,7 +20,7 @@ from api.services.milestones import repository
 from api.services.milestones.catalog import LIFTS, milestone_by_code, target_kg
 from api.services.milestones.conditions import conditions_for
 from api.services.milestones.visibility import (
-    MAX_WEEKS_TO_TARGET, visible_milestones,
+    MAX_WEEKS_TO_TARGET, achieved_codes_from_sets, visible_milestones,
 )
 from api.services.models import (
     AppUserMesocycle, AppUserProfile, Mesocycle, PeriodizationProposal,
@@ -134,6 +134,10 @@ async def build_showcase(
     lift_exercises = await repository.resolve_lift_exercises(session)
     current = await repository.current_e1rm_by_lift(session, app_user_id, lift_exercises)
     bodyweight = await repository.latest_bodyweight(session, app_user_id)
+    completed_sets = await repository.completed_sets_by_lift(
+        session, app_user_id, lift_exercises,
+    )
+    achieved_codes = achieved_codes_from_sets(completed_sets, bodyweight)
     # ФИКС дублирования (P1-03 ч.2, снижение стоимости витрины вех): профиль
     # читаем ОДИН раз и передаём и в experience_and_cap (уровень/потолок), и
     # в evaluate() каждой карточки ниже (_simulated_deadline) — иначе на
@@ -160,6 +164,7 @@ async def build_showcase(
         current_e1rm=current,
         bodyweight=bodyweight,
         ceiling_pct=cap_pct,
+        achieved_codes=achieved_codes,
     ):
         lift = v.milestone.lift
         if lift not in lift_exercises:

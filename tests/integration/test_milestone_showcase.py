@@ -8,7 +8,8 @@ from api.services.milestones.repository import resolve_lift_exercises
 from api.services.milestones.service import build_showcase
 from api.services.models import (
     AppUserMesocycle, AppUserProfile, Mesocycle, UserAnthropometry,
-    UserExerciseProgressionState, UserGoal,
+    UserExerciseProgressionState, UserGoal, WorkoutSession,
+    WorkoutSessionExercise, WorkoutSessionSet,
 )
 from app.database import SessionLocal
 
@@ -82,6 +83,39 @@ async def test_card_with_history_reports_the_gap(test_user):
     assert bench.has_history is True
     assert bench.remaining == 15.8
     assert bench.target == 100.0
+
+
+async def test_completed_past_set_hides_achieved_rung_with_stale_progression(test_user):
+    """A completed 80 kg bench press at 80 kg bodyweight is already a fact,
+    even if the rolling progression cache has since fallen to 70 kg."""
+    await _set_bodyweight(test_user.id, 80.0)
+    await _set_level(test_user.id, "intermediate")
+    await _set_e1rm(test_user.id, "bench", 70.0)
+    async with SessionLocal() as db:
+        bench_id = (await resolve_lift_exercises(db))["bench"]
+        workout = WorkoutSession(
+            app_user_id=test_user.id, source="free", status="finished",
+            finished_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        )
+        db.add(workout)
+        await db.flush()
+        exercise = WorkoutSessionExercise(
+            workout_session_id=workout.id, exercise_id=bench_id, order_index=0,
+        )
+        db.add(exercise)
+        await db.flush()
+        db.add(WorkoutSessionSet(
+            workout_session_exercise_id=exercise.id, set_number=1,
+            set_type="normal", weight=80, reps=1, is_completed=True,
+            is_anomalous=False,
+        ))
+        await db.commit()
+
+    async with SessionLocal() as db:
+        cards = (await build_showcase(db, test_user.id, date.today())).cards
+
+    bench = next(card for card in cards if card.lift == "bench")
+    assert bench.code == "bench_100kg"
 
 
 async def test_showcase_keeps_pullups_without_bodyweight(test_user):
