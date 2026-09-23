@@ -22,6 +22,37 @@ from api.services.milestones.catalog import (
 MAX_WEEKS_TO_TARGET = 104
 
 
+def achieved_codes_from_sets(
+    sets_by_lift: dict[str, list[tuple[Optional[float], int]]],
+    bodyweight: Optional[float],
+) -> set[str]:
+    """Milestones actually completed in a finished normal set.
+
+    The rolling e1RM can decline or be missing after an import. A past
+    completed weight-and-rep result remains achieved. For pull-ups the logged
+    weight is added resistance; unweighted reps need no weight entry.
+    """
+    achieved: set[str] = set()
+    for milestone in MILESTONES:
+        sets = sets_by_lift.get(milestone.lift, ())
+        if milestone.lift == "pullup":
+            extra = milestone.bodyweight_addend
+            if any(
+                reps >= milestone.target_reps
+                and (extra == 0 or (weight is not None and weight >= extra))
+                for weight, reps in sets
+            ):
+                achieved.add(milestone.code)
+            continue
+        target = target_kg(milestone, bodyweight)
+        if target is not None and any(
+            weight is not None and weight >= target and reps >= milestone.target_reps
+            for weight, reps in sets
+        ):
+            achieved.add(milestone.code)
+    return achieved
+
+
 @dataclass(frozen=True)
 class VisibleMilestone:
     milestone: Milestone
@@ -43,6 +74,7 @@ def visible_milestones(
     current_e1rm: dict[str, float],
     bodyweight: Optional[float],
     ceiling_pct: float,
+    achieved_codes: Optional[set[str]] = None,
 ) -> list[VisibleMilestone]:
     """Ближайшая невзятая и достижимая веха по каждому движению.
 
@@ -69,6 +101,7 @@ def visible_milestones(
     считается достижение цели.
     """
     by_lift: dict[str, list[tuple[float, float, Milestone]]] = {}
+    achieved = achieved_codes or set()
     # П5 (финальное ревью, Important 5): подтягивания считаются числом
     # повторов, а не весом — свой вес используется как отягощение
     # автоматически, знать его точное значение не нужно, чтобы подтянуться.
@@ -95,11 +128,15 @@ def visible_milestones(
         current = current_e1rm.get(lift)
 
         if current is None:
-            _, lowest_kg, lowest = rungs[0]
-            result.append(VisibleMilestone(lowest, lowest_kg, None, False))
+            for _, kg, milestone in rungs:
+                if milestone.code not in achieved:
+                    result.append(VisibleMilestone(milestone, kg, None, False))
+                    break
             continue
 
         for e1rm, kg, m in rungs:
+            if m.code in achieved:
+                continue
             if current >= e1rm:
                 continue
             if not _reachable(current, e1rm, ceiling_pct):
@@ -112,7 +149,10 @@ def visible_milestones(
         # подтягивания разом (target_e1rm для них либо все None, либо ни
         # одна), так что by_lift["pullup"] не заводится. Каталог уже несёт
         # подтягивания по возрастанию сложности — берём первую запись.
-        result.append(VisibleMilestone(blind_pullup[0], None, None, False))
+        for milestone in blind_pullup:
+            if milestone.code not in achieved:
+                result.append(VisibleMilestone(milestone, None, None, False))
+                break
 
     # Порядок движений — как в каталоге, чтобы витрина не прыгала между вызовами.
     order = {m.lift: i for i, m in enumerate(MILESTONES)}

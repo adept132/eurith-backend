@@ -4,11 +4,12 @@ from datetime import datetime, timezone
 
 from api.services.milestones.catalog import LIFTS
 from api.services.milestones.repository import (
-    current_e1rm_by_lift, experience_and_cap, latest_bodyweight,
+    completed_sets_by_lift, current_e1rm_by_lift, experience_and_cap, latest_bodyweight,
     resolve_lift_exercises,
 )
 from api.services.models import (
     AppUserProfile, UserAnthropometry, UserExerciseProgressionState,
+    WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet,
 )
 from app.database import SessionLocal
 
@@ -40,6 +41,41 @@ async def test_e1rm_is_read_per_lift_and_missing_history_is_absent(test_user):
 
     assert by_lift["squat"] == 120.0
     assert "bench" not in by_lift, "движение без истории в словаре не появляется"
+
+
+async def test_completed_sets_ignore_warmup_incomplete_and_anomalous(test_user):
+    async with SessionLocal() as db:
+        bench_id = (await resolve_lift_exercises(db))["bench"]
+        workout = WorkoutSession(
+            app_user_id=test_user.id, source="free", status="finished",
+            finished_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        )
+        db.add(workout)
+        await db.flush()
+        exercise = WorkoutSessionExercise(
+            workout_session_id=workout.id, exercise_id=bench_id, order_index=0,
+        )
+        db.add(exercise)
+        await db.flush()
+        for number, weight, set_type, completed, anomalous in (
+            (1, 80, "normal", True, False),
+            (2, 120, "warmup", True, False),
+            (3, 110, "normal", False, False),
+            (4, 105, "normal", True, True),
+        ):
+            db.add(WorkoutSessionSet(
+                workout_session_exercise_id=exercise.id,
+                set_number=number, weight=weight, reps=1,
+                set_type=set_type, is_completed=completed,
+                is_anomalous=anomalous,
+            ))
+        await db.commit()
+
+    async with SessionLocal() as db:
+        resolved = await resolve_lift_exercises(db)
+        sets = await completed_sets_by_lift(db, test_user.id, resolved)
+
+    assert sets["bench"] == [(80.0, 1)]
 
 
 async def test_bodyweight_takes_the_latest_record(test_user):
