@@ -27,6 +27,7 @@ async def test_language_is_persisted_without_erasing_settings(
 
     assert response.status_code == 200, response.text
     assert response.json()["settings"] == {"weight_unit": "kg", "language": "en"}
+    assert response.json()["language"] == "en"
 
 
 @pytest.mark.asyncio

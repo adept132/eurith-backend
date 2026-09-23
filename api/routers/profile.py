@@ -270,7 +270,11 @@ async def update_profile_settings(
         refresh_goal_proposals(db, current_user.id, utc_today()),
     )
 
-    return {"status": "ok", "settings": profile.settings}
+    response = {"status": "ok", "settings": profile.settings}
+    if payload.language is not None:
+        # APK 1.0.1 checks the write acknowledgement at the top level.
+        response["language"] = profile.settings["language"]
+    return response
 
 
 @router.patch("/profile/onboarding")
