@@ -12,6 +12,7 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip check && python -c "from PIL import Image; import httpx"
 
 RUN groupadd --gid 1000 eurith \
     && useradd --uid 1000 --gid 1000 --create-home eurith

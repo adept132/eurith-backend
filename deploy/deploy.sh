@@ -61,6 +61,12 @@ if ! docker compose build api; then
   exit 1
 fi
 
+if ! docker compose run --rm --no-deps api python -c 'from api.main import app; print("API import OK")'; then
+  git -C "$SOURCE_DIR" checkout --detach "$OLD_COMMIT"
+  echo "Новый API не загрузился; работающий API не изменён." >&2
+  exit 1
+fi
+
 echo "[5/7] Применяю миграции базы данных"
 if ! docker compose run --rm --no-deps api alembic upgrade head; then
   git -C "$SOURCE_DIR" checkout --detach "$OLD_COMMIT"
@@ -83,6 +89,10 @@ for attempt in $(seq 1 30); do
 done
 
 echo "Health check не прошёл. Возвращаю ${OLD_COMMIT}." >&2
+(
+  umask 077
+  docker compose logs --tail 200 api > "${BACKUP_DIR}/failed-deploy-$(date -u +%Y%m%dT%H%M%SZ)-${NEW_COMMIT:0:8}.log" 2>&1
+) || true
 git -C "$SOURCE_DIR" checkout --detach "$OLD_COMMIT"
 docker compose build api
 docker compose up -d --no-deps api
