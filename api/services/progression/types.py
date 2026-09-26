@@ -122,6 +122,9 @@ class SessionFact:
     prescription: Optional[Prescription]
     sets: tuple[SetFact, ...]
     is_deload: bool = False
+    # Исходная write-once цель. prescription может быть live-версией,
+    # изменённой после отдельных подходов во время тренировки.
+    initial_prescription: Optional[Prescription] = None
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,7 @@ class Outcome:
     # P0-07: сколько рабочих подходов сделано в упор — вес и повторы взяты,
     # но ценой отказа там, где запас был предписан.
     strained_sets: int = 0
+    original_goal_met: bool = False
 
 
 @dataclass(frozen=True)

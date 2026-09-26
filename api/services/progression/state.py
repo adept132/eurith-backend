@@ -90,6 +90,7 @@ def evaluate(
     prescription: Optional[Prescription],
     facts: Sequence[SetFact],
     step_kg: float,
+    initial_prescription: Optional[Prescription] = None,
 ) -> Outcome:
     """Вердикт по сессии. Приоритет: no_basis, deviated, miss, strained, overshoot, hit."""
     if prescription is None or not prescription.sets:
@@ -102,6 +103,28 @@ def evaluate(
     usable = [s for s in candidates if not s.is_anomalous]
     if not usable:
         return Outcome(status="no_basis")
+
+    # Первоначальная цель остаётся неизменной на всю тренировку. После
+    # раннего недобора live_prescription может облегчить следующий подход;
+    # его выполнение не равно выполнению исходной цели. Проверяем любой
+    # рабочий подход, чтобы поздняя удачная попытка всё же засчитывалась.
+    original = initial_prescription if initial_prescription and initial_prescription.sets else prescription
+    goal_sets = [s for s in original.sets if s.kind != "backoff"] or list(original.sets)
+    primary_goal = max(
+        goal_sets,
+        key=lambda s: (float(s.weight_kg) if s.weight_kg is not None else -1.0, s.rep_min),
+    )
+    original_goal_met = any(
+        s.reps >= primary_goal.rep_min
+        and (
+            primary_goal.weight_kg is None
+            or (
+                s.weight_kg is not None
+                and s.weight_kg >= primary_goal.weight_kg - params.GOAL_WEIGHT_TOLERANCE_KG
+            )
+        )
+        for s in usable
+    )
 
     hit = miss = deviated = overshoot = strained = 0
     achieved: Optional[float] = None
@@ -162,6 +185,7 @@ def evaluate(
         total_sets=total,
         achieved_e1rm=achieved,
         strained_sets=strained,
+        original_goal_met=original_goal_met,
     )
 
 
@@ -213,8 +237,15 @@ def rebuild_state(history: ExerciseHistory, step_kg: float) -> ProgressionState:
                 last_top = top
             last_scheme = session.prescription.scheme
 
-        outcome = evaluate(session.prescription, session.sets, step_kg)
-        if outcome.status == "miss":
+        outcome = evaluate(
+            session.prescription,
+            session.sets,
+            step_kg,
+            session.initial_prescription,
+        )
+        if outcome.original_goal_met:
+            consecutive_misses = 0
+        elif outcome.status == "miss":
             consecutive_misses += 1
         elif outcome.status in ("hit", "overshoot"):
             consecutive_misses = 0

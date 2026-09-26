@@ -15,7 +15,7 @@
   ],
   "expect": {
     "scheme": "double",
-    "reason_code": "hold_after_miss",
+    "reason_code": "goal_met_in_session",
     "sets": [
       {"weight_kg": 20.0, "rep_min": 11, "rep_max": 12, "kind": "normal"},
       {"weight_kg": 20.0, "rep_min": 10, "rep_max": 12, "kind": "normal"},

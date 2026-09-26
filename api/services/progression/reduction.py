@@ -142,10 +142,22 @@ def apply_reduction(prescription: Prescription, ctx: SchemeContext) -> Prescript
         # Переякорить не на что: ни фактического веса, ни якоря не известно.
         # Правило не срабатывает — идём дальше по списку (4, 5, 6, 7).
 
-    # 4. Повторный или тяжёлый недобор.
+    # Поздний подход закрыл исходную цель. Промах раннего подхода не должен
+    # превращаться в снижение веса следующей тренировки; полный объём всё
+    # ещё не взят, поэтому и повышать вес пока рано.
+    if outcome is not None and outcome.status == "miss" and outcome.original_goal_met and anchor is not None:
+        return _with_weight(prescription, _on_grid(ctx, anchor), "goal_met_in_session")
+
+    # 4. Повторный или тяжёлый недобор. Одна неудача из двух подходов —
+    # это уже 50 %, но успешный поздний подход делает немедленный откат
+    # непропорциональным. Сразу снижаем лишь когда провалены как минимум
+    # два подхода и ни одна показанная цель не взята.
     severe = (
         outcome is not None
         and outcome.total_sets > 0
+        and outcome.miss_sets >= 2
+        and outcome.hit_sets == 0
+        and not outcome.original_goal_met
         and outcome.miss_sets / outcome.total_sets >= params.SEVERE_MISS_RATIO
     )
     if anchor is not None and (

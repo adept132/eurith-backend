@@ -169,12 +169,12 @@ def test_two_misses_reduce_the_weight():
 
 
 def test_severe_miss_reduces_immediately():
-    # Провал половины подходов и более — подтверждать второй неделей незачем.
+    # Несколько проваленных подходов без единого успешного — защитное снижение.
     out = apply_reduction(
         presc(),
         ctx(
             state=ProgressionState(last_top_weight=40.0, consecutive_misses=1),
-            last_outcome=Outcome(status="miss", hit_sets=1, miss_sets=2, total_sets=3),
+            last_outcome=Outcome(status="miss", hit_sets=0, miss_sets=3, total_sets=3),
         ),
     )
     assert out.reason_code == "repeated_miss"

@@ -285,6 +285,12 @@ async def load_history(
             prescription = Prescription.from_dict(raw) if raw else None
         except (KeyError, TypeError, ValueError):
             prescription = None
+        try:
+            initial_prescription = (
+                Prescription.from_dict(se.prescription) if se.prescription else None
+            )
+        except (KeyError, TypeError, ValueError):
+            initial_prescription = None
 
         # P0-06, блокер 1 (принадлежность предписания упражнению): при
         # full_replace (см. api/routers/exercises.py, ветка без выполненных
@@ -311,6 +317,10 @@ async def load_history(
             owner_exercise_id = prescription.basis.get("exercise_id")
             if owner_exercise_id is not None and owner_exercise_id != exercise_id:
                 prescription = None
+        if initial_prescription is not None:
+            owner_exercise_id = initial_prescription.basis.get("exercise_id")
+            if owner_exercise_id is not None and owner_exercise_id != exercise_id:
+                initial_prescription = None
 
         effort_tier = deload_map.get(workout.id)
         sessions.append(
@@ -320,6 +330,7 @@ async def load_history(
                 prescription=prescription,
                 sets=facts,
                 is_deload=(effort_tier == DELOAD_EFFORT_TIER),
+                initial_prescription=initial_prescription,
             )
         )
 

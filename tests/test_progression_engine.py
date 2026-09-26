@@ -77,15 +77,77 @@ def test_successful_ceiling_session_advances_the_weight():
 def test_single_miss_holds_the_weight():
     p = plan_exercise(ctx(session(1, 40.0, [10, 9, 5])))
     assert p.top_weight == pytest.approx(40.0)
-    assert p.reason_code == "hold_after_miss"
+    assert p.reason_code == "goal_met_in_session"
 
 
 def test_two_misses_in_a_row_reduce_the_weight():
     p = plan_exercise(
-        ctx(session(1, 40.0, [7, 10, 10]), session(2, 40.0, [6, 10, 10]))
+        ctx(session(1, 40.0, [7, 7, 7]), session(2, 40.0, [6, 6, 6]))
     )
     assert p.top_weight < 40.0
     assert p.reason_code == "repeated_miss"
+
+
+def test_later_set_reaching_original_goal_prevents_next_workout_reduction():
+    previous = SessionFact(
+        session_id=1,
+        finished_at=None,
+        prescription=presc(40.0, sets_count=2),
+        initial_prescription=presc(40.0, sets_count=2),
+        sets=(SetFact(1, 40.0, 7, 2), SetFact(2, 40.0, 9, 2)),
+    )
+
+    planned = plan_exercise(ctx(previous, target_sets=2))
+
+    assert planned.top_weight == pytest.approx(40.0)
+    assert planned.reason_code == "goal_met_in_session"
+
+
+def test_first_miss_then_adjusted_goal_holds_weight_once():
+    original = presc(40.0, sets_count=2)
+    adjusted = Prescription(
+        scheme=original.scheme,
+        sets=(original.sets[0], SetPrescription(2, 37.5, 8, 12, 2, "normal")),
+        reason_code=original.reason_code,
+        reason_text=original.reason_text,
+    )
+    previous = SessionFact(
+        session_id=1,
+        finished_at=None,
+        prescription=adjusted,
+        initial_prescription=original,
+        sets=(SetFact(1, 40.0, 7, 2), SetFact(2, 37.5, 8, 2)),
+    )
+
+    planned = plan_exercise(ctx(previous, target_sets=2))
+
+    assert planned.top_weight == pytest.approx(40.0)
+    assert planned.reason_code == "hold_after_miss"
+
+
+def test_two_workouts_missing_original_goal_reduce_even_if_adjusted_sets_succeeded():
+    original = presc(40.0, sets_count=2)
+    adjusted = Prescription(
+        scheme=original.scheme,
+        sets=(original.sets[0], SetPrescription(2, 37.5, 8, 12, 2, "normal")),
+        reason_code=original.reason_code,
+        reason_text=original.reason_text,
+    )
+    previous = [
+        SessionFact(
+            session_id=number,
+            finished_at=None,
+            prescription=adjusted,
+            initial_prescription=original,
+            sets=(SetFact(1, 40.0, 7, 2), SetFact(2, 37.5, 8, 2)),
+        )
+        for number in (1, 2)
+    ]
+
+    planned = plan_exercise(ctx(*previous, target_sets=2))
+
+    assert planned.top_weight < 40.0
+    assert planned.reason_code == "repeated_miss"
 
 
 def test_override_changes_the_scheme():
