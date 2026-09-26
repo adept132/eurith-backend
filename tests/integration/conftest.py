@@ -45,6 +45,7 @@ from api.services.models import (  # noqa: E402
     WorkoutSession,
     WorkoutSessionExercise,
     WorkoutSessionSet,
+    WorkoutRoutine,
 )
 from api.deps import get_db  # noqa: E402
 from app.database import SessionLocal, engine, init_db  # noqa: E402
@@ -133,6 +134,9 @@ async def test_user():
         # иначе удаление Exercise падает с ForeignKeyViolationError.
         await session.execute(
             delete(UserRecord).where(UserRecord.app_user_id == user_id)
+        )
+        await session.execute(
+            delete(WorkoutRoutine).where(WorkoutRoutine.app_user_id == user_id)
         )
         await session.execute(
             delete(Exercise).where(Exercise.app_user_id == user_id)

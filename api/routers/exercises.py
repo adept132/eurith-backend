@@ -518,6 +518,8 @@ async def search_exercises(
                 source=it.get("source") or "default",
                 image_url=image_url,
                 image_approx=image_approx,
+                aliases=it.get("aliases") or [],
+                personal_aliases=it.get("personal_aliases") or [],
                 preference=it.get("preference"),
             ))
         else:
@@ -535,6 +537,8 @@ async def search_exercises(
                 source=it.source,
                 image_url=image_url,
                 image_approx=image_approx,
+                aliases=getattr(it, "aliases", []) or [],
+                personal_aliases=getattr(it, "personal_aliases", []) or [],
                 preference=getattr(it, "_user_preference", None),
             ))
     return items

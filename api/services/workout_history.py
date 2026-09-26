@@ -13,6 +13,8 @@ from api.schemas.workout_history import (
     WorkoutHistoryDraft,
     WorkoutHistoryExerciseDraft,
     WorkoutHistoryListItem,
+    WorkoutHistoryServerSnapshot,
+    WorkoutHistorySetDraft,
 )
 from api.services.exercise_utils import get_base_exercise_query
 from api.services.anomaly_guard import check_set, resolve_is_anomalous
@@ -51,14 +53,23 @@ class WorkoutHistoryInvalidExercise(WorkoutHistoryError):
 
 
 class WorkoutHistoryRevisionConflict(WorkoutHistoryError):
-    def __init__(self, server_revision: int, server_draft: WorkoutHistoryDraft):
+    def __init__(
+        self,
+        server_revision: int,
+        server_draft: WorkoutHistoryServerSnapshot,
+    ):
         self.server_revision = server_revision
         self.server_draft = server_draft
         super().__init__(str(server_revision))
 
 
 class WorkoutHistoryIdempotencyConflict(WorkoutHistoryError):
-    def __init__(self, server_draft: WorkoutHistoryDraft):
+    def __init__(
+        self,
+        server_workout_id: int,
+        server_draft: WorkoutHistoryServerSnapshot,
+    ):
+        self.server_workout_id = server_workout_id
         self.server_draft = server_draft
         super().__init__(server_draft.client_uuid)
 
@@ -83,7 +94,69 @@ def _require_exact_history_replay(
         and existing.history_request_fingerprint == request_fingerprint
     ):
         return existing
-    raise WorkoutHistoryIdempotencyConflict(draft_from_workout(existing))
+    raise WorkoutHistoryIdempotencyConflict(
+        existing.id,
+        draft_from_workout(existing),
+    )
+
+
+def _history_set_state(item: WorkoutHistorySetDraft) -> tuple[object, ...]:
+    return (
+        item.client_uuid,
+        item.parent_client_uuid,
+        item.set_number,
+        item.set_type,
+        item.weight,
+        item.reps,
+        item.effort_level,
+        item.notes,
+        item.is_completed,
+    )
+
+
+def _history_exercise_state(item: WorkoutHistoryExerciseDraft) -> tuple[object, ...]:
+    return (
+        item.client_uuid,
+        item.exercise_id,
+        item.order_index,
+        item.superset_group,
+        item.notes,
+        tuple(
+            _history_set_state(workout_set)
+            for workout_set in sorted(
+                item.sets,
+                key=lambda value: (value.set_number, value.client_uuid),
+            )
+        ),
+    )
+
+
+def _history_mutable_state(draft: WorkoutHistoryDraft) -> tuple[object, ...]:
+    return (
+        draft.entry_mode,
+        draft.started_at,
+        draft.finished_at,
+        draft.notes,
+        draft.session_rpe,
+        tuple(
+            _history_exercise_state(exercise)
+            for exercise in sorted(
+                draft.exercises,
+                key=lambda value: (value.order_index, value.client_uuid),
+            )
+        ),
+    )
+
+
+def _is_exact_history_correction_replay(
+    workout: WorkoutSession,
+    draft: WorkoutHistoryDraft,
+) -> bool:
+    return (
+        workout.revision == draft.base_revision + 1
+        and _history_mutable_state(draft_from_workout(workout))
+        == _history_mutable_state(draft)
+    )
 
 
 def _workout_options():
@@ -159,6 +232,20 @@ def _apply_set_fields(
     target.is_anomalous = resolve_is_anomalous(verdict, confirmed=False)
 
 
+def _apply_set_parent_links(
+    source_sets: list[WorkoutHistorySetDraft],
+    target_sets_by_client_uuid: dict[str, WorkoutSessionSet],
+) -> None:
+    for source_set in source_sets:
+        target_set = target_sets_by_client_uuid[source_set.client_uuid]
+        parent_uuid = source_set.parent_client_uuid
+        target_set.parent_set_id = (
+            target_sets_by_client_uuid[parent_uuid].id
+            if parent_uuid is not None
+            else None
+        )
+
+
 def _new_session_exercise(
     workout_id: int,
     source: WorkoutHistoryExerciseDraft,
@@ -183,9 +270,8 @@ async def _replace_exercises(
     draft: WorkoutHistoryDraft,
     exercise_by_id: dict[int, Exercise],
 ) -> None:
-    # Production has immediate unique indexes for exercise order and set number.
-    # Park existing rows outside the final range before swapping, deleting, or
-    # inserting them. SQLAlchemy may flush while loading exercise statistics.
+    # Existing production indexes are immediate. Move current order and set
+    # numbers out of the final range before replacing the snapshot.
     if workout.exercises:
         order_offset = max(
             [item.order_index for item in workout.exercises]
@@ -252,6 +338,7 @@ async def _replace_exercises(
             if existing_set_key not in retained_set_uuids:
                 await db.delete(existing_set)
 
+        target_sets_by_client_uuid: dict[str, WorkoutSessionSet] = {}
         for source_set in source_exercise.sets:
             target_set = existing_sets.get(source_set.client_uuid)
             if target_set is None:
@@ -264,6 +351,16 @@ async def _replace_exercises(
             elif target_set.client_uuid is None:
                 target_set.client_uuid = source_set.client_uuid
             _apply_set_fields(target_set, source_set, stats)
+            target_sets_by_client_uuid[source_set.client_uuid] = target_set
+
+        # IDs for newly created root/drop rows are needed before ancestry can
+        # be resolved. The public contract uses stable client UUIDs so the
+        # service never depends on a client knowing server persistence IDs.
+        await db.flush()
+        _apply_set_parent_links(
+            source_exercise.sets,
+            target_sets_by_client_uuid,
+        )
 
 
 def _enqueue_recalculation(
@@ -363,6 +460,8 @@ async def replace_history_workout(
         if workout.status != "finished":
             raise WorkoutHistoryNotFinished
         if workout.revision != draft.base_revision:
+            if _is_exact_history_correction_replay(workout, draft):
+                return workout
             raise WorkoutHistoryRevisionConflict(
                 workout.revision, draft_from_workout(workout)
             )
@@ -393,8 +492,35 @@ async def replace_history_workout(
     return await _reload_workout(db, user_id, workout_id)
 
 
-def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryDraft:
-    return WorkoutHistoryDraft(
+def _draft_sets_from_exercise(
+    exercise: WorkoutSessionExercise,
+) -> list[dict[str, object]]:
+    client_uuid_by_id = {
+        workout_set.id: workout_set.client_uuid or f"server-set-{workout_set.id}"
+        for workout_set in exercise.sets
+    }
+    return [
+        {
+            "client_uuid": client_uuid_by_id[workout_set.id],
+            "parent_client_uuid": (
+                client_uuid_by_id.get(workout_set.parent_set_id)
+                if workout_set.parent_set_id is not None
+                else None
+            ),
+            "set_number": workout_set.set_number,
+            "set_type": workout_set.set_type,
+            "weight": workout_set.weight,
+            "reps": workout_set.reps,
+            "effort_level": workout_set.effort_level,
+            "notes": workout_set.notes,
+            "is_completed": workout_set.is_completed,
+        }
+        for workout_set in exercise.sets
+    ]
+
+
+def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryServerSnapshot:
+    return WorkoutHistoryServerSnapshot(
         client_uuid=workout.client_uuid or f"server-workout-{workout.id}",
         base_revision=workout.revision,
         entry_mode=workout.entry_mode,
@@ -406,23 +532,11 @@ def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryDraft:
             {
                 "client_uuid": item.client_uuid or f"server-exercise-{item.id}",
                 "exercise_id": item.exercise_id,
+                "exercise_name": item.exercise.name if item.exercise is not None else None,
                 "order_index": item.order_index,
                 "superset_group": item.superset_group,
                 "notes": item.notes,
-                "sets": [
-                    {
-                        "client_uuid": workout_set.client_uuid
-                        or f"server-set-{workout_set.id}",
-                        "set_number": workout_set.set_number,
-                        "set_type": workout_set.set_type,
-                        "weight": workout_set.weight,
-                        "reps": workout_set.reps,
-                        "effort_level": workout_set.effort_level,
-                        "notes": workout_set.notes,
-                        "is_completed": workout_set.is_completed,
-                    }
-                    for workout_set in item.sets
-                ],
+                "sets": _draft_sets_from_exercise(item),
             }
             for item in workout.exercises
         ],

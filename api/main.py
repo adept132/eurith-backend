@@ -12,10 +12,14 @@ from app.database import init_db
 from api.deps import get_db
 from api.routers.splits import router as splits_router
 from api.routers.exercises import router as exercises_router
+from api.routers.exercise_aliases import router as exercise_aliases_router
 from api.routers.auth import router as auth_router
 from api.routers.workout_center import router as workout_center_router
 from api.routers.workouts import router as workouts_router
 from api.routers.workout_history import router as workout_history_router
+from api.routers.workout_routines import router as workout_routines_router
+from api.routers.workout_import import router as workout_import_router
+from api.routers.plan_replacement import router as plan_replacement_router
 from api.routers.progress import router as progress_router
 from api.routers.profile import router as profile_router
 from api.routers.workout_supersets import router as workout_supersets_router
@@ -96,6 +100,9 @@ app.include_router(exercises_router, prefix="/exercises", tags=["exercises"])
 app.include_router(auth_router)
 app.include_router(workout_center_router)
 app.include_router(workout_history_router)
+app.include_router(workout_routines_router)
+app.include_router(workout_import_router)
+app.include_router(plan_replacement_router)
 app.include_router(workouts_router)
 app.include_router(splits_router)
 app.include_router(mesocycles_router)
@@ -103,6 +110,7 @@ app.include_router(microcycles_router)
 app.include_router(plans_router)
 app.include_router(progress_router)
 app.include_router(exercises_router)
+app.include_router(exercise_aliases_router)
 app.include_router(profile_router)
 app.include_router(calendar_router)
 app.include_router(workout_supersets_router)

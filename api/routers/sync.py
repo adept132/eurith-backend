@@ -28,6 +28,7 @@ from api.services.models import (
     SyncTombstone,
     UserExerciseProgressionState,
     WorkoutSession,
+    WorkoutRoutine,
     WorkoutSessionExercise,
     WorkoutSessionSet,
 )
@@ -218,6 +219,21 @@ async def _apply_snapshot(
     workout.status = payload.status
     workout.split_day_id = payload.split_day_id
     workout.plan_id = payload.plan_id
+    if payload.routine_id is not None:
+        routine_exists = await db.scalar(
+            select(
+                exists().where(
+                    WorkoutRoutine.id == payload.routine_id,
+                    WorkoutRoutine.app_user_id == app_user_id,
+                )
+            )
+        )
+        if not routine_exists:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={"error": "invalid_routine_id"},
+            )
+    workout.routine_id = payload.routine_id
     workout.notes = payload.notes
     # sRPE проставляется клиентом отдельно от остальных скалярных полей: стампим
     # session_rpe_at только когда значение реально пришло и отличается от

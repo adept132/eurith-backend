@@ -246,7 +246,10 @@ async def build_context(
             phase_label = target_phase.name
 
         # --- 3. ЗАГРУЗКА ПЛАНОВ ---
-    plans_stmt = select(WorkoutPlan).where(WorkoutPlan.app_user_id == app_user.id)
+    plans_stmt = select(WorkoutPlan).where(
+        WorkoutPlan.app_user_id == app_user.id,
+        WorkoutPlan.is_archived.is_(False),
+    )
     plans_result = await session.execute(plans_stmt)
     available_plans_db = plans_result.scalars().all()
 
@@ -948,6 +951,15 @@ async def update_workout_center_plan(
         # Если пришел null, открепляем план от этого дня
         new_selected_plans.pop(current_day_str, None)
     else:
+        visible_plan = await session.scalar(
+            select(WorkoutPlan.id).where(
+                WorkoutPlan.id == payload.plan_id,
+                WorkoutPlan.app_user_id == app_user.id,
+                WorkoutPlan.is_archived.is_(False),
+            )
+        )
+        if visible_plan is None:
+            raise HTTPException(status_code=404, detail="План не найден")
         # Прикрепляем новый план
         new_selected_plans[current_day_str] = payload.plan_id
 

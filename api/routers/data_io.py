@@ -26,7 +26,7 @@ from api.services.import_service import (
     ExerciseResolver,
     existing_import_keys,
     import_workouts,
-    save_alias,
+    save_aliases,
 )
 from api.services.models import AppUser, AppUserProfile
 from api.services.strong_dictionary import split_equipment
@@ -111,6 +111,28 @@ def _parse_or_400(text: str, unit: Optional[str]) -> ParseResult:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
 
+async def _save_mapping_aliases(
+    *,
+    db: AsyncSession,
+    app_user_id: int,
+    mappings: Dict[str, int],
+) -> int:
+    """Persist only aliases whose targets are visible to this user.
+
+    Unknown IDs and another user's private IDs deliberately have the same
+    outcome. The service validates the signed-int range before binding SQL,
+    bulk-locks visible exercises, and performs one atomic bulk upsert.
+    """
+    aliases = await save_aliases(
+        session=db,
+        app_user_id=app_user_id,
+        mappings=mappings,
+        skip_inaccessible=True,
+        skip_invalid=True,
+    )
+    return len(aliases)
+
+
 @router.post("/import/preview", response_model=ImportPreviewResponse)
 async def import_preview(
     payload: ImportPreviewRequest,
@@ -188,12 +210,11 @@ async def import_commit(
 
     # Ручной выбор пользователя запоминаем, чтобы следующий импорт не
     # переспрашивал то же самое.
-    saved_aliases = 0
-    for external_name, exercise_id in mapping_dict.items():
-        if not isinstance(exercise_id, int):
-            continue
-        await save_alias(db, current_app_user.id, external_name, exercise_id)
-        saved_aliases += 1
+    saved_aliases = await _save_mapping_aliases(
+        db=db,
+        app_user_id=current_app_user.id,
+        mappings=mapping_dict,
+    )
     if saved_aliases:
         await db.flush()
         await resolver.load()  # перечитываем алиасы, чтобы резолв их увидел

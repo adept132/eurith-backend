@@ -164,6 +164,7 @@ _BY_EQUIPMENT = {
     ("upright row", BARBELL): "Вертикальная тяга штанги к груди стоя",
     ("upright row", DUMBBELL): "Вертикальная тяга гантелей к подбородку",
 
+    ("bent over row", BARBELL): "Тяга штанги в наклоне",
     ("bent over row", DUMBBELL): "Тяга гантелей в наклоне",
     ("bent over one arm row", DUMBBELL): "Тяга гантели в наклоне",
 
@@ -178,6 +179,8 @@ _BY_EQUIPMENT = {
     ("lateral raise", BLOCK_MACHINE): "Отведение руки в сторону в кроссовере",
     ("lateral raise", FREE_MACHINE): "Разведение рук в тренажере",
     ("reverse fly", DUMBBELL): "Разведение гантелей сидя в наклоне",
+    # Strong's "Machine" equipment is normalized to FREE_MACHINE above.
+    ("reverse fly", FREE_MACHINE): "Обратная бабочка",
 
     ("chest fly", DUMBBELL): "Сведение гантелей лежа на горизонтальной скамье",
     ("incline chest fly", DUMBBELL): "Сведение гантелей лежа на скамье с положительным наклоном",
@@ -204,6 +207,82 @@ _BY_EQUIPMENT = {
 }
 
 _BY_EQUIPMENT_NORMALIZED = {(_key(n), eq): ru for (n, eq), ru in _BY_EQUIPMENT.items()}
+
+_EQUIPMENT_ALIAS_LABELS = {
+    BARBELL: "Barbell",
+    DUMBBELL: "Dumbbell",
+    SMITH: "Smith Machine",
+    FREE_MACHINE: "Machine",
+    BLOCK_MACHINE: "Cable",
+    BODYWEIGHT: "Bodyweight",
+    KETTLEBELL: "Kettlebell",
+}
+
+# Generic Strong spellings that are also canonical names of different rows in
+# the production exercise corpus. The corpus-shaped regression test audits the
+# complete emitted reverse map, so additions cannot silently create a new
+# cross-target collision.
+_CATALOG_CANONICAL_ALIAS_COLLISIONS = {
+    "butterfly",
+    "cable crossover",
+    "leg press",
+    "seated leg curl",
+    "hack squat",
+    "seated calf raise",
+    "calf press",
+    "preacher curl",
+    "zottman curl",
+    "triceps pushdown",
+    "hanging leg raise",
+    "cable crunch",
+}
+
+
+def _alias_title(name: str) -> str:
+    return " ".join(part.capitalize() for part in name.split())
+
+
+def build_reverse_strong_aliases() -> dict[str, set[str]]:
+    """Каноническое русское имя -> безопасные английские имена импорта.
+
+    Названия, смысл которых зависит от оборудования, выдаются только в
+    реальной Strong-форме с суффиксом (например, ``Bench Press (Barbell)``).
+    Голое имя добавляется лишь когда оно ведёт ровно к одному русскому
+    упражнению. Фабрикованные префиксные формы не выдаются: имя, уникальное
+    внутри этого словаря, всё ещё может принадлежать другому каноническому
+    упражнению в производственном каталоге.
+    """
+    targets_by_base: dict[str, set[str]] = {}
+    for base, ru_name in _GENERIC.items():
+        targets_by_base.setdefault(base, set()).add(ru_name)
+    for (base, _equipment), ru_name in _BY_EQUIPMENT_NORMALIZED.items():
+        targets_by_base.setdefault(base, set()).add(ru_name)
+
+    candidates: list[tuple[str, str]] = []
+    for base, ru_name in _GENERIC.items():
+        if (
+            len(targets_by_base[base]) == 1
+            and base not in _CATALOG_CANONICAL_ALIAS_COLLISIONS
+        ):
+            candidates.append((ru_name, _alias_title(base)))
+
+    for (base, equipment), ru_name in _BY_EQUIPMENT_NORMALIZED.items():
+        equipment_label = _EQUIPMENT_ALIAS_LABELS.get(equipment)
+        if not equipment_label:
+            continue
+        title = _alias_title(base)
+        candidates.append((ru_name, f"{title} ({equipment_label})"))
+
+    targets_by_alias: dict[str, set[str]] = {}
+    for ru_name, alias in candidates:
+        targets_by_alias.setdefault(alias.casefold(), set()).add(ru_name)
+
+    reverse: dict[str, set[str]] = {}
+    for ru_name, alias in candidates:
+        if len(targets_by_alias[alias.casefold()]) == 1:
+            reverse.setdefault(ru_name, set()).add(alias)
+
+    return reverse
 
 
 def lookup_ru_name(strong_name: str) -> Optional[str]:

@@ -4,13 +4,13 @@ import copy
 from datetime import date as _date
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy import delete, select
 from api.deps import get_db
 from api.schemas.plan import WorkoutPlanCreate, PlanApplyRequest
 from api.services.app_user_service import get_current_app_user
 from api.services.models import Mesocycle, MesocyclePhase, WorkoutPlan, AppUserProfile, WorkoutPlanExercise, \
-    WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet
+    WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet, PlanReplacementOperation
 from api.services.validator import AntiSuicideValidator, PlanExerciseInput
 from api.services.scheduling_engine import SchedulingEngine
 from api.services.models import UserSplit, SplitBlueprint, SplitDaySlot, DayBlueprint, Exercise, UserCalendarDay, UserExercisePreference, AppUserMicrocycle, AdvancedGeneratorPreset, UserGoal
@@ -701,9 +701,23 @@ async def delete_generator_preset(
     await db.commit()
 
 @router.get("/")
-def get_plans(db: Session = Depends(get_db), current_user=Depends(get_current_app_user)):
+async def get_plans(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_app_user),
+):
     """Получить список всех сохраненных планов пользователя."""
-    return db.query(WorkoutPlan).filter(WorkoutPlan.app_user_id == current_user.id).all()
+    return list(
+        (
+            await db.execute(
+                select(WorkoutPlan)
+                .where(
+                    WorkoutPlan.app_user_id == current_user.id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+                .order_by(WorkoutPlan.id)
+            )
+        ).scalars().all()
+    )
 
 
 @router.get("/{plan_id}")
@@ -713,7 +727,8 @@ async def get_plan(plan_id: int, db: AsyncSession = Depends(get_db), current_use
         select(WorkoutPlan)
         .where(
             WorkoutPlan.id == plan_id,
-            WorkoutPlan.app_user_id == current_user.id
+            WorkoutPlan.app_user_id == current_user.id,
+            WorkoutPlan.is_archived.is_(False),
         )
         .options(
             # Магия: загружаем не только связь с таблицей workout_plan_exercises,
@@ -778,16 +793,72 @@ async def create_workout_plan(  # <--- СДЕЛАЛИ ASYNC
     return {"status": "success", "plan_id": new_plan.id}
 
 
+async def _reject_immutable_plan_history(
+    db: AsyncSession, plan: WorkoutPlan
+) -> None:
+    if plan.is_archived or plan.supersedes_plan_id is not None:
+        raise HTTPException(
+            status_code=409, detail={"error": "immutable_plan_history"}
+        )
+    referenced = any(
+        value is not None
+        for value in (
+            await db.scalar(
+                select(WorkoutPlan.id)
+                .where(WorkoutPlan.supersedes_plan_id == plan.id)
+                .limit(1)
+            ),
+            await db.scalar(
+                select(UserCalendarDay.id)
+                .where(UserCalendarDay.plan_id == plan.id)
+                .limit(1)
+            ),
+            await db.scalar(
+                select(WorkoutSession.id)
+                .where(WorkoutSession.plan_id == plan.id)
+                .limit(1)
+            ),
+            await db.scalar(
+                select(PlanReplacementOperation.id)
+                .where(PlanReplacementOperation.new_plan_id == plan.id)
+                .limit(1)
+            ),
+        )
+    )
+    if referenced:
+        raise HTTPException(
+            status_code=409, detail={"error": "immutable_plan_history"}
+        )
+
+
 @router.put("/{plan_id}")
-def update_workout_plan(plan_id: int, plan_data: WorkoutPlanCreate, db: Session = Depends(get_db),
-                        current_user=Depends(get_current_app_user)):
+async def update_workout_plan(
+    plan_id: int,
+    plan_data: WorkoutPlanCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_app_user),
+):
     """Редактирование плана: проверяем валидатором, сносим старые упражнения, пишем новые."""
-    plan = db.query(WorkoutPlan).filter(WorkoutPlan.id == plan_id, WorkoutPlan.app_user_id == current_user.id).first()
+    plan = (
+        await db.execute(
+            select(WorkoutPlan).where(
+                WorkoutPlan.id == plan_id,
+                WorkoutPlan.app_user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="План не найден")
+    await _reject_immutable_plan_history(db, plan)
 
     # Валидация
-    profile = db.query(AppUserProfile).filter(AppUserProfile.app_user_id == current_user.id).first()
+    profile = (
+        await db.execute(
+            select(AppUserProfile).where(
+                AppUserProfile.app_user_id == current_user.id
+            )
+        )
+    ).scalar_one_or_none()
     experience_level = profile.experience_level if profile else "beginner"
 
     exercises_input = [
@@ -806,7 +877,9 @@ def update_workout_plan(plan_id: int, plan_data: WorkoutPlanCreate, db: Session 
     plan.meso_tag = plan_data.meso_tag
 
     # Очищаем старые упражнения
-    db.query(WorkoutPlanExercise).filter(WorkoutPlanExercise.plan_id == plan.id).delete()
+    await db.execute(
+        delete(WorkoutPlanExercise).where(WorkoutPlanExercise.plan_id == plan.id)
+    )
 
     # Пишем новые
     for ex in plan_data.exercises:
@@ -818,19 +891,32 @@ def update_workout_plan(plan_id: int, plan_data: WorkoutPlanCreate, db: Session 
         )
         db.add(new_ex)
 
-    db.commit()
+    plan.revision += 1
+    await db.commit()
     return {"status": "success", "message": "План обновлен"}
 
 
 @router.delete("/{plan_id}")
-def delete_plan(plan_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_app_user)):
+async def delete_plan(
+    plan_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_app_user),
+):
     """Удалить план."""
-    plan = db.query(WorkoutPlan).filter(WorkoutPlan.id == plan_id, WorkoutPlan.app_user_id == current_user.id).first()
+    plan = (
+        await db.execute(
+            select(WorkoutPlan).where(
+                WorkoutPlan.id == plan_id,
+                WorkoutPlan.app_user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
     if not plan:
         raise HTTPException(status_code=404, detail="План не найден")
+    await _reject_immutable_plan_history(db, plan)
 
-    db.delete(plan)
-    db.commit()
+    await db.delete(plan)
+    await db.commit()
     return {"status": "success", "message": "План удален"}
 
 

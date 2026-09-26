@@ -32,6 +32,7 @@ class StrictHistoryModel(BaseModel):
 
 class WorkoutHistorySetDraft(StrictHistoryModel):
     client_uuid: ClientUuid
+    parent_client_uuid: ClientUuid | None = None
     set_number: int = Field(ge=1)
     set_type: WorkoutSetType = "normal"
     weight: Decimal | None = Field(default=None, ge=0, le=2000)
@@ -62,6 +63,19 @@ class WorkoutHistoryExerciseDraft(StrictHistoryModel):
             raise ValueError("set_number must be unique within an exercise")
         if len(uuids) != len(set(uuids)):
             raise ValueError("set client_uuid must be unique within an exercise")
+        uuid_set = set(uuids)
+        for item in self.sets:
+            parent_uuid = item.parent_client_uuid
+            if parent_uuid is None:
+                continue
+            if parent_uuid == item.client_uuid:
+                raise ValueError(
+                    f"parent_client_uuid '{parent_uuid}' cannot reference the same set"
+                )
+            if parent_uuid not in uuid_set:
+                raise ValueError(
+                    f"parent_client_uuid '{parent_uuid}' must reference a set in the same exercise"
+                )
         return self
 
 
@@ -88,6 +102,21 @@ class WorkoutHistoryDraft(StrictHistoryModel):
         if len(order_indexes) != len(set(order_indexes)):
             raise ValueError("exercise order_index must be unique")
         return self
+
+
+class WorkoutHistoryServerSetSnapshot(WorkoutHistorySetDraft):
+    # Older completed sessions may predate strict history-entry validation.
+    # Keep those snapshots readable while new writes require 1..1000 reps.
+    reps: int | None = Field(default=None, ge=0, le=1000)
+
+
+class WorkoutHistoryServerExerciseSnapshot(WorkoutHistoryExerciseDraft):
+    exercise_name: str | None = Field(default=None, min_length=1, max_length=255)
+    sets: list[WorkoutHistoryServerSetSnapshot] = Field(default_factory=list)
+
+
+class WorkoutHistoryServerSnapshot(WorkoutHistoryDraft):
+    exercises: list[WorkoutHistoryServerExerciseSnapshot] = Field(default_factory=list)
 
 
 class WorkoutHistoryListItem(BaseModel):
