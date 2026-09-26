@@ -15,6 +15,7 @@ from api.routers.exercises import router as exercises_router
 from api.routers.auth import router as auth_router
 from api.routers.workout_center import router as workout_center_router
 from api.routers.workouts import router as workouts_router
+from api.routers.workout_history import router as workout_history_router
 from api.routers.progress import router as progress_router
 from api.routers.profile import router as profile_router
 from api.routers.workout_supersets import router as workout_supersets_router
@@ -40,9 +41,16 @@ async def lifespan(app: FastAPI):
     await init_db()
     await _purge_expired_accounts()
     from api.services.push_service import push_worker
+    from api.services.workout_recalculation import workout_recalculation_worker
     push_stop = asyncio.Event()
     push_task = (
         asyncio.create_task(push_worker(push_stop))
+        if os.getenv("PYTEST_CURRENT_TEST") is None
+        else None
+    )
+    recalculation_stop = asyncio.Event()
+    recalculation_task = (
+        asyncio.create_task(workout_recalculation_worker(recalculation_stop))
         if os.getenv("PYTEST_CURRENT_TEST") is None
         else None
     )
@@ -50,8 +58,11 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         push_stop.set()
+        recalculation_stop.set()
         if push_task is not None:
             await push_task
+        if recalculation_task is not None:
+            await recalculation_task
 
 
 async def _purge_expired_accounts():
@@ -84,6 +95,7 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 app.include_router(exercises_router, prefix="/exercises", tags=["exercises"])
 app.include_router(auth_router)
 app.include_router(workout_center_router)
+app.include_router(workout_history_router)
 app.include_router(workouts_router)
 app.include_router(splits_router)
 app.include_router(mesocycles_router)

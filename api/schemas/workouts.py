@@ -152,6 +152,9 @@ class WorkoutSessionDetailResponse(BaseModel):
     client_uuid: str | None = None
     source: WorkoutSource
     status: WorkoutStatus
+    entry_mode: str = "live"
+    revision: int = 0
+    edited_at: datetime | None = None
 
     split_day_id: Optional[uuid.UUID]  = None
     plan_id: int | None = None

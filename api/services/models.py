@@ -337,6 +337,17 @@ class WorkoutSession(Base):
     # не создаёт индексов, при росте объёмов индекс добавить вручную).
     import_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
+    # Ручные исправления истории имеют собственную ревизию, не связанную с
+    # транспортной версией офлайн-синхронизации.
+    entry_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="live", server_default="live"
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    history_request_fingerprint: Mapped[Optional[str]] = mapped_column(String(64))
+
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
@@ -352,6 +363,10 @@ class WorkoutSession(Base):
     __table_args__ = (
         CheckConstraint("source IN ('free', 'split_day', 'plan')", name="ck_workout_sessions_source"),
         CheckConstraint("status IN ('active', 'finished')", name="ck_workout_sessions_status"),
+        CheckConstraint(
+            "entry_mode IN ('live', 'manual', 'screenshot_import')",
+            name="ck_workout_sessions_entry_mode",
+        ),
     )
 
 
@@ -445,6 +460,44 @@ class WorkoutSessionSet(Base):
     __table_args__ = (
         CheckConstraint("set_number > 0", name="ck_workout_session_sets_set_number_positive"),
         CheckConstraint("set_type IN ('normal', 'warmup', 'drop')", name="ck_workout_session_sets_set_type"),
+    )
+
+
+class WorkoutRecalculationOperation(Base):
+    """Устойчивый пересчёт после каждой ревизии исторической тренировки."""
+
+    __tablename__ = "workout_recalculation_operations"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    workout_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workout_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    exercise_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("workout_id", "revision", name="uq_workout_recalculation_revision"),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'completed', 'failed')",
+            name="ck_workout_recalculation_status",
+        ),
+        CheckConstraint("revision >= 0", name="ck_workout_recalculation_revision"),
+        CheckConstraint("attempts >= 0", name="ck_workout_recalculation_attempts"),
     )
 
 
