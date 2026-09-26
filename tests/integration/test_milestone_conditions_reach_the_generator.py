@@ -9,6 +9,7 @@ from api.services.milestones.service import milestone_accents
 from api.services.models import AppUserProfile, UserAnthropometry, UserGoal
 from app.database import SessionLocal
 
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("milestone_catalog")]
 
 
 async def _prepare(user_id: int) -> None:

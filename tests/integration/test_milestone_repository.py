@@ -12,7 +12,7 @@ from api.services.models import (
 )
 from app.database import SessionLocal
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("milestone_catalog")]
 
 
 async def test_all_six_lifts_resolve_to_system_exercises():
