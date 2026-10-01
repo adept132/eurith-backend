@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
     # и достраиваем недостающие столбцы.
     await init_db()
     await _purge_expired_accounts()
+    await _cleanup_pending_body_photos()
     from api.services.push_service import push_worker
     from api.services.workout_recalculation import workout_recalculation_worker
     push_stop = asyncio.Event()
@@ -86,6 +87,16 @@ async def _purge_expired_accounts():
             print(f"[account] удалено аккаунтов по истечении срока: {len(purged)}")
     except Exception as e:  # noqa: BLE001
         print(f"[account] чистка удалённых аккаунтов не выполнена: {e}")
+
+
+async def _cleanup_pending_body_photos():
+    try:
+        from api.services.body_photos import cleanup_pending_photos
+        from app.database import SessionLocal
+        async with SessionLocal() as session:
+            await cleanup_pending_photos(session)
+    except Exception as exc:  # storage may be offline; other API routes must start
+        print(f"[body] отложенная чистка фото не выполнена: {type(exc).__name__}")
 
 
 app = FastAPI(title="Eurith API", lifespan=lifespan)

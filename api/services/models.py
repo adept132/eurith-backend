@@ -627,6 +627,9 @@ class UserAnthropometry(Base):
     # Идемпотентный ключ offline-записи (дедуп повторной отправки одного замера).
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
+    # Локальная дата ввода и метрики, действительно указанные пользователем.
+    measured_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    submitted_fields: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     # updated_at больше не нужен, так как мы не обновляем эту строку, а пишем новую
 
     app_user: Mapped["AppUser"] = relationship("AppUser", back_populates="anthropometry_history")
@@ -646,9 +649,40 @@ class BodyMeasurement(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    measured_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     # Идемпотентный ключ offline-записи (дедуп повторной отправки одного замера).
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
+
+class BodyProgressPhoto(Base):
+    """Private metadata; image bytes live on a non-public persistent server volume."""
+
+    __tablename__ = "body_progress_photos"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False
+    )
+    taken_on: Mapped[date] = mapped_column(Date, nullable=False)
+    angle: Mapped[str] = mapped_column(String(20), nullable=False, default="unspecified")
+    storage_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    thumbnail_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("app_user_id", "client_uuid", name="uq_body_photos_user_client_uuid"),
+        Index("ix_body_photos_user_date", "app_user_id", "taken_on", "created_at"),
+        CheckConstraint("angle IN ('front', 'side', 'back', 'unspecified')", name="ck_body_photos_angle"),
+        CheckConstraint("state IN ('active', 'deleting')", name="ck_body_photos_state"),
+    )
 
 class UserObservation(Base):
     """Append-only журнал размеченных наблюдений для будущей персонализации.

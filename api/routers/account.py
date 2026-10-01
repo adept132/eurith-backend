@@ -38,6 +38,7 @@ class DataSummaryResponse(BaseModel):
     sets: int = 0
     custom_exercises: int = 0
     body_measurements: int = 0
+    body_photos: int = 0
     goals: int = 0
     splits: int = 0
     plans: int = 0

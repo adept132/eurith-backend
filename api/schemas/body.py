@@ -1,11 +1,13 @@
 """Схемы композиции тела."""
 
+from datetime import date
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 
 class BodyEntryRequest(BaseModel):
+    measured_on: Optional[date] = None
     weight: Optional[float] = Field(default=None, gt=0, le=500)
     height: Optional[float] = Field(default=None, gt=0, le=300)
     body_fat: Optional[float] = Field(default=None, ge=1, le=70)
@@ -31,6 +33,7 @@ class BodyOverviewResponse(BaseModel):
 
 class BodyEntry(BaseModel):
     date: str
+    legacy: bool = False
     weight: Optional[float] = None
     body_fat: Optional[float] = None
     measurements: Dict[str, float] = {}

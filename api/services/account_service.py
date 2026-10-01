@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.services.models import AppUser, Exercise, WorkoutSession
+from api.services.models import AppUser, BodyProgressPhoto, Exercise, WorkoutSession
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,19 @@ async def purge_user(db: AsyncSession, app_user_id: int) -> dict[str, int]:
     Возвращает счётчики удалённого — по ним видно, что чистка действительно
     отработала, а не молча ничего не нашла.
     """
+    from api.services.body_photos import photo_store
+    from fastapi.concurrency import run_in_threadpool
+
+    photos = (await db.execute(select(BodyProgressPhoto).where(
+        BodyProgressPhoto.app_user_id == app_user_id,
+    ))).scalars().all()
+    if photos:
+        store = photo_store()
+        for photo in photos:
+            # Idempotent: a previous purge may already have removed one file.
+            await run_in_threadpool(store.delete, photo.storage_key)
+            await run_in_threadpool(store.delete, photo.thumbnail_key)
+
     sessions_subq = select(WorkoutSession.id).where(
         WorkoutSession.app_user_id == app_user_id
     )
@@ -92,7 +105,7 @@ async def purge_user(db: AsyncSession, app_user_id: int) -> dict[str, int]:
         await db.execute(target_session_exercises, {"uid": app_user_id})
     ).scalars().all()
 
-    counts = {"sets": 0, "session_exercises": 0, "workouts": 0}
+    counts = {"sets": 0, "session_exercises": 0, "workouts": 0, "body_photos": len(photos)}
 
     if se_ids:
         result = await db.execute(
@@ -185,6 +198,7 @@ async def data_summary(db: AsyncSession, app_user_id: int) -> dict[str, int]:
     """
     from api.services.models import (
         BodyMeasurement,
+          BodyProgressPhoto,
         UserGoal,
         UserSplit,
         WorkoutPlan,
@@ -223,6 +237,11 @@ async def data_summary(db: AsyncSession, app_user_id: int) -> dict[str, int]:
                 BodyMeasurement.app_user_id == app_user_id
             )
         ),
+          "body_photos": await count(
+              select(func.count()).select_from(BodyProgressPhoto).where(
+                  BodyProgressPhoto.app_user_id == app_user_id
+              )
+          ),
         "goals": await count(
             select(func.count()).select_from(UserGoal).where(
                 UserGoal.app_user_id == app_user_id
