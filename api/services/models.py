@@ -177,6 +177,43 @@ class GymExerciseSetup(Base):
     )
 
 
+class ExerciseLoadPreference(Base):
+    """A user's enabled and preferred loading modes for one exercise key."""
+
+    __tablename__ = "exercise_load_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    exercise_source: Mapped[str] = mapped_column(String(10), nullable=False)
+    exercise_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    enabled_modes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    preferred_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "exercise_source", "exercise_id",
+            name="uq_exercise_load_preferences_owner_exercise",
+        ),
+        CheckConstraint(
+            "exercise_source IN ('global', 'user')", name="ck_exercise_load_preferences_source"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(enabled_modes) = 'array' AND jsonb_array_length(enabled_modes) > 0 "
+            "AND enabled_modes <@ '[\"stack\", \"plate_loaded\"]'::jsonb",
+            name="ck_exercise_load_preferences_enabled_modes",
+        ),
+        CheckConstraint(
+            "preferred_mode IN ('stack', 'plate_loaded') "
+            "AND enabled_modes @> jsonb_build_array(preferred_mode)",
+            name="ck_exercise_load_preferences_preferred_mode",
+        ),
+        CheckConstraint("revision > 0", name="ck_exercise_load_preferences_revision_positive"),
+    )
+
+
 # --- СПРАВОЧНИК УПРАЖНЕНИЙ ---
 
 class Exercise(Base):
@@ -383,6 +420,9 @@ class WorkoutSession(Base):
     app_user_microcycle_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("app_user_microcycles.id",
                                                                                       ondelete="SET NULL"),
                                                                   nullable=True)
+    # Nullable to preserve legacy sessions; snapshots remain usable if a gym is archived or removed.
+    gym_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    gym_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     volume_targets = Column(JSONB, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -454,6 +494,8 @@ class WorkoutSessionExercise(Base):
     # Разделение обязательно: evaluate() должен сравнивать факт с целью,
     # которую человек видел, а write-once не даёт эту цель обновить.
     live_prescription: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    active_load_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    active_setup_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     target_sets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
@@ -498,6 +540,11 @@ class WorkoutSessionSet(Base):
     is_anomalous: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    load_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    gym_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    setup_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    load_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    shown_target_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     parent_set_id: Mapped[Optional[int]] = mapped_column(ForeignKey("workout_session_sets.id", ondelete="SET NULL"))
     superset_round: Mapped[Optional[int]] = mapped_column()
     updated_at: Mapped[datetime] = mapped_column(
@@ -957,6 +1004,8 @@ class WorkoutPlan(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     app_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
+    gym_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    gym_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     # Название генерируется автоматически или задается юзером
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -1002,6 +1051,9 @@ class WorkoutPlanExercise(Base):
 
     # Целевое количество подходов
     target_sets: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    load_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    setup_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    load_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     # Переопределения автопилота (если NULL, используем матрицу на лету)
     # Если юзер ввел ренж руками, мы сохраняем его сюда и отключаем подсветку "Оптимально"
