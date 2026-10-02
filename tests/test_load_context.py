@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from api.services.load_context import resolve_allowed_modes
+from api.services.load_context import resolve_allowed_modes, resolve_load_context
 
 
 def setup(mode, *, available=True, deleted_at=None):
@@ -49,3 +49,105 @@ def test_duplicate_catalog_and_setup_modes_are_returned_once():
     assert resolve_allowed_modes(
         ["block_machine", "block_machine"], None, [setup("stack"), setup("stack")]
     ) == ("stack",)
+
+
+def preference(*, enabled=("stack", "plate_loaded"), preferred="plate_loaded"):
+    return SimpleNamespace(enabled_modes=list(enabled), preferred_mode=preferred)
+
+
+def gym(**overrides):
+    values = dict(id="gym-1", name="Downtown", steps=[], discs=[])
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def load_setup(mode, **overrides):
+    values = dict(
+        id=f"{mode}-setup", gym_id="gym-1", load_mode=mode,
+        is_available=True, is_preferred=False, deleted_at=None,
+        step_value=5, step_unit="lb" if mode == "stack" else "kg",
+        loading_sides=1 if mode == "stack" else 2,
+        base_weight=None, weight_basis="displayed" if mode == "stack" else "plates_only",
+        plate_inventory=None,
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_requested_setup_values_override_gym_values():
+    context = resolve_load_context(
+        ["block_machine"], preference(), gym(steps=[{"category": "block", "unit": "kg", "value": 10}], discs=[{"weight": 2.5, "count": 4, "unit": "kg"}]),
+        [load_setup("plate_loaded", is_preferred=True, step_value=1.25, step_unit="lb", loading_sides=1,
+                    base_weight=20, weight_basis="including_start_weight",
+                    plate_inventory=[{"weight": 5, "count": 2, "unit": "lb"}])],
+        "plate_loaded",
+    )
+    assert (context.step_value, context.step_unit, context.loading_sides) == (1.25, "lb", 1)
+    assert context.base_weight == 20
+    assert context.weight_basis == "including_start_weight"
+    assert context.plates == [{"weight": 5, "count": 2, "unit": "lb"}]
+
+
+def test_preferred_active_setup_wins_when_mode_is_not_requested():
+    preferred = load_setup("plate_loaded", is_preferred=True, id="preferred")
+    other = load_setup("stack", id="other")
+    context = resolve_load_context(
+        ["block_machine"], preference(preferred="stack"), gym(), [other, preferred], None
+    )
+    assert context is not None
+    assert (context.mode, context.setup_id) == ("plate_loaded", "preferred")
+
+
+def test_requested_allowed_mode_without_gym_setup_is_resolved_once():
+    context = resolve_load_context(["block_machine"], preference(enabled=("stack",)), gym(), [], "stack")
+    assert context is not None
+    assert context.setup_id is None
+    assert context.mode == "stack"
+
+
+def test_named_gym_without_discs_keeps_plate_inventory_unknown():
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), gym(), [], "plate_loaded"
+    )
+    assert context is not None
+    assert context.plates is None
+
+
+def test_legacy_global_settings_supply_steps_and_plates():
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), None, [], "plate_loaded",
+        global_settings={"weight_steps": {"plate_lb": 5}, "plate_config_lbs": [{"weight": 10, "count": 2}]},
+    )
+    assert context is not None
+    assert (context.step_value, context.step_unit) == (5, "lb")
+    assert context.plates == [{"weight": 10, "count": 2, "unit": "lb"}]
+
+
+def test_pound_stack_step_preserves_its_unit():
+    context = resolve_load_context(
+        ["block_machine"], preference(enabled=("stack",)), gym(steps=[{"category": "block", "unit": "lb", "value": 5}]), [], "stack"
+    )
+    assert context is not None
+    assert (context.step_value, context.step_unit) == (5, "lb")
+
+
+def test_invalid_setup_weight_basis_returns_none():
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), gym(),
+        [load_setup("plate_loaded", weight_basis="including_start_weight", base_weight=None)], "plate_loaded",
+    )
+    assert context is None
+
+
+def test_resolved_context_is_snapshot_of_json_configuration():
+    steps = [{"category": "block", "unit": "kg", "value": 7.5}]
+    discs = [{"weight": 2.5, "count": 2, "unit": "kg"}]
+    location = gym(steps=steps, discs=discs)
+    context = resolve_load_context(
+        ["block_machine"], preference(enabled=("stack",)), location, [], "stack"
+    )
+    steps[0]["value"] = 99
+    discs[0]["count"] = 0
+    assert context is not None
+    assert context.step_value == 7.5
+    assert context.plates == [{"weight": 2.5, "count": 2, "unit": "kg"}]
