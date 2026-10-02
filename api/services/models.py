@@ -109,6 +109,68 @@ class AppUserProfile(Base):
     user: Mapped["AppUser"] = relationship("AppUser", back_populates="profile")
 
 
+class GymProfile(Base):
+    """A user's saved gym and the equipment available there."""
+
+    __tablename__ = "gym_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    equipment: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    bars: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    discs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    steps: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("app_user_id", "name", name="uq_gym_profiles_owner_name"),
+        CheckConstraint("revision > 0", name="ck_gym_profiles_revision_positive"),
+    )
+
+
+class GymExerciseSetup(Base):
+    """An exercise's loading and availability setup in one saved gym."""
+
+    __tablename__ = "gym_exercise_setups"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("gym_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    exercise_source: Mapped[str] = mapped_column(String(10), nullable=False)
+    exercise_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    load_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    is_preferred: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    step_value: Mapped[float] = mapped_column(Numeric(10, 3), nullable=False)
+    step_unit: Mapped[str] = mapped_column(String(12), nullable=False)
+    loading_sides: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    base_weight: Mapped[Optional[float]] = mapped_column(Numeric(10, 3), nullable=True)
+    weight_basis: Mapped[str] = mapped_column(String(20), nullable=False)
+    plate_inventory: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("exercise_source IN ('global', 'user')", name="ck_gym_setups_exercise_source"),
+        CheckConstraint("load_mode IN ('stack', 'plate_loaded')", name="ck_gym_setups_load_mode"),
+        CheckConstraint("step_value > 0", name="ck_gym_setups_step_positive"),
+        CheckConstraint("loading_sides IN (1, 2)", name="ck_gym_setups_loading_sides"),
+        CheckConstraint("revision > 0", name="ck_gym_setups_revision_positive"),
+        CheckConstraint("base_weight IS NULL OR base_weight >= 0", name="ck_gym_setups_base_weight_nonnegative"),
+        Index(
+            "uq_gym_setups_active_mode",
+            "gym_id", "exercise_source", "exercise_id", "load_mode",
+            unique=True,
+            postgresql_where=Column("deleted_at").is_(None),
+        ),
+    )
+
+
 # --- СПРАВОЧНИК УПРАЖНЕНИЙ ---
 
 class Exercise(Base):
