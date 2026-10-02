@@ -152,7 +152,8 @@ class GymExerciseSetup(Base):
     loading_sides: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     base_weight: Mapped[Optional[float]] = mapped_column(Numeric(10, 3), nullable=True)
     weight_basis: Mapped[str] = mapped_column(String(20), nullable=False)
-    plate_inventory: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Optional inventory is a JSON array of {"weight": number, "count": integer}.
+    plate_inventory: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
@@ -162,6 +163,11 @@ class GymExerciseSetup(Base):
         CheckConstraint("loading_sides IN (1, 2)", name="ck_gym_setups_loading_sides"),
         CheckConstraint("revision > 0", name="ck_gym_setups_revision_positive"),
         CheckConstraint("base_weight IS NULL OR base_weight >= 0", name="ck_gym_setups_base_weight_nonnegative"),
+        CheckConstraint(
+            "plate_inventory IS NULL OR (jsonb_typeof(plate_inventory) = 'array' "
+            "AND NOT jsonb_path_exists(plate_inventory, '$[*].count ? (@ < 0)'))",
+            name="ck_gym_setups_plate_counts_nonnegative",
+        ),
         Index(
             "uq_gym_setups_active_mode",
             "gym_id", "exercise_source", "exercise_id", "load_mode",
