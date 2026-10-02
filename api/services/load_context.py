@@ -2,11 +2,37 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
+from decimal import Decimal
+import math
 from typing import Any, Literal, Sequence
 
 from api.services.models import ExerciseLoadPreference, GymExerciseSetup
 
 LoadMode = Literal["stack", "plate_loaded"]
+
+
+class _FrozenDict(dict):
+    """JSON-serializable dict that rejects mutation after construction."""
+
+    def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("plate snapshots are immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
+
+
+def _freeze_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _FrozenDict({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True)
@@ -20,7 +46,7 @@ class EffectiveLoadContext:
     loading_sides: int
     weight_basis: str
     base_weight: float | None
-    plates: list[dict[str, Any]] | None
+    plates: tuple[dict[str, Any], ...] | None
 
 
 def resolve_allowed_modes(
@@ -49,10 +75,12 @@ def _get(value: Any, key: str, default: Any = None) -> Any:
 
 
 def _positive_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+    if isinstance(value, Decimal):
+        return value.is_finite() and value > 0
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
-def _copy_plates(inventory: Any, default_unit: str) -> list[dict[str, Any]] | None:
+def _copy_plates(inventory: Any, default_unit: str) -> tuple[dict[str, Any], ...] | None:
     if inventory is None:
         return None
     if not isinstance(inventory, list) or not inventory:
@@ -68,8 +96,8 @@ def _copy_plates(inventory: Any, default_unit: str) -> list[dict[str, Any]] | No
         item.setdefault("unit", default_unit)
         if item["unit"] not in ("kg", "lb"):
             continue
-        result.append(item)
-    return result
+        result.append(_freeze_json(item))
+    return tuple(result) if result else None
 
 
 def _gym_step(gym: Any, mode: LoadMode) -> tuple[float, str] | None:
@@ -136,8 +164,10 @@ def resolve_load_context(
     if not isinstance(gym_sides, int) or isinstance(gym_sides, bool) or gym_sides not in (1, 2):
         gym_sides = None
     sides = sides or gym_sides or defaults[0]
-    basis = _get(setup, "weight_basis") if setup is not None else None
-    basis = basis or _get(gym, "weight_basis") or defaults[1]
+    if setup is not None:
+        basis = _get(setup, "weight_basis")
+    else:
+        basis = _get(gym, "weight_basis") or defaults[1]
     base = _get(setup, "base_weight") if setup is not None else None
     base = base if base is not None else _get(gym, "base_weight")
     if mode == "stack":
@@ -145,7 +175,13 @@ def resolve_load_context(
             return None
     elif basis not in ("plates_only", "including_start_weight"):
         return None
-    if basis == "including_start_weight" and (base is None or not isinstance(base, (int, float)) or base < 0):
+    if basis == "including_start_weight" and (
+        base is None
+        or not isinstance(base, (int, float, Decimal))
+        or isinstance(base, bool)
+        or (not base.is_finite() if isinstance(base, Decimal) else not math.isfinite(base))
+        or base < 0
+    ):
         return None
 
     inventory = _get(setup, "plate_inventory") if setup is not None else None
@@ -165,5 +201,5 @@ def resolve_load_context(
         loading_sides=sides,
         weight_basis=basis,
         base_weight=float(base) if base is not None else None,
-        plates=deepcopy(plates),
+        plates=plates,
     )

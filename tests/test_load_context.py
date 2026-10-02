@@ -1,4 +1,7 @@
 from types import SimpleNamespace
+from decimal import Decimal
+
+import pytest
 
 from api.services.load_context import resolve_allowed_modes, resolve_load_context
 
@@ -85,7 +88,7 @@ def test_requested_setup_values_override_gym_values():
     assert (context.step_value, context.step_unit, context.loading_sides) == (1.25, "lb", 1)
     assert context.base_weight == 20
     assert context.weight_basis == "including_start_weight"
-    assert context.plates == [{"weight": 5, "count": 2, "unit": "lb"}]
+    assert context.plates == ({"weight": 5, "count": 2, "unit": "lb"},)
 
 
 def test_preferred_active_setup_wins_when_mode_is_not_requested():
@@ -120,7 +123,7 @@ def test_legacy_global_settings_supply_steps_and_plates():
     )
     assert context is not None
     assert (context.step_value, context.step_unit) == (5, "lb")
-    assert context.plates == [{"weight": 10, "count": 2, "unit": "lb"}]
+    assert context.plates == ({"weight": 10, "count": 2, "unit": "lb"},)
 
 
 def test_pound_stack_step_preserves_its_unit():
@@ -150,4 +153,36 @@ def test_resolved_context_is_snapshot_of_json_configuration():
     discs[0]["count"] = 0
     assert context is not None
     assert context.step_value == 7.5
-    assert context.plates == [{"weight": 2.5, "count": 2, "unit": "kg"}]
+    assert context.plates == ({"weight": 2.5, "count": 2, "unit": "kg"},)
+
+
+def test_decimal_setup_step_and_base_are_valid_numeric_values():
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), gym(),
+        [load_setup("plate_loaded", step_value=Decimal("1.25"),
+                    weight_basis="including_start_weight", base_weight=Decimal("20.0"))],
+        "plate_loaded",
+    )
+    assert context is not None
+    assert (context.step_value, context.base_weight) == (1.25, 20.0)
+
+
+def test_non_null_setup_with_empty_weight_basis_is_invalid():
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), gym(),
+        [load_setup("plate_loaded", weight_basis="")], "plate_loaded",
+    )
+    assert context is None
+
+
+def test_plate_snapshot_rejects_mutation_and_remains_json_serializable():
+    import json
+
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)),
+        gym(discs=[{"weight": 2.5, "count": 2, "unit": "kg"}]), [], "plate_loaded",
+    )
+    assert context is not None
+    with pytest.raises(TypeError):
+        context.plates[0]["count"] = 99
+    assert json.loads(json.dumps(context.plates)) == [{"weight": 2.5, "count": 2, "unit": "kg"}]
