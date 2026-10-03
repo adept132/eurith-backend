@@ -83,6 +83,8 @@ def _positive_number(value: Any) -> bool:
 def _copy_plates(inventory: Any, default_unit: str) -> tuple[dict[str, Any], ...] | None:
     if inventory is None:
         return None
+    if isinstance(inventory, dict):
+        inventory = inventory.get("plates")
     if not isinstance(inventory, list) or not inventory:
         return None
     result = []

@@ -78,7 +78,8 @@ async def test_legacy_gym_uses_custom_global_plate_inventory(
         db.add(profile)
     profile.settings = {**(profile.settings or {}),
         "weight_steps": {"plate_kg": 1.25},
-        "plate_config_kg": [{"weight": 1.25, "count": 4}]}
+        "plate_config_kg": {"barWeights": [20], "selectedBar": 20,
+                            "plates": [{"weight": 1.25, "count": 4}]}}
     db.add(ExerciseLoadPreference(app_user_id=test_user.id, exercise_source="user",
         exercise_id=seeded_history.id, enabled_modes=["plate_loaded"],
         preferred_mode="plate_loaded"))

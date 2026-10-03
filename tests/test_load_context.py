@@ -126,6 +126,52 @@ def test_legacy_global_settings_supply_steps_and_plates():
     assert context.plates == ({"weight": 10, "count": 2, "unit": "lb"},)
 
 
+@pytest.mark.parametrize(
+    ("step_key", "config_key", "unit"),
+    [("plate_kg", "plate_config_kg", "kg"), ("plate_lb", "plate_config_lbs", "lb")],
+)
+def test_mobile_plate_config_object_supplies_frozen_global_inventory(step_key, config_key, unit):
+    plates = [{"weight": 2.5, "count": 4, "metadata": {"label": "saved"}}]
+    config = {"barWeights": [20], "selectedBar": 20, "plates": plates}
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), None, [], "plate_loaded",
+        global_settings={"weight_steps": {step_key: 2.5}, config_key: config},
+    )
+    assert context is not None
+    assert context.step_unit == unit
+    assert context.plates == ({"weight": 2.5, "count": 4, "unit": unit,
+                               "metadata": {"label": "saved"}},)
+    plates[0]["count"] = 0
+    plates[0]["metadata"]["label"] = "changed"
+    assert context.plates[0]["count"] == 4
+    assert context.plates[0]["metadata"]["label"] == "saved"
+    with pytest.raises(TypeError):
+        context.plates[0]["metadata"]["label"] = "changed"
+
+
+@pytest.mark.parametrize("invalid_plates", [None, {}, "plates", 7, ["bad"]])
+def test_invalid_mobile_plate_config_has_no_snapshot_inventory(invalid_plates):
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), None, [], "plate_loaded",
+        global_settings={"plate_config_kg": {"barWeights": [20], "selectedBar": 20,
+                                              "plates": invalid_plates}},
+    )
+    assert context is not None
+    assert context.plates is None
+
+
+def test_named_gym_without_discs_does_not_use_mobile_global_plate_config():
+    context = resolve_load_context(
+        ["free_machine"], preference(enabled=("plate_loaded",)), gym(discs=None), [],
+        "plate_loaded", global_settings={"plate_config_kg": {
+            "barWeights": [20], "selectedBar": 20,
+            "plates": [{"weight": 2.5, "count": 4}],
+        }},
+    )
+    assert context is not None
+    assert context.plates is None
+
+
 def test_pound_stack_step_preserves_its_unit():
     context = resolve_load_context(
         ["block_machine"], preference(enabled=("stack",)), gym(steps=[{"category": "block", "unit": "lb", "value": 5}]), [], "stack"
