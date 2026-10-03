@@ -41,6 +41,9 @@ class DataSummaryResponse(BaseModel):
     goals: int = 0
     splits: int = 0
     plans: int = 0
+    gym_profiles: int = 0
+    gym_exercise_setups: int = 0
+    exercise_load_preferences: int = 0
 
 
 def _status(app_user: AppUser) -> AccountStatusResponse:

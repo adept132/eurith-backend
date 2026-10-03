@@ -65,6 +65,34 @@ async def purge_user(db: AsyncSession, app_user_id: int) -> dict[str, int]:
     Возвращает счётчики удалённого — по ним видно, что чистка действительно
     отработала, а не молча ничего не нашла.
     """
+    from api.services.models import (
+        ExerciseLoadPreference,
+        GymExerciseSetup,
+        GymProfile,
+    )
+
+    owned_gym_ids = select(GymProfile.id).where(GymProfile.app_user_id == app_user_id)
+    counts = {
+        "sets": 0,
+        "session_exercises": 0,
+        "workouts": 0,
+        "gym_profiles": int((await db.execute(
+            select(func.count()).select_from(GymProfile).where(
+                GymProfile.app_user_id == app_user_id
+            )
+        )).scalar_one() or 0),
+        "gym_exercise_setups": int((await db.execute(
+            select(func.count()).select_from(GymExerciseSetup).where(
+                GymExerciseSetup.gym_id.in_(owned_gym_ids)
+            )
+        )).scalar_one() or 0),
+        "exercise_load_preferences": int((await db.execute(
+            select(func.count()).select_from(ExerciseLoadPreference).where(
+                ExerciseLoadPreference.app_user_id == app_user_id
+            )
+        )).scalar_one() or 0),
+    }
+
     sessions_subq = select(WorkoutSession.id).where(
         WorkoutSession.app_user_id == app_user_id
     )
@@ -91,8 +119,6 @@ async def purge_user(db: AsyncSession, app_user_id: int) -> dict[str, int]:
     se_ids = (
         await db.execute(target_session_exercises, {"uid": app_user_id})
     ).scalars().all()
-
-    counts = {"sets": 0, "session_exercises": 0, "workouts": 0}
 
     if se_ids:
         result = await db.execute(
@@ -185,6 +211,9 @@ async def data_summary(db: AsyncSession, app_user_id: int) -> dict[str, int]:
     """
     from api.services.models import (
         BodyMeasurement,
+        ExerciseLoadPreference,
+        GymExerciseSetup,
+        GymProfile,
         UserGoal,
         UserSplit,
         WorkoutPlan,
@@ -198,6 +227,7 @@ async def data_summary(db: AsyncSession, app_user_id: int) -> dict[str, int]:
     se_subq = select(WorkoutSessionExercise.id).where(
         WorkoutSessionExercise.workout_session_id.in_(sessions_subq)
     )
+    owned_gym_ids = select(GymProfile.id).where(GymProfile.app_user_id == app_user_id)
 
     async def count(stmt) -> int:
         return int((await db.execute(stmt)).scalar_one() or 0)
@@ -236,6 +266,21 @@ async def data_summary(db: AsyncSession, app_user_id: int) -> dict[str, int]:
         "plans": await count(
             select(func.count()).select_from(WorkoutPlan).where(
                 WorkoutPlan.app_user_id == app_user_id
+            )
+        ),
+        "gym_profiles": await count(
+            select(func.count()).select_from(GymProfile).where(
+                GymProfile.app_user_id == app_user_id
+            )
+        ),
+        "gym_exercise_setups": await count(
+            select(func.count()).select_from(GymExerciseSetup).where(
+                GymExerciseSetup.gym_id.in_(owned_gym_ids)
+            )
+        ),
+        "exercise_load_preferences": await count(
+            select(func.count()).select_from(ExerciseLoadPreference).where(
+                ExerciseLoadPreference.app_user_id == app_user_id
             )
         ),
     }

@@ -21,6 +21,9 @@ from api.services.account_service import (
 from api.services.models import (
     AppUser,
     Exercise,
+    ExerciseLoadPreference,
+    GymExerciseSetup,
+    GymProfile,
     WorkoutSession,
     WorkoutSessionExercise,
     WorkoutSessionSet,
@@ -246,3 +249,98 @@ async def test_data_summary_counts_what_will_be_deleted(client):
     assert body["workouts"] >= 1
     assert body["sets"] >= 1
     assert body["custom_exercises"] >= 1
+
+
+async def test_purge_includes_gym_profile_data(client, db, test_user):
+    """Summary and purge include stored gym data, including soft-deleted rows."""
+    foreign = AppUser(
+        firebase_uid=f"other-{uuid.uuid4()}",
+        email=f"other-{uuid.uuid4()}@example.com",
+    )
+    db.add(foreign)
+    await db.flush()
+
+    own_gym = GymProfile(app_user_id=test_user.id, name="Own gym")
+    foreign_gym = GymProfile(app_user_id=foreign.id, name="Foreign gym")
+    db.add_all([own_gym, foreign_gym])
+    await db.flush()
+
+    def setup(gym_id, *, deleted=False):
+        return GymExerciseSetup(
+            gym_id=gym_id,
+            exercise_source="global",
+            exercise_id=1,
+            load_mode="stack",
+            step_value=2.5,
+            step_unit="kg",
+            weight_basis="displayed",
+            deleted_at=datetime.now(timezone.utc) if deleted else None,
+        )
+
+    own_setups = [setup(own_gym.id), setup(own_gym.id, deleted=True)]
+    foreign_setup = setup(foreign_gym.id)
+    own_preference = ExerciseLoadPreference(
+        app_user_id=test_user.id,
+        exercise_source="global",
+        exercise_id=1,
+        enabled_modes=["stack"],
+        preferred_mode="stack",
+    )
+    foreign_preference = ExerciseLoadPreference(
+        app_user_id=foreign.id,
+        exercise_source="global",
+        exercise_id=1,
+        enabled_modes=["stack"],
+        preferred_mode="stack",
+    )
+    db.add_all([*own_setups, foreign_setup, own_preference, foreign_preference])
+    await db.commit()
+
+    summary = await client.get("/account/data-summary")
+    assert summary.status_code == 200, summary.text
+    assert {
+        key: summary.json()[key]
+        for key in ("gym_profiles", "gym_exercise_setups", "exercise_load_preferences")
+    } == {
+        "gym_profiles": 1,
+        "gym_exercise_setups": 2,
+        "exercise_load_preferences": 1,
+    }
+
+    counts = await purge_user(db, test_user.id)
+    assert {
+        key: counts[key]
+        for key in ("gym_profiles", "gym_exercise_setups", "exercise_load_preferences")
+    } == {
+        "gym_profiles": 1,
+        "gym_exercise_setups": 2,
+        "exercise_load_preferences": 1,
+    }
+    assert await db.scalar(
+        select(func.count()).select_from(GymProfile).where(GymProfile.app_user_id == test_user.id)
+    ) == 0
+    assert await db.scalar(
+        select(func.count()).select_from(GymExerciseSetup).where(GymExerciseSetup.gym_id == own_gym.id)
+    ) == 0
+    assert await db.scalar(
+        select(func.count()).select_from(ExerciseLoadPreference).where(
+            ExerciseLoadPreference.app_user_id == test_user.id
+        )
+    ) == 0
+    assert await db.scalar(
+        select(func.count()).select_from(GymProfile).where(GymProfile.id == foreign_gym.id)
+    ) == 1
+    assert await db.scalar(
+        select(func.count()).select_from(GymExerciseSetup).where(
+            GymExerciseSetup.gym_id == foreign_gym.id
+        )
+    ) == 1
+    assert await db.scalar(
+        select(func.count()).select_from(ExerciseLoadPreference).where(
+            ExerciseLoadPreference.app_user_id == foreign.id
+        )
+    ) == 1
+
+    # Keep the foreign owner's fixture rows from leaking into later tests.
+    await db.execute(text("DELETE FROM app_users WHERE id = :uid"), {"uid": foreign.id})
+    await db.commit()
