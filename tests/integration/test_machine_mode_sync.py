@@ -1,5 +1,6 @@
 """Offline workout snapshots keep the context recorded with each set."""
 
+from copy import deepcopy
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -55,6 +56,7 @@ async def test_modes_survive_replay_legacy_payload_conflict_and_deleted_gym(
         sets=[set_value("stack-set", 1, "stack", gym, stack),
               set_value("plate-set", 2, "plate_loaded", gym, plate)],
         gym_profile_id=str(gym.id))
+    first["exercises"][0].update(active_load_mode="stack", active_setup_id=str(stack.id))
     response = await client.post("/sync/workouts", json=first)
     assert response.status_code == 200, response.text
     rows = response.json()["workout"]["exercises"][0]["sets"]
@@ -62,6 +64,10 @@ async def test_modes_survive_replay_legacy_payload_conflict_and_deleted_gym(
     assert rows[0]["load_snapshot"]["step_value"] == 5
     assert rows[1]["load_snapshot"]["step_value"] == 2.5
     assert rows[0]["shown_target_snapshot"] == {"weight": 42, "reps": 8}
+    full = deepcopy(first)
+    full["gym_snapshot"] = response.json()["workout"]["gym_snapshot"]
+    for item, saved in zip(full["exercises"][0]["sets"], rows):
+        item["load_snapshot"] = saved["load_snapshot"]
 
     replay = await client.post("/sync/workouts", json=first)
     assert replay.status_code == 200, replay.text
@@ -74,9 +80,26 @@ async def test_modes_survive_replay_legacy_payload_conflict_and_deleted_gym(
     rows = response.json()["workout"]["exercises"][0]["sets"]
     assert [row["load_mode"] for row in rows] == ["stack", "plate_loaded"]
     assert all(row["shown_target_snapshot"] == {"weight": 42, "reps": 8} for row in rows)
+    assert response.json()["workout"]["gym_profile_id"] == str(gym.id)
+    assert response.json()["workout"]["exercises"][0]["active_setup_id"] == str(stack.id)
+
+    stack.step_value = 7
+    await db.commit()
+    response = await client.post("/sync/workouts", json=full)
+    assert response.status_code == 200, response.text
+    assert response.json()["workout"]["exercises"][0]["sets"][0]["load_snapshot"]["step_value"] == 5
+    stack.deleted_at = datetime.now(timezone.utc)
+    plate.deleted_at = datetime.now(timezone.utc)
+    await db.commit()
+    response = await client.post("/sync/workouts", json=full)
+    assert response.status_code == 200, response.text
+    assert response.json()["workout"]["exercises"][0]["sets"][1]["load_snapshot"]["step_value"] == 2.5
 
     gym.deleted_at = datetime.now(timezone.utc)
     await db.commit()
+    response = await client.post("/sync/workouts", json=full)
+    assert response.status_code == 200, response.text
+    assert response.json()["workout"]["exercises"][0]["sets"][0]["load_snapshot"]["step_value"] == 5
     response = await client.post("/sync/workouts", json=legacy)
     assert response.status_code == 200, response.text
     assert response.json()["workout"]["exercises"][0]["sets"][0]["load_snapshot"]["step_value"] == 5
@@ -90,6 +113,31 @@ async def test_modes_survive_replay_legacy_payload_conflict_and_deleted_gym(
     assert len(count) == 2
 
 
+async def test_snapshot_only_omission_and_explicit_null(client, db, test_user, seeded_history):
+    gym, stack, _ = await configured(db, test_user.id, seeded_history.id)
+    uid = str(uuid4())
+    original = snapshot(seeded_history.id, workout_uuid=uid,
+        sets=[set_value("snapshot-only-a", 1, "stack", gym, stack),
+              set_value("snapshot-only-b", 2, "stack", gym, stack)],
+        gym_profile_id=str(gym.id))
+    created = await client.post("/sync/workouts", json=original)
+    assert created.status_code == 200, created.text
+    old = snapshot(seeded_history.id, workout_uuid=uid,
+        sets=[{"client_uuid": "snapshot-only-a", "set_number": 1, "weight": 42, "reps": 8}])
+    response = await client.post("/sync/workouts", json=old)
+    assert response.status_code == 200, response.text
+    assert response.json()["workout"]["exercises"][0]["sets"][0]["load_snapshot"] is not None
+    cleared = snapshot(seeded_history.id, workout_uuid=uid,
+        sets=[{"client_uuid": "snapshot-only-a", "set_number": 1, "weight": 42,
+               "reps": 8, "load_snapshot": None}])
+    response = await client.post("/sync/workouts", json=cleared)
+    assert response.status_code == 200, response.text
+    first, second = response.json()["workout"]["exercises"][0]["sets"]
+    assert first["load_mode"] == "stack" and first["setup_id"] == str(stack.id)
+    assert first["load_snapshot"] is None
+    assert second["load_snapshot"] is not None
+
+
 async def test_sync_rejects_foreign_gym_and_setup(client, db, test_user, seeded_history):
     gym, stack, _ = await configured(db, test_user.id, seeded_history.id)
     foreign = AppUser(firebase_uid=f"foreign-{uuid4()}", email=f"foreign-{uuid4()}@example.com")
@@ -100,6 +148,36 @@ async def test_sync_rejects_foreign_gym_and_setup(client, db, test_user, seeded_
                  set_value("foreign-setup", 1, "stack", gym, foreign_setup)):
         response = await client.post("/sync/workouts", json=snapshot(seeded_history.id, sets=[item]))
         assert response.status_code == 400, response.text
+    await db.delete(foreign)
+    await db.commit()
+
+
+async def test_session_and_active_context_omit_preserves_but_reassignment_validates(
+    client, db, test_user, seeded_history,
+):
+    gym, stack, _ = await configured(db, test_user.id, seeded_history.id)
+    uid = str(uuid4())
+    original = snapshot(seeded_history.id, workout_uuid=uid,
+        gym_profile_id=str(gym.id), sets=[set_value("active-set", 1, "stack", gym, stack)])
+    original["exercises"][0].update(active_load_mode="stack", active_setup_id=str(stack.id))
+    created = await client.post("/sync/workouts", json=original)
+    assert created.status_code == 200, created.text
+    old = snapshot(seeded_history.id, workout_uuid=uid,
+        sets=[{"client_uuid": "active-set", "set_number": 1, "weight": 45, "reps": 8}])
+    preserved = await client.post("/sync/workouts", json=old)
+    assert preserved.status_code == 200, preserved.text
+    assert preserved.json()["workout"]["gym_profile_id"] == str(gym.id)
+    assert preserved.json()["workout"]["exercises"][0]["active_setup_id"] == str(stack.id)
+
+    foreign = AppUser(firebase_uid=f"foreign-{uuid4()}", email=f"foreign-{uuid4()}@example.com")
+    db.add(foreign)
+    await db.flush()
+    foreign_gym, foreign_setup, _ = await configured(db, foreign.id, seeded_history.id)
+    invalid_gym = await client.post("/sync/workouts", json={**old, "gym_profile_id": str(foreign_gym.id)})
+    assert invalid_gym.status_code == 400, invalid_gym.text
+    invalid_active = deepcopy(old)
+    invalid_active["exercises"][0]["active_setup_id"] = str(foreign_setup.id)
+    assert (await client.post("/sync/workouts", json=invalid_active)).status_code == 400
     await db.delete(foreign)
     await db.commit()
 

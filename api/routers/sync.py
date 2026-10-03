@@ -230,12 +230,13 @@ async def _apply_snapshot(
         workout.session_rpe_at = datetime.now(timezone.utc)
     workout.volume_targets = payload.volume_targets
     if "gym_profile_id" in payload.model_fields_set:
-        if payload.gym_profile_id is not None:
+        gym_changed = payload.gym_profile_id != workout.gym_profile_id
+        if gym_changed and payload.gym_profile_id is not None:
             gym = await db.get(GymProfile, payload.gym_profile_id)
             if gym is None or gym.app_user_id != app_user_id or gym.deleted_at is not None:
                 raise HTTPException(status_code=400, detail="Gym profile is unavailable")
         workout.gym_profile_id = payload.gym_profile_id
-        if "gym_snapshot" not in payload.model_fields_set:
+        if gym_changed and "gym_snapshot" not in payload.model_fields_set:
             workout.gym_snapshot = None if payload.gym_profile_id is None else {
                 "id": str(gym.id), "name": gym.name, "revision": gym.revision,
                 "equipment": deepcopy(gym.equipment), "bars": deepcopy(gym.bars),
@@ -289,8 +290,9 @@ async def _apply_snapshot(
         exercise.recommended_rep_min = ex_snap.recommended_rep_min
         exercise.recommended_rep_max = ex_snap.recommended_rep_max
         exercise.target_sets = ex_snap.target_sets
+        previous_mode = exercise.active_load_mode
+        previous_setup_id = exercise.active_setup_id
         if "active_load_mode" in ex_snap.model_fields_set:
-            previous_mode = exercise.active_load_mode
             exercise.active_load_mode = ex_snap.active_load_mode
             if previous_mode != exercise.active_load_mode and "active_setup_id" not in ex_snap.model_fields_set:
                 exercise.active_setup_id = None
@@ -310,7 +312,8 @@ async def _apply_snapshot(
         if ex_snap.live_prescription:
             exercise.live_prescription = ex_snap.live_prescription.model_dump()
         await db.flush()
-        if {"active_load_mode", "active_setup_id"} & ex_snap.model_fields_set:
+        if (exercise.active_load_mode != previous_mode
+                or exercise.active_setup_id != previous_setup_id):
             try:
                 await resolve_set_context(
                     db, app_user_id, exercise, mode=exercise.active_load_mode,
@@ -376,15 +379,24 @@ async def _apply_snapshot(
                     setup_id = None
                 if "gym_profile_id" in requested_context and gym_id != workout_set.gym_profile_id and "setup_id" not in requested_context:
                     setup_id = None
-                try:
-                    context = await resolve_set_context(
-                        db, app_user_id, exercise, mode=mode, gym_id=gym_id,
-                        setup_id=setup_id, supplied_snapshot=set_snap.load_snapshot,
-                    )
-                except ValueError as error:
-                    raise HTTPException(status_code=400, detail=str(error)) from error
-                for key, value in context.items():
-                    setattr(workout_set, key, value)
+                identities_changed = (set_is_new or mode != workout_set.load_mode
+                                      or gym_id != workout_set.gym_profile_id
+                                      or setup_id != workout_set.setup_id)
+                if identities_changed:
+                    try:
+                        context = await resolve_set_context(
+                            db, app_user_id, exercise, mode=mode, gym_id=gym_id,
+                            setup_id=setup_id,
+                            supplied_snapshot=set_snap.load_snapshot,
+                        )
+                    except ValueError as error:
+                        raise HTTPException(status_code=400, detail=str(error)) from error
+                    for key, value in context.items():
+                        setattr(workout_set, key, value)
+                    if "load_snapshot" in requested_context and set_snap.load_snapshot is None:
+                        workout_set.load_snapshot = None
+                elif "load_snapshot" in requested_context and set_snap.load_snapshot is None:
+                    workout_set.load_snapshot = None
             if "shown_target_snapshot" in set_snap.model_fields_set:
                 workout_set.shown_target_snapshot = deepcopy(set_snap.shown_target_snapshot)
             # Ревью, находка 1: только когда поле реально пришло в снимке —
