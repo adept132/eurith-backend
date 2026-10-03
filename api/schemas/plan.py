@@ -235,6 +235,7 @@ class GeneratePlanPreviewResponse(BaseModel):
 
 
 class ConfirmPlanRequest(BaseModel):
+    gym_profile_id: Optional[UUID] = None
     days: List[GeneratedDayOut]
     mode: Literal["full", "single_day"] = "full"
     target_date: Optional[date] = None

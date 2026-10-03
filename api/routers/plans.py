@@ -1327,13 +1327,46 @@ async def confirm_generated_plan(request: ConfirmPlanRequest,
     if request.mode == "single_day" and len(request.days) != 1:
         raise HTTPException(400, "Однодневный режим принимает ровно один день")
 
+    # Resolve every day before writing any plans. Preview JSON is untrusted;
+    # catalog ownership, gym inventory and enabled modes may have changed.
+    days = request.days
+    gym = None
+    gym_snapshot = None
+    if request.gym_profile_id is not None:
+        exercise_ids = {e.exercise_id for day in days for e in day.exercises}
+        pool = list((await db.execute(select(Exercise).where(
+            Exercise.id.in_(exercise_ids),
+            ((Exercise.app_user_id.is_(None) & (Exercise.source == "default"))
+             | (Exercise.app_user_id == current_user.id)),
+        ))).scalars().all())
+        if {e.id for e in pool} != exercise_ids:
+            raise HTTPException(400, "Упражнение недоступно")
+        gym, decisions, contexts = await _named_gym_context(
+            db, current_user.id, request.gym_profile_id, pool)
+        refreshed_days = []
+        for day in days:
+            refreshed = _gym_day_context(day, decisions, contexts, validate=True)
+            for original, resolved in zip(day.exercises, refreshed.exercises):
+                if original.load_mode != resolved.load_mode or original.setup_id != resolved.setup_id:
+                    raise HTTPException(400, "Режим или настройка тренажёра устарели: обновите предпросмотр")
+            refreshed_days.append(refreshed)
+        days = refreshed_days
+        gym_snapshot = jsonable_encoder({
+            "id": gym.id, "name": gym.name, "revision": gym.revision,
+            "equipment": gym.equipment, "bars": gym.bars,
+            "discs": gym.discs, "steps": gym.steps,
+        })
+    elif any(e.load_mode is not None or e.setup_id is not None or e.load_snapshot is not None
+             for day in days for e in day.exercises):
+        raise HTTPException(400, "Для сохранения настроек нагрузки выберите зал")
+
     today = _date.today()
     # Генератор меняет только текущие/будущие назначения. Переданная из
     # старой ссылки дата не должна переписывать историю пользователя.
     applied_from = max(request.target_date or today, today)
     created: list[int] = []
     created_plans: list[WorkoutPlan] = []
-    for day in request.days:
+    for day in days:
         AntiSuicideValidator.validate_workout_plan(
             experience,
             [PlanExerciseInput(exercise_id=e.exercise_id, fatigue_tier=e.fatigue_tier,
@@ -1341,6 +1374,8 @@ async def confirm_generated_plan(request: ConfirmPlanRequest,
                                target_sets=e.target_sets,
                                superset_group_id=e.superset_group_id) for e in day.exercises])
         plan = WorkoutPlan(app_user_id=current_user.id,
+                           gym_profile_id=gym.id if gym else None,
+                           gym_snapshot=copy.deepcopy(gym_snapshot),
                            name=f"{day.day_name} (сгенерировано)",
                            day_tag=day.day_tag.lower(), micro_tag="adaptive", meso_tag="adaptive")
         db.add(plan)
@@ -1350,6 +1385,8 @@ async def confirm_generated_plan(request: ConfirmPlanRequest,
             db.add(WorkoutPlanExercise(
                 plan_id=plan.id, exercise_id=e.exercise_id, order_index=e.order_index,
                 superset_group_id=e.superset_group_id, target_sets=e.target_sets,
+                load_mode=e.load_mode, setup_id=e.setup_id,
+                load_snapshot=copy.deepcopy(e.load_snapshot),
                 override_reps=e.override_reps, override_rir=e.override_rir))
         created.append(plan.id)
     us_res = await db.execute(
