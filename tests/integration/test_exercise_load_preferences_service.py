@@ -115,6 +115,27 @@ async def test_preference_uuid_cannot_move_to_another_exercise_key(db, test_user
 
 
 @pytest.mark.asyncio
+async def test_key_collision_takes_precedence_over_uuid_reuse_on_another_key(db, test_user):
+    occupied_exercise, uuid_owner_exercise = await exercise(db), await exercise(db)
+    occupied = await put_exercise_load_preference(
+        db, test_user.id, "global", occupied_exercise.id, preference_payload()
+    )
+    uuid_owner = await put_exercise_load_preference(
+        db, test_user.id, "global", uuid_owner_exercise.id, preference_payload()
+    )
+
+    with pytest.raises(ExerciseLoadPreferenceRevisionConflict) as conflict:
+        await put_exercise_load_preference(
+            db, test_user.id, "global", occupied_exercise.id,
+            preference_payload(id=uuid_owner.id),
+        )
+
+    assert conflict.value.current.id == occupied.id
+    assert (await get_exercise_load_preference(db, test_user.id, "global", occupied_exercise.id)).id == occupied.id
+    assert (await get_exercise_load_preference(db, test_user.id, "global", uuid_owner_exercise.id)).id == uuid_owner.id
+
+
+@pytest.mark.asyncio
 async def test_two_users_have_independent_preferences_for_same_global_exercise(db, test_user):
     ex = await exercise(db)
     second_user = await other_user(db)

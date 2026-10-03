@@ -72,6 +72,10 @@ async def put_exercise_load_preference(
         ).with_for_update()
     )).scalar_one_or_none()
 
+    if current is not None and current.id != payload.id:
+        await session.commit()
+        raise ExerciseLoadPreferenceRevisionConflict(current, "preference already exists for this exercise")
+
     by_id = (await session.execute(
         select(ExerciseLoadPreference).where(ExerciseLoadPreference.id == payload.id).with_for_update()
     )).scalar_one_or_none()
@@ -82,10 +86,6 @@ async def put_exercise_load_preference(
     ):
         await session.rollback()
         raise ExerciseLoadPreferenceNotFound(payload.id)
-
-    if current is not None and current.id != payload.id:
-        await session.commit()
-        raise ExerciseLoadPreferenceRevisionConflict(current, "preference already exists for this exercise")
 
     if current is not None and _same_values(current, payload):
         await session.commit()
