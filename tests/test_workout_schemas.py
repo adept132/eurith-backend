@@ -7,6 +7,32 @@ RU_TO_EN_MAP. Нормализация переехала на бэкенд, в 
 """
 
 from api.schemas.workouts import ExerciseShortResponse
+from api.schemas.sync import SyncExerciseSnapshot, SyncSetSnapshot, SyncWorkoutSnapshot
+from datetime import datetime, timezone
+
+
+def test_sync_set_distinguishes_omitted_context_from_explicit_clear():
+    old = SyncSetSnapshot(client_uuid="set-1", set_number=1)
+    edited = SyncSetSnapshot(client_uuid="set-1", set_number=1, load_mode=None,
+                             shown_target_snapshot=None)
+    assert "load_mode" not in old.model_fields_set
+    assert "shown_target_snapshot" not in old.model_fields_set
+    assert {"load_mode", "shown_target_snapshot"} <= edited.model_fields_set
+
+
+def test_sync_session_and_exercise_distinguish_missing_from_clear():
+    base = dict(client_uuid="workout-1", source="free", status="active",
+                started_at=datetime.now(timezone.utc))
+    old = SyncWorkoutSnapshot(**base)
+    cleared = SyncWorkoutSnapshot(**base, gym_profile_id=None, gym_snapshot=None)
+    assert "gym_profile_id" not in old.model_fields_set
+    assert {"gym_profile_id", "gym_snapshot"} <= cleared.model_fields_set
+    old_ex = SyncExerciseSnapshot(client_uuid="exercise-1", exercise_id=1, order_index=0)
+    cleared_ex = SyncExerciseSnapshot(client_uuid="exercise-1", exercise_id=1,
+                                      order_index=0, active_load_mode=None,
+                                      active_setup_id=None)
+    assert "active_load_mode" not in old_ex.model_fields_set
+    assert {"active_load_mode", "active_setup_id"} <= cleared_ex.model_fields_set
 
 
 def test_muscle_key_normalized_from_russian_main_group():

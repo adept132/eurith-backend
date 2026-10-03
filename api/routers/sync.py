@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from copy import deepcopy
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import exists, func, or_, select, text
@@ -25,6 +26,7 @@ from api.services.app_user_service import get_current_app_user
 from api.services.models import (
     AppUser,
     AppUserProfile,
+    GymProfile,
     SyncTombstone,
     UserExerciseProgressionState,
     WorkoutSession,
@@ -38,6 +40,7 @@ from api.services.progression.records_repository import rebuild_records
 from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
 from api.services.readiness.types import CheckinSignals
+from api.services.workout_set_context import CONTEXT_KEYS, resolve_set_context
 
 router = APIRouter(tags=["sync"])
 
@@ -226,6 +229,20 @@ async def _apply_snapshot(
         workout.session_rpe = payload.session_rpe
         workout.session_rpe_at = datetime.now(timezone.utc)
     workout.volume_targets = payload.volume_targets
+    if "gym_profile_id" in payload.model_fields_set:
+        if payload.gym_profile_id is not None:
+            gym = await db.get(GymProfile, payload.gym_profile_id)
+            if gym is None or gym.app_user_id != app_user_id or gym.deleted_at is not None:
+                raise HTTPException(status_code=400, detail="Gym profile is unavailable")
+        workout.gym_profile_id = payload.gym_profile_id
+        if "gym_snapshot" not in payload.model_fields_set:
+            workout.gym_snapshot = None if payload.gym_profile_id is None else {
+                "id": str(gym.id), "name": gym.name, "revision": gym.revision,
+                "equipment": deepcopy(gym.equipment), "bars": deepcopy(gym.bars),
+                "discs": deepcopy(gym.discs), "steps": deepcopy(gym.steps),
+            }
+    if "gym_snapshot" in payload.model_fields_set:
+        workout.gym_snapshot = deepcopy(payload.gym_snapshot)
     workout.started_at = payload.started_at
     workout.finished_at = payload.finished_at
     await db.flush()
@@ -272,6 +289,13 @@ async def _apply_snapshot(
         exercise.recommended_rep_min = ex_snap.recommended_rep_min
         exercise.recommended_rep_max = ex_snap.recommended_rep_max
         exercise.target_sets = ex_snap.target_sets
+        if "active_load_mode" in ex_snap.model_fields_set:
+            previous_mode = exercise.active_load_mode
+            exercise.active_load_mode = ex_snap.active_load_mode
+            if previous_mode != exercise.active_load_mode and "active_setup_id" not in ex_snap.model_fields_set:
+                exercise.active_setup_id = None
+        if "active_setup_id" in ex_snap.model_fields_set:
+            exercise.active_setup_id = ex_snap.active_setup_id
         # Write-once: серверное предписание — то, что пользователь уже видел.
         # Клиентское принимаем только когда своего нет (упражнение добавлено
         # офлайн и предписание пришло из локального кэша). ex_snap.prescription
@@ -286,6 +310,14 @@ async def _apply_snapshot(
         if ex_snap.live_prescription:
             exercise.live_prescription = ex_snap.live_prescription.model_dump()
         await db.flush()
+        if {"active_load_mode", "active_setup_id"} & ex_snap.model_fields_set:
+            try:
+                await resolve_set_context(
+                    db, app_user_id, exercise, mode=exercise.active_load_mode,
+                    gym_id=workout.gym_profile_id, setup_id=exercise.active_setup_id,
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
         id_map[ex_snap.client_uuid] = exercise.id
 
         # Аналогично: у нового упражнения подходов нет — не трогаем связь.
@@ -316,7 +348,8 @@ async def _apply_snapshot(
                     await db.delete(workout_set)
                 continue
 
-            if workout_set is None:
+            set_is_new = workout_set is None
+            if set_is_new:
                 workout_set = WorkoutSessionSet(
                     workout_session_exercise_id=exercise.id,
                     client_uuid=set_snap.client_uuid,
@@ -331,6 +364,29 @@ async def _apply_snapshot(
             workout_set.notes = set_snap.notes
             workout_set.superset_round = set_snap.superset_round
             workout_set.is_completed = set_snap.is_completed
+            requested_context = CONTEXT_KEYS & set_snap.model_fields_set
+            if requested_context:
+                mode = (set_snap.load_mode if "load_mode" in requested_context else
+                        (exercise.active_load_mode if set_is_new else workout_set.load_mode))
+                gym_id = (set_snap.gym_profile_id if "gym_profile_id" in requested_context else
+                          (workout.gym_profile_id if set_is_new else workout_set.gym_profile_id))
+                setup_id = (set_snap.setup_id if "setup_id" in requested_context else
+                            (exercise.active_setup_id if set_is_new else workout_set.setup_id))
+                if "load_mode" in requested_context and mode != workout_set.load_mode and "setup_id" not in requested_context:
+                    setup_id = None
+                if "gym_profile_id" in requested_context and gym_id != workout_set.gym_profile_id and "setup_id" not in requested_context:
+                    setup_id = None
+                try:
+                    context = await resolve_set_context(
+                        db, app_user_id, exercise, mode=mode, gym_id=gym_id,
+                        setup_id=setup_id, supplied_snapshot=set_snap.load_snapshot,
+                    )
+                except ValueError as error:
+                    raise HTTPException(status_code=400, detail=str(error)) from error
+                for key, value in context.items():
+                    setattr(workout_set, key, value)
+            if "shown_target_snapshot" in set_snap.model_fields_set:
+                workout_set.shown_target_snapshot = deepcopy(set_snap.shown_target_snapshot)
             # Ревью, находка 1: только когда поле реально пришло в снимке —
             # None (легаси-клиент/частичный снимок) не должен стирать
             # уже выставленный флаг записью False поверх него.

@@ -8,6 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from api.schemas.readiness import CheckinRequest
+from api.schemas.gym_profiles import LoadMode
 from api.schemas.workouts import (
     WorkoutSessionDetailResponse,
     WorkoutSource,
@@ -50,6 +51,11 @@ class SyncSetSnapshot(BaseModel):
     # Время последней локальной правки — клиент использует его для per-entity LWW
     # при merge после 409. Сервер только сохраняет/возвращает его.
     updated_at: datetime | None = None
+    load_mode: LoadMode | None = None
+    gym_profile_id: uuid.UUID | None = None
+    setup_id: uuid.UUID | None = None
+    load_snapshot: dict | None = None
+    shown_target_snapshot: dict | None = None
 
 
 class SyncSetPrescriptionSnapshot(BaseModel):
@@ -117,6 +123,8 @@ class SyncExerciseSnapshot(BaseModel):
     live_prescription: SyncPrescriptionSnapshot | None = None
     deleted: bool = False
     updated_at: datetime | None = None
+    active_load_mode: LoadMode | None = None
+    active_setup_id: uuid.UUID | None = None
     sets: list[SyncSetSnapshot] = []
 
 
@@ -136,6 +144,8 @@ class SyncWorkoutSnapshot(BaseModel):
     # после завершения тренировки, поэтому опциональна и в снапшоте.
     session_rpe: float | None = Field(default=None, ge=0, le=10)
     volume_targets: dict | None = None
+    gym_profile_id: uuid.UUID | None = None
+    gym_snapshot: dict | None = None
     started_at: datetime
     finished_at: datetime | None = None
     deleted: bool = False
