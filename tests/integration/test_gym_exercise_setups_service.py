@@ -14,11 +14,12 @@ from api.services.gym_exercise_setups import (
 from api.services.gym_profiles import delete_gym_profile
 
 
-def setup_payload(mode="stack", revision=0, *, is_available=True, step=2.5, plate_inventory=None):
-    basis = "displayed" if mode == "stack" else "plates_only"
+def setup_payload(mode="stack", revision=0, *, is_available=True, step=2.5,
+                  plate_inventory=None, basis=None, base_weight=None):
+    basis = basis or ("displayed" if mode == "stack" else "plates_only")
     return GymExerciseSetupPayload(
         id=uuid.uuid4(), is_available=is_available, is_preferred=False,
-        step_value=step, step_unit="kg", loading_sides=1, base_weight=None,
+        step_value=step, step_unit="kg", loading_sides=1, base_weight=base_weight,
         weight_basis=basis, plate_inventory=plate_inventory, expected_revision=revision,
     ).bind_mode(mode)
 
@@ -131,6 +132,26 @@ async def test_create_persists_plate_inventory_and_exact_retry_is_idempotent(db,
     assert created.plate_inventory == inventory
     retried = await put_gym_exercise_setup(db, test_user.id, gym_id, "global", exercise_id, original)
     assert retried.revision == 1 and retried.plate_inventory == inventory
+
+
+@pytest.mark.asyncio
+async def test_plate_setup_including_start_weight_round_trips(db, test_user):
+    gym = await owner_gym(db, test_user.id)
+    ex = await exercise(db)
+    payload = setup_payload(
+        "plate_loaded", basis="including_start_weight", base_weight=20.0,
+    )
+
+    created = await put_gym_exercise_setup(
+        db, test_user.id, gym.id, "global", ex.id, payload,
+    )
+    assert created.weight_basis == "including_start_weight"
+    assert created.base_weight == Decimal("20")
+
+    fetched = await list_gym_exercise_setups(db, test_user.id, gym.id)
+    assert len(fetched) == 1
+    assert fetched[0].weight_basis == "including_start_weight"
+    assert fetched[0].base_weight == Decimal("20")
 
 
 @pytest.mark.asyncio

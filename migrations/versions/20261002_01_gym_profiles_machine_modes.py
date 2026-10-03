@@ -55,7 +55,7 @@ def upgrade() -> None:
         sa.Column("step_unit", sa.String(length=12), nullable=False),
         sa.Column("loading_sides", sa.Integer(), server_default="1", nullable=False),
         sa.Column("base_weight", sa.Numeric(precision=10, scale=3), nullable=True),
-        sa.Column("weight_basis", sa.String(length=20), nullable=False),
+        sa.Column("weight_basis", sa.String(length=32), nullable=False),
         sa.Column("plate_inventory", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint("exercise_source IN ('global', 'user')", name="ck_gym_setups_exercise_source"),

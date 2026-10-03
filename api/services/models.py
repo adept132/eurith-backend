@@ -157,7 +157,7 @@ class GymExerciseSetup(Base):
     step_unit: Mapped[str] = mapped_column(String(12), nullable=False)
     loading_sides: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     base_weight: Mapped[Optional[float]] = mapped_column(Numeric(10, 3), nullable=True)
-    weight_basis: Mapped[str] = mapped_column(String(20), nullable=False)
+    weight_basis: Mapped[str] = mapped_column(String(32), nullable=False)
     # Optional inventory is a JSON array of {"weight": number, "count": integer}.
     plate_inventory: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
