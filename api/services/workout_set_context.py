@@ -8,7 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.load_context import resolve_load_context
-from api.services.models import Exercise, ExerciseLoadPreference, GymExerciseSetup, GymProfile, WorkoutSessionExercise
+from api.services.models import (
+    AppUserProfile, Exercise, ExerciseLoadPreference, GymExerciseSetup,
+    GymProfile, WorkoutSessionExercise,
+)
 
 
 CONTEXT_KEYS = frozenset({"load_mode", "gym_profile_id", "setup_id", "load_snapshot"})
@@ -60,9 +63,15 @@ async def resolve_set_context(
                 or not setup.is_available):
             raise ValueError("Machine setup does not match the gym, exercise and mode")
 
+    global_settings = None
+    if gym is None:
+        global_settings = (await db.execute(select(AppUserProfile.settings).where(
+            AppUserProfile.app_user_id == owner_id,
+        ))).scalar_one_or_none()
+
     context = resolve_load_context(
         catalog_exercise.equipment_needed or [], preference, gym,
-        [setup] if setup is not None else [], mode,
+        [setup] if setup is not None else [], mode, global_settings,
     )
     if context is None:
         raise ValueError("Load mode is not allowed for this exercise")

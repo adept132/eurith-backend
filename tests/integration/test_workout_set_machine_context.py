@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from api.services.models import (
-    AppUser, ExerciseLoadPreference, GymExerciseSetup, GymProfile,
+    AppUser, AppUserProfile, ExerciseLoadPreference, GymExerciseSetup, GymProfile,
     WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet,
 )
 
@@ -41,10 +41,72 @@ async def _configured(db, user_id, exercise_id):
 
 
 @pytest.mark.asyncio
+async def test_legacy_gym_uses_custom_global_stack_step_and_accepts_its_snapshot(
+    client, auth_headers, db, test_user, seeded_history,
+):
+    profile = (await db.execute(select(AppUserProfile).where(
+        AppUserProfile.app_user_id == test_user.id))).scalar_one_or_none()
+    if profile is None:
+        profile = AppUserProfile(app_user_id=test_user.id, settings={})
+        db.add(profile)
+    profile.settings = {**(profile.settings or {}), "weight_steps": {"block_lb": 7.5}}
+    db.add(ExerciseLoadPreference(app_user_id=test_user.id, exercise_source="user",
+        exercise_id=seeded_history.id, enabled_modes=["stack"], preferred_mode="stack"))
+    await db.commit()
+    _, exercise_id = await _workout(client, auth_headers, seeded_history.id)
+    url = f"/workout-session-exercises/{exercise_id}/sets"
+    first = await client.post(url, headers=auth_headers,
+        json={"load_mode": "stack", "weight": 40})
+    assert first.status_code == 200, first.text
+    snapshot = first.json()["load_snapshot"]
+    assert snapshot["step_value"] == 7.5
+    assert snapshot["step_unit"] == "lb"
+    replay = await client.post(url, headers=auth_headers,
+        json={"load_mode": "stack", "load_snapshot": snapshot, "weight": 45})
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["load_snapshot"] == snapshot
+
+
+@pytest.mark.asyncio
+async def test_legacy_gym_uses_custom_global_plate_inventory(
+    client, auth_headers, db, test_user, seeded_history,
+):
+    profile = (await db.execute(select(AppUserProfile).where(
+        AppUserProfile.app_user_id == test_user.id))).scalar_one_or_none()
+    if profile is None:
+        profile = AppUserProfile(app_user_id=test_user.id, settings={})
+        db.add(profile)
+    profile.settings = {**(profile.settings or {}),
+        "weight_steps": {"plate_kg": 1.25},
+        "plate_config_kg": [{"weight": 1.25, "count": 4}]}
+    db.add(ExerciseLoadPreference(app_user_id=test_user.id, exercise_source="user",
+        exercise_id=seeded_history.id, enabled_modes=["plate_loaded"],
+        preferred_mode="plate_loaded"))
+    await db.commit()
+    _, exercise_id = await _workout(client, auth_headers, seeded_history.id)
+    response = await client.post(f"/workout-session-exercises/{exercise_id}/sets",
+        headers=auth_headers, json={"load_mode": "plate_loaded", "weight": 20})
+    assert response.status_code == 200, response.text
+    snapshot = response.json()["load_snapshot"]
+    assert snapshot["step_value"] == 1.25
+    assert snapshot["step_unit"] == "kg"
+    assert snapshot["plates"] == [{"weight": 1.25, "count": 4, "unit": "kg"}]
+
+
+@pytest.mark.asyncio
 async def test_direct_add_patch_and_repeat_keep_historical_context(
     client, auth_headers, db, test_user, seeded_history,
 ):
     gym, stack, plate = await _configured(db, test_user.id, seeded_history.id)
+    profile = (await db.execute(select(AppUserProfile).where(
+        AppUserProfile.app_user_id == test_user.id))).scalar_one_or_none()
+    if profile is None:
+        profile = AppUserProfile(app_user_id=test_user.id, settings={})
+        db.add(profile)
+    profile.settings = {**(profile.settings or {}), "weight_steps": {
+        "block_lb": 7.5, "plate_kg": 1.25,
+    }, "plate_config_kg": [{"weight": 1.25, "count": 4}]}
+    await db.commit()
     workout_id, exercise_id = await _workout(client, auth_headers, seeded_history.id)
     workout = await db.get(WorkoutSession, workout_id)
     exercise = await db.get(WorkoutSessionExercise, exercise_id)
@@ -63,6 +125,8 @@ async def test_direct_add_patch_and_repeat_keep_historical_context(
     assert first_body["setup_id"] == str(stack.id)
     assert first_body["gym_profile_id"] == str(gym.id)
     assert first_body["load_snapshot"]["weight_basis"] == "displayed"
+    assert first_body["load_snapshot"]["step_value"] == 5
+    assert first_body["load_snapshot"]["step_unit"] == "kg"
     assert first_body["shown_target_snapshot"] == {"weight": 42.5}
 
     exercise.active_load_mode = "plate_loaded"
@@ -72,6 +136,7 @@ async def test_direct_add_patch_and_repeat_keep_historical_context(
     assert second.status_code == 200, second.text
     assert second.json()["load_mode"] == "plate_loaded"
     assert second.json()["load_snapshot"]["weight_basis"] == "plates_only"
+    assert second.json()["load_snapshot"]["step_value"] == 2.5
 
     first_id = first_body["id"]
     patched = await client.patch(f"/workout-session-sets/{first_id}", headers=auth_headers,
