@@ -21,20 +21,20 @@ class _Schema(BaseModel):
 
 
 class WeightedCount(_Schema):
-    weight: float = Field(gt=0)
+    weight: float = Field(gt=0, allow_inf_nan=False)
     count: int = Field(strict=True, ge=0)
     unit: WeightUnit
 
 
 class PlateInventoryItem(_Schema):
-    weight: float = Field(gt=0)
+    weight: float = Field(gt=0, allow_inf_nan=False)
     count: int = Field(strict=True, ge=0)
 
 
 class GymStep(_Schema):
     category: Literal["block", "plate", "dumbbell"]
     unit: WeightUnit
-    value: float = Field(gt=0)
+    value: float = Field(gt=0, allow_inf_nan=False)
 
 
 class GymProfilePayload(_Schema):
@@ -74,22 +74,37 @@ class GymExerciseSetupPayload(_Schema):
     id: UUID
     is_available: bool
     is_preferred: bool
-    step_value: float = Field(gt=0)
+    step_value: float = Field(gt=0, allow_inf_nan=False)
     step_unit: WeightUnit
     loading_sides: Literal[1, 2]
-    base_weight: float | None = Field(default=None, ge=0)
+    base_weight: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     weight_basis: WeightBasis
     plate_inventory: list[PlateInventoryItem] | None = None
     expected_revision: int = Field(ge=0)
 
-    def validate_for_mode(self, mode: LoadMode) -> "GymExerciseSetupPayload":
-        """Apply the mode-dependent basis rules using the URL's mode value."""
-        if mode == "stack" and self.weight_basis != "displayed":
-            raise ValueError("stack setups require weight_basis='displayed'")
-        if mode == "plate_loaded" and self.weight_basis == "displayed":
-            raise ValueError("plate_loaded setups require a plate weight basis")
-        if self.weight_basis == "including_start_weight" and self.base_weight is None:
-            raise ValueError("including_start_weight requires a known base_weight")
+    def bind_mode(self, mode: str) -> "BoundGymExerciseSetup":
+        """Bind and validate the URL-owned mode before passing data to a service."""
+        return BoundGymExerciseSetup.model_validate({**self.model_dump(), "mode": mode})
+
+
+class BoundGymExerciseSetup(_Schema):
+    """Setup request validated together with its URL-owned loading mode."""
+
+    id: UUID
+    mode: LoadMode
+    is_available: bool
+    is_preferred: bool
+    step_value: float = Field(gt=0, allow_inf_nan=False)
+    step_unit: WeightUnit
+    loading_sides: Literal[1, 2]
+    base_weight: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    weight_basis: WeightBasis
+    plate_inventory: list[PlateInventoryItem] | None = None
+    expected_revision: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def check_mode_basis(self) -> "BoundGymExerciseSetup":
+        _check_mode_basis(self.mode, self.weight_basis, self.base_weight)
         return self
 
 
@@ -101,10 +116,10 @@ class GymExerciseSetupView(_Schema):
     mode: LoadMode
     is_available: bool
     is_preferred: bool
-    step_value: float = Field(gt=0)
+    step_value: float = Field(gt=0, allow_inf_nan=False)
     step_unit: WeightUnit
     loading_sides: Literal[1, 2]
-    base_weight: float | None = Field(default=None, ge=0)
+    base_weight: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     weight_basis: WeightBasis
     plate_inventory: list[PlateInventoryItem] | None = None
     revision: int = Field(ge=1)

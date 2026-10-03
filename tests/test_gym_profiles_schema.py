@@ -1,17 +1,22 @@
 from uuid import uuid4
+from math import inf, nan
 
 import pytest
 from pydantic import ValidationError
 
 from api.schemas.gym_profiles import (
     ActiveGymPayload,
+    BoundGymExerciseSetup,
     ExerciseLoadPreferencePayload,
     ExerciseLoadPreferenceView,
+    GymStep,
     GymExerciseSetupPayload,
     GymExerciseSetupView,
     GymProfilePayload,
     GymProfileView,
+    PlateInventoryItem,
     RevisionedDeletePayload,
+    WeightedCount,
 )
 
 
@@ -114,16 +119,60 @@ def test_setup_payload_accepts_canonical_modes_and_inventory():
     )
     assert stack.weight_basis == "displayed"
     assert plate.plate_inventory[0].count == 4
-    with pytest.raises(ValueError):
-        stack.validate_for_mode("plate_loaded")
-    with pytest.raises(ValueError):
-        plate.validate_for_mode("stack")
-    with pytest.raises(ValueError):
-        GymExerciseSetupPayload(
-            id=uuid4(), is_available=True, is_preferred=False, step_value=1.25,
-            step_unit="kg", loading_sides=2, weight_basis="including_start_weight",
+    bound = stack.bind_mode("stack")
+    assert isinstance(bound, BoundGymExerciseSetup)
+    assert bound.mode == "stack" and bound.expected_revision == 0
+
+
+def test_setup_binding_rejects_basis_that_does_not_match_url_mode():
+    setup = GymExerciseSetupPayload(
+        id=uuid4(), is_available=True, is_preferred=False, step_value=1.25,
+        step_unit="kg", loading_sides=2, weight_basis="displayed", expected_revision=0,
+    )
+    with pytest.raises(ValidationError):
+        setup.bind_mode("plate_loaded")
+
+
+def test_setup_binding_rejects_unknown_url_mode():
+    setup = GymExerciseSetupPayload(
+        id=uuid4(), is_available=True, is_preferred=False, step_value=1.25,
+        step_unit="kg", loading_sides=2, weight_basis="displayed", expected_revision=0,
+    )
+    with pytest.raises(ValidationError):
+        setup.bind_mode("bogus")
+
+
+def test_plate_loaded_binding_requires_start_weight_for_including_basis():
+    setup = GymExerciseSetupPayload(
+        id=uuid4(), is_available=True, is_preferred=False, step_value=1.25,
+        step_unit="kg", loading_sides=2, weight_basis="including_start_weight",
+        expected_revision=0,
+    )
+    with pytest.raises(ValidationError):
+        setup.bind_mode("plate_loaded")
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda value: WeightedCount(weight=value, count=0, unit="kg"),
+        lambda value: PlateInventoryItem(weight=value, count=0),
+        lambda value: GymStep(category="plate", unit="kg", value=value),
+        lambda value: GymExerciseSetupPayload(
+            id=uuid4(), is_available=True, is_preferred=False, step_value=value,
+            step_unit="kg", loading_sides=1, weight_basis="displayed", expected_revision=0,
+        ),
+        lambda value: GymExerciseSetupPayload(
+            id=uuid4(), is_available=True, is_preferred=False, step_value=1,
+            step_unit="kg", loading_sides=1, base_weight=value, weight_basis="displayed",
             expected_revision=0,
-        ).validate_for_mode("plate_loaded")
+        ),
+    ],
+)
+@pytest.mark.parametrize("value", [nan, inf, -inf])
+def test_numeric_weight_fields_reject_non_finite_values(factory, value):
+    with pytest.raises(ValidationError):
+        factory(value)
 
 
 def test_setup_view_adds_exercise_and_mode_url_fields():
