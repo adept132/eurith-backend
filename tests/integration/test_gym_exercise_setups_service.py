@@ -1,3 +1,4 @@
+from decimal import Decimal
 import uuid
 
 import pytest
@@ -13,12 +14,12 @@ from api.services.gym_exercise_setups import (
 from api.services.gym_profiles import delete_gym_profile
 
 
-def setup_payload(mode="stack", revision=0, *, is_available=True, step=2.5):
+def setup_payload(mode="stack", revision=0, *, is_available=True, step=2.5, plate_inventory=None):
     basis = "displayed" if mode == "stack" else "plates_only"
     return GymExerciseSetupPayload(
         id=uuid.uuid4(), is_available=is_available, is_preferred=False,
         step_value=step, step_unit="kg", loading_sides=1, base_weight=None,
-        weight_basis=basis, plate_inventory=None, expected_revision=revision,
+        weight_basis=basis, plate_inventory=plate_inventory, expected_revision=revision,
     ).bind_mode(mode)
 
 
@@ -103,6 +104,33 @@ async def test_revisions_retries_and_active_tuple_collision(db, test_user):
     with pytest.raises(GymExerciseSetupRevisionConflict) as conflict:
         await put_gym_exercise_setup(db, test_user.id, gym_id, "global", exercise_id, collision)
     assert conflict.value.current.id == original.id
+
+
+@pytest.mark.asyncio
+async def test_fractional_numeric_retry_uses_database_numeric_rounding(db, test_user):
+    gym = await owner_gym(db, test_user.id)
+    gym_id = gym.id
+    ex = await exercise(db)
+    exercise_id = ex.id
+    original = setup_payload(step=1.2345)
+    created = await put_gym_exercise_setup(db, test_user.id, gym_id, "global", exercise_id, original)
+    assert Decimal(str(created.step_value)) == Decimal("1.235")
+    retried = await put_gym_exercise_setup(db, test_user.id, gym_id, "global", exercise_id, original)
+    assert retried.revision == 1
+
+
+@pytest.mark.asyncio
+async def test_create_persists_plate_inventory_and_exact_retry_is_idempotent(db, test_user):
+    gym = await owner_gym(db, test_user.id)
+    gym_id = gym.id
+    ex = await exercise(db)
+    exercise_id = ex.id
+    inventory = [{"weight": 1.25, "count": 4}, {"weight": 2.5, "count": 2}]
+    original = setup_payload("plate_loaded", plate_inventory=inventory)
+    created = await put_gym_exercise_setup(db, test_user.id, gym_id, "global", exercise_id, original)
+    assert created.plate_inventory == inventory
+    retried = await put_gym_exercise_setup(db, test_user.id, gym_id, "global", exercise_id, original)
+    assert retried.revision == 1 and retried.plate_inventory == inventory
 
 
 @pytest.mark.asyncio

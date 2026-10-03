@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
 
 from sqlalchemy import null, select
@@ -29,16 +29,25 @@ class GymExerciseSetupRevisionConflict(Exception):
 
 def _setup_values(payload: BoundGymExerciseSetup) -> dict:
     values = payload.model_dump(exclude={"expected_revision", "mode"})
+    for key in ("step_value", "base_weight"):
+        if values[key] is not None:
+            # Bind decimal text so asyncpg does not first round a binary float
+            # that lies just below a PostgreSQL NUMERIC half-way value.
+            values[key] = Decimal(str(values[key]))
     values["load_mode"] = payload.mode
     return values
+
+
+def _database_numeric(value):
+    return Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
 def _same_values(current: GymExerciseSetup, values: dict) -> bool:
     for key, value in values.items():
         stored = getattr(current, key)
         if key in {"step_value", "base_weight"}:
-            stored = Decimal(str(stored)).quantize(Decimal("0.001")) if stored is not None else None
-            value = Decimal(str(value)).quantize(Decimal("0.001")) if value is not None else None
+            stored = _database_numeric(stored) if stored is not None else None
+            value = _database_numeric(value) if value is not None else None
         if stored != value:
             return False
     return True
@@ -153,7 +162,11 @@ async def put_gym_exercise_setup(
             exercise_source=exercise_source,
             exercise_id=exercise_id,
             revision=1,
-            **{key: value for key, value in values.items() if key not in {"id", "plate_inventory"}},
+            **{
+                key: value
+                for key, value in values.items()
+                if key != "id" and (key != "plate_inventory" or value is not None)
+            },
         )
         session.add(current)
     else:
