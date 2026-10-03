@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.schemas.gym_profiles import GymProfilePayload
@@ -31,6 +32,49 @@ def _payload_values(payload: GymProfilePayload) -> dict:
 
 def _same_values(gym: GymProfile, values: dict) -> bool:
     return all(getattr(gym, key) == value for key, value in values.items())
+
+
+def _constraint_name(error: IntegrityError) -> str | None:
+    pending = [error.orig]
+    seen: set[int] = set()
+    while pending:
+        original = pending.pop()
+        if original is None or id(original) in seen:
+            continue
+        seen.add(id(original))
+        name = getattr(original, "constraint_name", None)
+        if name:
+            return name
+        diagnostic = getattr(original, "diag", None)
+        if diagnostic is not None:
+            name = getattr(diagnostic, "constraint_name", None)
+            if name:
+                return name
+        pending.extend((getattr(original, "__cause__", None), getattr(original, "__context__", None)))
+    return None
+
+
+async def _commit_gym_change(
+    session: AsyncSession, app_user_id: int, name: str
+) -> None:
+    try:
+        await session.commit()
+    except IntegrityError as error:
+        if _constraint_name(error) != "uq_gym_profiles_owner_name":
+            raise
+        await session.rollback()
+        duplicate = (await session.execute(
+            select(GymProfile).where(
+                GymProfile.app_user_id == app_user_id,
+                GymProfile.name == name,
+                GymProfile.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if duplicate is None:
+            raise
+        raise GymRevisionConflict(
+            duplicate, f"active gym name already exists: {name}"
+        ) from error
 
 
 async def list_gym_profiles(session: AsyncSession, app_user_id: int) -> list[GymProfile]:
@@ -92,7 +136,7 @@ async def put_gym_profile(
             setattr(current, key, value)
         current.revision += 1
 
-    await session.commit()
+    await _commit_gym_change(session, app_user_id, current.name)
     await session.refresh(current)
     return current
 
@@ -142,7 +186,7 @@ async def set_active_gym_profile(
                 GymProfile.id == gym_id,
                 GymProfile.app_user_id == app_user_id,
                 GymProfile.deleted_at.is_(None),
-            )
+            ).with_for_update()
         )).scalar_one_or_none()
         if gym is None:
             await session.rollback()
