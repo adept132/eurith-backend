@@ -4,7 +4,7 @@ Given per-session muscle set targets (from VolumeService) and constraints, choos
 concrete exercises. This module does NOT compute volume and does NOT assign reps
 (reps resolve at runtime from fatigue_tier via api.services.resolvers).
 """
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Callable
 
 from api.services.exercise_pattern_tags import ExerciseAction
 from api.services import equipment as equip
@@ -179,14 +179,16 @@ def _allocate(target: int, compound_fraction: float = 2 / 3) -> tuple[list[int],
 
 def select_exercises(session_targets, pool, allowed_equipment_keys, prehab_flags,
                      config: SelectionConfig,
-                     policy: SelectionPolicy = SelectionPolicy()) -> list:
+                     policy: SelectionPolicy = SelectionPolicy(),
+                     gym_eligibility: Optional[Callable[[object], bool]] = None) -> list:
     rng = random.Random(config.seed)
     targets = configured_targets(session_targets, config)
 
     # Split the filtered pool into compound / isolation candidate lists per muscle.
     filtered = [
-        ex for ex in filter_pool(pool, allowed_equipment_keys, prehab_flags)
+        ex for ex in filter_pool(pool, None if gym_eligibility else allowed_equipment_keys, prehab_flags)
         if ex.id not in config.disliked_exercise_ids
+        and (gym_eligibility is None or gym_eligibility(ex))
     ]
     comp_by_key: dict[str, list] = {}
     iso_by_key: dict[str, list] = {}
