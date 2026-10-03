@@ -182,6 +182,57 @@ async def test_session_and_active_context_omit_preserves_but_reassignment_valida
     await db.commit()
 
 
+async def test_switching_session_gym_validates_active_setup_but_keeps_completed_set(
+    client, db, test_user, seeded_history,
+):
+    gym_a, stack_a, _ = await configured(db, test_user.id, seeded_history.id)
+    gym_b = GymProfile(app_user_id=test_user.id, name=f"New studio {uuid4()}",
+                       equipment=[], bars=[], discs=[], steps=[])
+    db.add(gym_b)
+    await db.commit()
+    uid = str(uuid4())
+    original = snapshot(seeded_history.id, workout_uuid=uid,
+        gym_profile_id=str(gym_a.id), sets=[set_value("historical-set", 1, "stack", gym_a, stack_a)])
+    original["exercises"][0].update(active_load_mode="stack", active_setup_id=str(stack_a.id))
+    created = await client.post("/sync/workouts", json=original)
+    assert created.status_code == 200, created.text
+    switched = {**original, "gym_profile_id": str(gym_b.id)}
+    partial_switch = {**switched, "exercises": []}
+    partial_rejected = await client.post("/sync/workouts", json=partial_switch)
+    assert partial_rejected.status_code == 400, partial_rejected.text
+    rejected = await client.post("/sync/workouts", json=switched)
+    assert rejected.status_code == 400, rejected.text
+    switched = deepcopy(switched)
+    switched["exercises"][0]["active_setup_id"] = None
+    accepted = await client.post("/sync/workouts", json=switched)
+    assert accepted.status_code == 200, accepted.text
+    detail = accepted.json()["workout"]
+    assert detail["gym_profile_id"] == str(gym_b.id)
+    assert detail["exercises"][0]["active_setup_id"] is None
+    old_set = detail["exercises"][0]["sets"][0]
+    assert old_set["gym_profile_id"] == str(gym_a.id)
+    assert old_set["setup_id"] == str(stack_a.id)
+
+
+async def test_cannot_reassign_exercise_with_recorded_sets(
+    client, db, test_user, seeded_history, fresh_exercise,
+):
+    gym, stack, _ = await configured(db, test_user.id, seeded_history.id)
+    uid = str(uuid4())
+    original = snapshot(seeded_history.id, workout_uuid=uid,
+        gym_profile_id=str(gym.id), sets=[set_value("recorded-set", 1, "stack", gym, stack)])
+    original["exercises"][0].update(active_load_mode="stack", active_setup_id=str(stack.id))
+    created = await client.post("/sync/workouts", json=original)
+    assert created.status_code == 200, created.text
+    reassigned = deepcopy(original)
+    reassigned["exercises"][0]["exercise_id"] = fresh_exercise.id
+    rejected = await client.post("/sync/workouts", json=reassigned)
+    assert rejected.status_code == 400, rejected.text
+    unchanged = await client.get(f"/workouts/{created.json()['workout']['id']}")
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["exercises"][0]["exercise"]["id"] == seeded_history.id
+
+
 async def test_explicit_set_edit_changes_only_that_set(client, db, test_user, seeded_history):
     gym, stack, plate = await configured(db, test_user.id, seeded_history.id)
     uid = str(uuid4())

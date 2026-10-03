@@ -229,6 +229,7 @@ async def _apply_snapshot(
         workout.session_rpe = payload.session_rpe
         workout.session_rpe_at = datetime.now(timezone.utc)
     workout.volume_targets = payload.volume_targets
+    gym_changed = False
     if "gym_profile_id" in payload.model_fields_set:
         gym_changed = payload.gym_profile_id != workout.gym_profile_id
         if gym_changed and payload.gym_profile_id is not None:
@@ -259,6 +260,7 @@ async def _apply_snapshot(
         e.client_uuid: e for e in loaded_exercises if e.client_uuid is not None
     }
     existing_exercises_by_id = {e.id: e for e in loaded_exercises}
+    touched_exercise_ids: set[int] = set()
 
     for ex_snap in payload.exercises:
         exercise = existing_exercises.get(ex_snap.client_uuid)
@@ -270,6 +272,7 @@ async def _apply_snapshot(
 
         if ex_snap.deleted:
             if exercise is not None:
+                touched_exercise_ids.add(exercise.id)
                 await db.delete(exercise)
             continue
 
@@ -280,6 +283,13 @@ async def _apply_snapshot(
             )
             db.add(exercise)
             ex_is_new = True
+
+        exercise_changed = not ex_is_new and exercise.exercise_id != ex_snap.exercise_id
+        if exercise_changed and exercise.sets:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot reassign an exercise with recorded sets",
+            )
 
         exercise.exercise_id = ex_snap.exercise_id
         exercise.order_index = ex_snap.order_index
@@ -313,7 +323,8 @@ async def _apply_snapshot(
             exercise.live_prescription = ex_snap.live_prescription.model_dump()
         await db.flush()
         if (exercise.active_load_mode != previous_mode
-                or exercise.active_setup_id != previous_setup_id):
+                or exercise.active_setup_id != previous_setup_id
+                or exercise_changed or gym_changed):
             try:
                 await resolve_set_context(
                     db, app_user_id, exercise, mode=exercise.active_load_mode,
@@ -322,6 +333,7 @@ async def _apply_snapshot(
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
         id_map[ex_snap.client_uuid] = exercise.id
+        touched_exercise_ids.add(exercise.id)
 
         # Аналогично: у нового упражнения подходов нет — не трогаем связь.
         loaded_sets = [] if ex_is_new else list(exercise.sets)
@@ -431,6 +443,20 @@ async def _apply_snapshot(
             if child is None:
                 continue
             child.parent_set_id = id_map.get(set_snap.parent_client_uuid)
+
+    # Partial snapshots may omit an exercise entirely. A gym switch still has
+    # to validate its effective active setup before making that gym current.
+    if gym_changed:
+        for exercise in loaded_exercises:
+            if exercise.id in touched_exercise_ids:
+                continue
+            try:
+                await resolve_set_context(
+                    db, app_user_id, exercise, mode=exercise.active_load_mode,
+                    gym_id=workout.gym_profile_id, setup_id=exercise.active_setup_id,
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
 
     # 5. Новая версия — её клиент сохранит и пришлёт как base_version.
     workout.sync_version = (workout.sync_version or 0) + 1
