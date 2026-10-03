@@ -19,6 +19,21 @@ from api.services.models import (
 from api.services.progression.records import SetInput, fold_records
 
 
+def load_variant_key(mode: str | None, gym_id, setup_id, snapshot: dict | None) -> str | None:
+    """Stable grouping for a machine's recorded weight basis.
+
+    Unknown legacy sets deliberately have no machine variant.
+    """
+    if mode not in ("stack", "plate_loaded") or not isinstance(snapshot, dict):
+        return None
+    basis = snapshot.get("weight_basis")
+    if basis not in ("displayed", "plates_only", "including_start_weight"):
+        return None
+    if setup_id is not None:
+        return f"setup:{setup_id}|basis:{basis}"
+    return f"gym:{gym_id if gym_id is not None else 'none'}|mode:{mode}|basis:{basis}"
+
+
 async def rebuild_records(
     session: AsyncSession,
     app_user_id: int,
@@ -40,6 +55,10 @@ async def rebuild_records(
             WorkoutSessionSet.reps,
             WorkoutSession.finished_at,
             WorkoutSession.id,
+            WorkoutSessionSet.load_mode,
+            WorkoutSessionSet.gym_profile_id,
+            WorkoutSessionSet.setup_id,
+            WorkoutSessionSet.load_snapshot,
         )
         .select_from(WorkoutSessionSet)
         .join(WorkoutSessionExercise)
@@ -60,13 +79,18 @@ async def rebuild_records(
     )).all()
 
     by_exercise: dict[int, list[SetInput]] = {ex_id: [] for ex_id in ids}
-    for exercise_id, weight, reps, finished_at, workout_id in rows:
-        by_exercise[exercise_id].append(SetInput(
+    by_variant: dict[int, dict[str, list[SetInput]]] = {ex_id: {} for ex_id in ids}
+    for exercise_id, weight, reps, finished_at, workout_id, mode, gym_id, setup_id, snapshot in rows:
+        entry = SetInput(
             weight=float(weight),
             reps=int(reps),
             at=finished_at,
             workout_id=workout_id,
-        ))
+        )
+        by_exercise[exercise_id].append(entry)
+        key = load_variant_key(mode, gym_id, setup_id, snapshot)
+        if key is not None:
+            by_variant[exercise_id].setdefault(key, []).append(entry)
 
     existing = {
         row.exercise_id: row
@@ -86,6 +110,11 @@ async def rebuild_records(
             )
             session.add(row)
         records = fold_records(sets)
+        records["variants"] = {
+            key: _isoformat_dates(fold_records(items))
+            for key, items in by_variant[exercise_id].items()
+        }
+        records["variants_complete"] = True
         # datetime не сериализуется в JSONB как есть.
         row.records = _isoformat_dates(records)
 
@@ -100,8 +129,12 @@ def _isoformat_dates(records: dict) -> dict:
             out["at"] = at.isoformat()
         return out
 
-    return {
+    output = {
         "weight_at_reps": {k: conv(v) for k, v in records["weight_at_reps"].items()},
         "band": {k: conv(v) for k, v in records["band"].items()},
         "set_volume": conv(records["set_volume"]),
     }
+    if "variants" in records:
+        output["variants"] = records["variants"]
+        output["variants_complete"] = records.get("variants_complete", False)
+    return output

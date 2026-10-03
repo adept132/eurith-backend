@@ -1,4 +1,5 @@
 from typing import Optional, List
+from uuid import UUID
 
 from sqlalchemy import func, select, case, desc, update
 from fastapi import APIRouter, Depends, Query, HTTPException, status, Request
@@ -15,6 +16,7 @@ from api.services.fatigue_tiers import calculate_fatigue_tier
 from api.services.heuristics import HeuristicsEngine
 from app.database import get_session
 from api.services.models import Exercise, WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet, AppUser, WorkoutPlanExercise, UserExerciseNote, UserExercisePreference
+from api.services.progression.records_repository import load_variant_key
 from api.schemas.exercises import (
     ExerciseListItemResponse,
     ExerciseDetailResponse,
@@ -265,6 +267,22 @@ async def update_exercise_note(
     await session.commit()
     return ExerciseNoteResponse(note=note_text)
 
+def _history_set_response(row: WorkoutSessionSet, workout: WorkoutSession) -> ExerciseHistoryWorkoutSetResponse:
+    snapshot = row.load_snapshot if isinstance(row.load_snapshot, dict) else None
+    session_gym = workout.gym_snapshot if isinstance(workout.gym_snapshot, dict) else None
+    gym_name = (snapshot or {}).get("gym_name") or (session_gym or {}).get("name")
+    return ExerciseHistoryWorkoutSetResponse(
+        id=row.id, set_number=row.set_number, set_type=row.set_type,
+        weight=float(row.weight) if row.weight is not None else None,
+        reps=row.reps, notes=row.notes, is_completed=row.is_completed,
+        parent_set_id=row.parent_set_id, effort_level=row.effort_level,
+        load_mode=row.load_mode,
+        gym_profile_id=str(row.gym_profile_id) if row.gym_profile_id else None,
+        gym_name=gym_name, setup_id=str(row.setup_id) if row.setup_id else None,
+        weight_basis=(snapshot or {}).get("weight_basis"), load_snapshot=snapshot,
+    )
+
+
 @router.get(
     "/exercises/{exercise_id}/history",
     response_model=list[ExerciseHistoryItemResponse],
@@ -353,18 +371,15 @@ async def get_exercise_history_workout_detail(
     if workout is None:
         raise HTTPException(status_code=404, detail="Workout not found")
 
-    session_exercise = next(
-        (item for item in workout.exercises if item.exercise_id == exercise_id),
-        None,
-    )
-
-    if session_exercise is None:
+    movements = [item for item in workout.exercises if item.exercise_id == exercise_id]
+    if not movements:
         raise HTTPException(
             status_code=404,
             detail="Exercise not found in this workout",
         )
 
-    completed_sets = [s for s in session_exercise.sets if s.is_completed]
+    all_sets = [s for item in movements for s in item.sets]
+    completed_sets = [s for s in all_sets if s.is_completed]
     total_reps = sum(s.reps or 0 for s in completed_sets)
     total_volume = sum(float((s.weight or 0) * (s.reps or 0)) for s in completed_sets)
 
@@ -372,24 +387,12 @@ async def get_exercise_history_workout_detail(
         workout_id=workout.id,
         finished_at=workout.finished_at,
         source=workout.source,
-        exercise_id=session_exercise.exercise.id,
-        exercise_name=session_exercise.exercise.name,
+        exercise_id=movements[0].exercise.id,
+        exercise_name=movements[0].exercise.name,
         sets_count=len(completed_sets),
         total_reps=total_reps,
         total_volume=total_volume,
-        sets=[
-            ExerciseHistoryWorkoutSetResponse(
-                id=s.id,
-                set_number=s.set_number,
-                set_type=s.set_type,
-                weight=float(s.weight) if s.weight is not None else None,
-                reps=s.reps,
-                notes=s.notes,
-                is_completed=s.is_completed,
-                effort_level=s.effort_level,
-            )
-            for s in session_exercise.sets
-        ],
+        sets=[_history_set_response(s, workout) for s in all_sets],
     )
 
 @router.get(
@@ -399,6 +402,10 @@ async def get_exercise_history_workout_detail(
 async def get_exercise_last_performance(
     exercise_id: int,
     context_workout_id: Optional[int] = Query(None),
+    load_mode: str | None = Query(None),
+    gym_profile_id: UUID | None = Query(None),
+    setup_id: UUID | None = Query(None),
+    weight_basis: str | None = Query(None),
     session: AsyncSession = Depends(get_db),
     app_user: AppUser = Depends(get_current_app_user),
 ):
@@ -440,21 +447,37 @@ async def get_exercise_last_performance(
             WorkoutSession.split_day_id == context_workout.split_day_id
         )
 
+    requested_key = None
+    if load_mode is not None:
+        requested_key = load_variant_key(load_mode, gym_profile_id, setup_id,
+            {"weight_basis": weight_basis})
+        if requested_key is None:
+            raise HTTPException(status_code=400, detail="Invalid machine load context")
     result = await session.execute(stmt)
-    workout = result.scalars().first()
+    workouts = result.scalars().unique().all()
+    workout = None
+    session_exercise = None
+    matching_sets = None
+    for candidate in workouts:
+        movements = [item for item in candidate.exercises if item.exercise_id == exercise_id]
+        if not movements:
+            continue
+        completed = [s for item in movements for s in item.sets if s.is_completed]
+        if requested_key:
+            completed = [s for s in completed if load_variant_key(
+                s.load_mode, s.gym_profile_id, s.setup_id, s.load_snapshot) == requested_key]
+            if not completed:
+                continue
+        workout, session_exercise, matching_sets = candidate, movements[0], completed
+        break
 
     if workout is None:
         return None
 
-    session_exercise = next(
-        (item for item in workout.exercises if item.exercise_id == exercise_id),
-        None,
-    )
-
     if session_exercise is None:
         raise HTTPException(status_code=404, detail="Exercise not found in workout")
 
-    completed_sets = [s for s in session_exercise.sets if s.is_completed]
+    completed_sets = matching_sets or []
 
     return ExerciseLastPerformanceResponse(
         workout_id=workout.id,
@@ -462,20 +485,7 @@ async def get_exercise_last_performance(
         source=workout.source,
         exercise_id=session_exercise.exercise.id,
         exercise_name=session_exercise.exercise.name,
-        sets=[
-            ExerciseHistoryWorkoutSetResponse(
-                id=s.id,
-                set_number=s.set_number,
-                set_type=s.set_type,
-                weight=float(s.weight) if s.weight is not None else None,
-                reps=s.reps,
-                effort_level=s.effort_level,
-                notes=s.notes,
-                is_completed=s.is_completed,
-                parent_set_id=s.parent_set_id
-            )
-            for s in completed_sets
-        ],
+        sets=[_history_set_response(s, workout) for s in completed_sets],
     )
 
 @router.get("/search", response_model=list[ExerciseSearchItem])

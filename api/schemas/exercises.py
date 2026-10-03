@@ -78,6 +78,13 @@ class ExerciseHistoryWorkoutSetResponse(BaseModel):
     notes: str | None = None
     is_completed: bool
     parent_set_id: int | None = None
+    effort_level: str | None = None
+    load_mode: str | None = None
+    gym_profile_id: str | None = None
+    gym_name: str | None = None
+    setup_id: str | None = None
+    weight_basis: str | None = None
+    load_snapshot: dict | None = None
 
 
 class ExerciseHistoryWorkoutDetailResponse(BaseModel):
