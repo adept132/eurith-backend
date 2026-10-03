@@ -1225,6 +1225,8 @@ async def apply_plan_to_calendar(
         source="plan",
         status="active",
         plan_id=plan.id,
+        gym_profile_id=plan.gym_profile_id,
+        gym_snapshot=copy.deepcopy(plan.gym_snapshot),
         # notes=f"Применено из плана: {plan.name} (Режим: {payload.apply_mode})"
     )
     db.add(new_session)
@@ -1271,6 +1273,8 @@ async def apply_plan_to_calendar(
             # WorkoutSessionSet ниже создаются по plan_ex.target_sets
             # правильно, разъезжались только они и предписание.
             target_sets=plan_ex.target_sets,
+            active_load_mode=plan_ex.load_mode,
+            active_setup_id=plan_ex.setup_id,
         )
         db.add(session_ex)
         await db.flush()  # Получаем ID упражнения в сессии

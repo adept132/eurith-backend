@@ -1,3 +1,4 @@
+import copy
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -487,6 +488,17 @@ async def start_workout(
             detail="Active workout already exists",
         )
 
+    plan_context = None
+    if payload.plan_id is not None:
+        plan_context = (await session.execute(
+            select(WorkoutPlan).where(
+                WorkoutPlan.id == payload.plan_id,
+                WorkoutPlan.app_user_id == app_user.id,
+            ).options(selectinload(WorkoutPlan.exercises))
+        )).scalar_one_or_none()
+        if plan_context is None:
+            raise HTTPException(status_code=404, detail="Plan not found")
+
     split_day_tag = None
 
     if payload.source == "by_parameters":
@@ -597,6 +609,8 @@ async def start_workout(
         status="active",
         split_day_id=payload.split_day_id if payload.source == "by_parameters" else None,
         plan_id=payload.plan_id,
+        gym_profile_id=plan_context.gym_profile_id if plan_context else None,
+        gym_snapshot=copy.deepcopy(plan_context.gym_snapshot) if plan_context else None,
 
         calendar_day_id=payload.calendar_day_id,
 
@@ -675,7 +689,13 @@ async def start_workout(
             )
             exercises_by_id = {e.id: e for e in ex_rows.scalars().all()}
 
+        plan_exercises_by_order = {
+            index: plan_ex for index, plan_ex in enumerate(plan_context.exercises, start=1)
+        }
         for ex_data in compiled_exercises:
+            plan_ex = plan_exercises_by_order.get(ex_data["order_index"])
+            if plan_ex is not None and plan_ex.exercise_id != ex_data["exercise_id"]:
+                plan_ex = None
             new_ex = WorkoutSessionExercise(
                 workout_session_id=workout.id,
                 exercise_id=ex_data["exercise_id"],
@@ -684,7 +704,9 @@ async def start_workout(
                 recommended_rir=ex_data.get("recommended_rir"),
                 recommended_rep_min=ex_data.get("recommended_rep_min"),
                 recommended_rep_max=ex_data.get("recommended_rep_max"),
-                target_sets=ex_data.get("target_sets")  # <--- СОХРАНЯЕМ В БД ЗДЕСЬ
+                target_sets=ex_data.get("target_sets"),
+                active_load_mode=plan_ex.load_mode if plan_ex else None,
+                active_setup_id=plan_ex.setup_id if plan_ex else None,
             )
             session.add(new_ex)
             await session.flush()

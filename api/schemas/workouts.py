@@ -117,6 +117,11 @@ class WorkoutSessionSetResponse(BaseModel):
     # виден только в AddWorkoutSetResponse (ответе на создание) и пропадал
     # бы при перечитывании — GET /workouts/active, GET по id, sync, pull.
     is_anomalous: bool = False
+    load_mode: str | None = None
+    gym_profile_id: uuid.UUID | None = None
+    setup_id: uuid.UUID | None = None
+    load_snapshot: dict | None = None
+    shown_target_snapshot: dict | None = None
     updated_at: datetime
 
 
@@ -128,6 +133,8 @@ class WorkoutSessionExerciseResponse(BaseModel):
     order_index: int
     superset_group: str | None = None
     notes: str | None = None
+    active_load_mode: str | None = None
+    active_setup_id: uuid.UUID | None = None
     updated_at: datetime
 
     exercise: ExerciseShortResponse
@@ -155,6 +162,8 @@ class WorkoutSessionDetailResponse(BaseModel):
 
     split_day_id: Optional[uuid.UUID]  = None
     plan_id: int | None = None
+    gym_profile_id: uuid.UUID | None = None
+    gym_snapshot: dict | None = None
     app_user_periodization_id: int | None = None
     periodization_week: int | None = None
     items: list[dict] = []
