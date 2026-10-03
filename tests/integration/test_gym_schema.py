@@ -177,6 +177,30 @@ async def test_deleting_owner_cascades_gym_entities(db, test_user):
 
 
 @pytest.mark.asyncio
+async def test_load_preference_preserves_client_generated_uuid(db, test_user):
+    client_id = uuid.uuid4()
+    preference = ExerciseLoadPreference(
+        id=client_id,
+        app_user_id=test_user.id,
+        exercise_source="global",
+        exercise_id=7,
+        enabled_modes=["stack"],
+        preferred_mode="stack",
+    )
+    db.add(preference)
+    await db.commit()
+
+    refetched_id = (
+        await db.execute(
+            select(ExerciseLoadPreference.id).where(
+                ExerciseLoadPreference.id == client_id
+            )
+        )
+    ).scalar_one()
+    assert refetched_id == client_id
+
+
+@pytest.mark.asyncio
 async def test_load_preferences_use_source_and_exercise_as_distinct_keys(db, test_user):
     global_preference = ExerciseLoadPreference(
         app_user_id=test_user.id,

@@ -76,7 +76,7 @@ def upgrade() -> None:
 
     op.create_table(
         "exercise_load_preferences",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("app_user_id", sa.BigInteger(), nullable=False),
         sa.Column("exercise_source", sa.String(length=10), nullable=False),
         sa.Column("exercise_id", sa.Integer(), nullable=False),

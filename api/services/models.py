@@ -182,7 +182,7 @@ class ExerciseLoadPreference(Base):
 
     __tablename__ = "exercise_load_preferences"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     app_user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
     )
