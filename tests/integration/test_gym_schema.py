@@ -62,17 +62,17 @@ async def test_gym_name_is_unique_only_among_active_gyms(db, test_user):
     db.add(original)
     await db.flush()
 
-    db.add(GymProfile(app_user_id=test_user.id, name="Shared gym"))
     with pytest.raises(IntegrityError):
-        await db.flush()
-    await db.rollback()
+        async with db.begin_nested():
+            db.add(GymProfile(app_user_id=test_user.id, name="Shared gym"))
+            await db.flush()
 
-    original = GymProfile(
-        id=uuid.uuid4(), app_user_id=test_user.id, name="Shared gym", deleted_at=datetime.now(UTC)
-    )
     other_owner = AppUser(firebase_uid=f"other-{uuid.uuid4()}", email=f"other-{uuid.uuid4()}@example.com")
-    db.add_all([original, other_owner])
+    db.add(other_owner)
     await db.flush()
+    original.deleted_at = datetime.now(UTC)
+    await db.flush()
+
     replacement = GymProfile(app_user_id=test_user.id, name="Shared gym")
     same_name_other_owner = GymProfile(app_user_id=other_owner.id, name="Shared gym")
     db.add_all([replacement, same_name_other_owner])
