@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+import math
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -30,7 +31,9 @@ from api.services.progression.types import (
     SchemeContext,
     SessionFact,
     SetFact,
+    SetPrescription,
 )
+from api.services.load_context import EffectiveLoadContext
 from api.services.models import (
     AppUserMesocycle,
     AppUserProfile,
@@ -39,6 +42,7 @@ from api.services.models import (
     UserExerciseProgressionState,
     WorkoutSession,
     WorkoutSessionExercise,
+    WorkoutSessionSet,
 )
 
 HISTORY_LIMIT = 12
@@ -211,11 +215,51 @@ async def resolve_phase_effort_tier(
     return row.effort_tier if row is not None else default
 
 
+def _matches_load_context(row: WorkoutSessionSet, context: EffectiveLoadContext) -> bool:
+    snapshot = row.load_snapshot
+    return (
+        row.load_mode == context.mode
+        and (str(row.gym_profile_id) if row.gym_profile_id is not None else None)
+        == (str(context.gym_id) if context.gym_id is not None else None)
+        and (str(row.setup_id) if row.setup_id is not None else None)
+        == (str(context.setup_id) if context.setup_id is not None else None)
+        and isinstance(snapshot, dict)
+        and snapshot.get("weight_basis") == context.weight_basis
+    )
+
+
+def _parse_shown_target(raw: Any) -> SetPrescription | None:
+    """Ignore partial or nonfinite historical JSON rather than invent a goal."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        required = ("set_number", "rep_min", "rir")
+        if any(isinstance(raw[key], bool) for key in required):
+            return None
+        target = SetPrescription.from_dict(raw)
+        if target.set_number < 1 or target.rep_min < 1 or target.rir < 0:
+            return None
+        if target.rep_max is not None and (isinstance(raw["rep_max"], bool) or target.rep_max < target.rep_min):
+            return None
+        if target.weight_kg is not None and (
+            isinstance(raw["weight_kg"], bool)
+            or not math.isfinite(target.weight_kg)
+            or target.weight_kg < 0
+        ):
+            return None
+        if target.kind not in ("normal", "amrap", "backoff"):
+            return None
+        return target
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return None
+
+
 async def load_history(
     session: AsyncSession,
     app_user_id: int,
     exercise_id: int,
     limit: int = HISTORY_LIMIT,
+    load_context: EffectiveLoadContext | None = None,
 ) -> ExerciseHistory:
     """Последние завершённые сессии с упражнением, от новой к старой."""
     stmt = (
@@ -237,6 +281,19 @@ async def load_history(
         .order_by(WorkoutSession.finished_at.desc())
         .limit(limit)
     )
+    if load_context is not None:
+        matching_set = select(1).select_from(WorkoutSessionSet).where(
+            WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id,
+            WorkoutSessionSet.is_completed.is_(True),
+            WorkoutSessionSet.parent_set_id.is_(None),
+            WorkoutSessionSet.load_mode == load_context.mode,
+            WorkoutSessionSet.gym_profile_id == load_context.gym_id,
+            WorkoutSessionSet.load_snapshot["weight_basis"].as_string() == load_context.weight_basis,
+        )
+        matching_set = matching_set.where(
+            WorkoutSessionSet.setup_id == load_context.setup_id
+        )
+        stmt = stmt.where(exists(matching_set))
     workouts = (await session.execute(stmt)).scalars().unique().all()
     deload_map = await _load_deload_map(session, workouts)
 
@@ -256,9 +313,11 @@ async def load_history(
                 rir=effort_to_rir(s.effort_level),
                 set_type=s.set_type or "normal",
                 is_anomalous=bool(s.is_anomalous),
+                shown_target=_parse_shown_target(s.shown_target_snapshot),
             )
             for s in se.sets
             if s.is_completed and s.parent_set_id is None
+            and (load_context is None or _matches_load_context(s, load_context))
         )
 
         # P0-11: показанная цель важнее обещанной. live_prescription
@@ -311,6 +370,19 @@ async def load_history(
             owner_exercise_id = prescription.basis.get("exercise_id")
             if owner_exercise_id is not None and owner_exercise_id != exercise_id:
                 prescription = None
+
+        # For a requested variant, the targets actually shown with its sets
+        # supersede the exercise-level write-once target, which may belong to
+        # a different mode. Partial/old snapshots retain legacy fallback.
+        if load_context is not None and facts and all(f.shown_target is not None for f in facts):
+            targets = tuple(f.shown_target for f in facts)
+            if prescription is not None:
+                prescription = replace(prescription, sets=targets)
+            else:
+                prescription = Prescription(
+                    scheme="double", sets=targets, reason_code="shown_target",
+                    reason_text="", basis={"exercise_id": exercise_id},
+                )
 
         effort_tier = deload_map.get(workout.id)
         sessions.append(

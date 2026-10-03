@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from api.services.models import Exercise, WorkoutSession, WorkoutSessionExercise
+from api.services.models import Exercise, WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet
+from api.services.load_context import EffectiveLoadContext
 from api.services.progression import repository
 from api.services.progression.types import Prescription, SetPrescription
 
@@ -95,6 +96,61 @@ async def test_load_history_returns_newest_first(db_session, app_user, exercise)
     history = await repository.load_history(db_session, app_user.id, exercise.id)
     ids = [s.session_id for s in history.sessions]
     assert ids == sorted(ids, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_machine_history_filters_by_setup_and_preserves_each_shown_target(db_session, app_user, exercise):
+    from uuid import uuid4
+
+    gym_id, stack_id, plate_id = uuid4(), uuid4(), uuid4()
+    workout = WorkoutSession(app_user_id=app_user.id, source="free", status="finished", finished_at=datetime.now(timezone.utc))
+    db_session.add(workout)
+    await db_session.flush()
+    se = WorkoutSessionExercise(workout_session_id=workout.id, exercise_id=exercise.id, order_index=0)
+    db_session.add(se)
+    await db_session.flush()
+    for number, mode, setup_id, weight, target in (
+        (1, "stack", stack_id, 60, 60),
+        (2, "plate_loaded", plate_id, 30, 30),
+        (3, None, None, 100, None),
+    ):
+        db_session.add(WorkoutSessionSet(
+            workout_session_exercise_id=se.id, set_number=number, set_type="normal",
+            weight=weight, reps=8, is_completed=True, load_mode=mode,
+            gym_profile_id=gym_id if mode else None, setup_id=setup_id,
+            load_snapshot={"weight_basis": "displayed" if mode == "stack" else "plates_only"} if mode else None,
+            shown_target_snapshot={"set_number": number, "weight_kg": target,
+                                   "rep_min": 8, "rep_max": 12, "rir": 2, "kind": "normal"} if target else None,
+        ))
+    db_session.add_all([
+        WorkoutSessionSet(
+            workout_session_exercise_id=se.id, set_number=4, set_type="normal",
+            weight=25, reps=8, is_completed=True, load_mode="plate_loaded",
+            gym_profile_id=gym_id, setup_id=None,
+            load_snapshot={"weight_basis": "plates_only"},
+        ),
+        WorkoutSessionSet(
+            workout_session_exercise_id=se.id, set_number=5, set_type="normal",
+            weight=35, reps=8, is_completed=True, load_mode="plate_loaded",
+            gym_profile_id=gym_id, setup_id=plate_id,
+            load_snapshot={"weight_basis": "including_start_weight"},
+        ),
+    ])
+    await db_session.flush()
+
+    def context(mode, setup, basis):
+        return EffectiveLoadContext(gym_id, "Gym", setup, mode, 5, "kg", 1, basis, None, None)
+
+    stack = await repository.load_history(db_session, app_user.id, exercise.id, load_context=context("stack", stack_id, "displayed"))
+    plate = await repository.load_history(db_session, app_user.id, exercise.id, load_context=context("plate_loaded", plate_id, "plates_only"))
+    temporary = await repository.load_history(db_session, app_user.id, exercise.id, load_context=context("plate_loaded", None, "plates_only"))
+    general = await repository.load_history(db_session, app_user.id, exercise.id)
+    assert [s.weight_kg for s in stack.sessions[0].sets] == [60]
+    assert [s.weight_kg for s in plate.sessions[0].sets] == [30]
+    assert [s.weight_kg for s in temporary.sessions[0].sets] == [25]
+    assert [s.weight_kg for s in general.sessions[0].sets] == [60, 30, 100, 25, 35]
+    assert stack.sessions[0].sets[0].shown_target.weight_kg == 60
+    assert plate.sessions[0].sets[0].shown_target.weight_kg == 30
 
 
 # --- Блокер 1 финального ревью P0-06: принадлежность предписания упражнению ---

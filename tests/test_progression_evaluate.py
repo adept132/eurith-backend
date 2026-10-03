@@ -85,6 +85,16 @@ def test_no_prescription_is_no_basis():
     assert evaluate(None, [fact(1, 40.0, 10)], STEP).status == "no_basis"
 
 
+def test_each_set_uses_the_target_it_was_shown_across_mode_switches():
+    old_stack_goal = presc((1, 60.0, 8, 12), (2, 60.0, 8, 12))
+    stack = SetFact(1, 60.0, 8, 2, shown_target=SetPrescription(1, 60.0, 8, 12, 2))
+    plate = SetFact(2, 30.0, 8, 2, shown_target=SetPrescription(2, 30.0, 8, 12, 2))
+    out = evaluate(old_stack_goal, [stack, plate], STEP)
+    assert out.status == "hit"
+    assert out.hit_sets == 2
+    assert evaluate(None, [plate], STEP).status == "hit"
+
+
 def test_no_facts_is_skipped():
     assert evaluate(presc((1, 40.0, 8, 12)), [], STEP).status == "skipped"
 

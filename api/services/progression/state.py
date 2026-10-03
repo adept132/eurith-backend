@@ -92,7 +92,9 @@ def evaluate(
     step_kg: float,
 ) -> Outcome:
     """Вердикт по сессии. Приоритет: no_basis, deviated, miss, strained, overshoot, hit."""
-    if prescription is None or not prescription.sets:
+    if (prescription is None or not prescription.sets) and not any(
+        fact.shown_target is not None for fact in facts
+    ):
         return Outcome(status="no_basis")
 
     candidates = working_sets(facts, _requires_weight(prescription))
@@ -107,7 +109,10 @@ def evaluate(
     achieved: Optional[float] = None
 
     for s in usable:
-        sp = _prescription_for(prescription, s.set_number)
+        sp = s.shown_target or (
+            _prescription_for(prescription, s.set_number)
+            if prescription is not None and prescription.sets else None
+        )
         if sp is None:
             continue
 
@@ -141,6 +146,8 @@ def evaluate(
         hit += 1
 
     total = hit + miss + deviated
+    if total == 0:
+        return Outcome(status="no_basis")
 
     if deviated:
         status = "deviated"
@@ -204,14 +211,20 @@ def rebuild_state(history: ExerciseHistory, step_kg: float) -> ProgressionState:
             continue
 
         completed += 1
+        shown_weights = [
+            fact.shown_target.weight_kg for fact in usable
+            if fact.shown_target is not None and fact.shown_target.weight_kg is not None
+        ]
         if session.prescription is not None:
             # `or` здесь неверен: top_weight == 0.0 — валидное предписание
             # (например, безопасное упражнение с нулевым весом), а `or`
             # считает 0.0 ложным и молча оставляет last_top от старой сессии.
-            top = session.prescription.top_weight
+            top = max(shown_weights) if shown_weights else session.prescription.top_weight
             if top is not None:
                 last_top = top
             last_scheme = session.prescription.scheme
+        elif shown_weights:
+            last_top = max(shown_weights)
 
         outcome = evaluate(session.prescription, session.sets, step_kg)
         if outcome.status == "miss":

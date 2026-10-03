@@ -23,6 +23,7 @@ class SetFact:
     rir: int
     set_type: str = "normal"
     is_anomalous: bool = False
+    shown_target: Optional[SetPrescription] = None
 
 
 @dataclass(frozen=True)
