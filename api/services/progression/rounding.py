@@ -8,15 +8,92 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR, ROUND_HALF_UP
 from typing import Optional
 
 from api.services import equipment as equip
 from api.services.progression.params import DEFAULT_WEIGHT_STEPS, LB_ROUNDING_TOLERANCE
+from api.services.load_context import EffectiveLoadContext
 
 # Физические константы перевода единиц — не настраиваемые пороги,
 # поэтому в params.py не переносим.
 LB_PER_KG = 2.2046226218
 KG_PER_LB = 0.45359237
+_KG_PER_LB_DECIMAL = Decimal("0.45359237")
+
+
+def _kg(value: object, unit: str) -> Decimal | None:
+    try:
+        number = Decimal(str(value))
+    except (ValueError, TypeError, InvalidOperation):
+        return None
+    if not number.is_finite() or number <= 0 or unit not in ("kg", "lb"):
+        return None
+    return number * (_KG_PER_LB_DECIMAL if unit == "lb" else Decimal(1))
+
+
+def round_for_load_context(
+    target_kg: float, context: EffectiveLoadContext, round_down: bool
+) -> float | None:
+    """Return a physically reachable recorded kg value for this machine setup.
+
+    Plate counts are inventory counts, so two-sided loading consumes a pair.
+    Decimal arithmetic keeps pound steps and fractional plates on their
+    original grid. A named gym without inventory cannot invent plates.
+    """
+    target = _kg(target_kg, "kg")
+    if target is None:
+        return None
+
+    if context.mode == "stack":
+        step = _kg(context.step_value, context.step_unit)
+        if step is None:
+            return None
+        multiple = target / step
+        index = int(multiple.to_integral_value(rounding=ROUND_FLOOR if round_down else ROUND_HALF_UP))
+        return float(step * index) if index > 0 else None
+
+    if context.mode != "plate_loaded" or context.weight_basis not in (
+        "plates_only", "including_start_weight"
+    ) or context.loading_sides not in (1, 2) or not context.plates:
+        return None
+
+    base = Decimal(0)
+    if context.weight_basis == "including_start_weight":
+        if context.base_weight is None:
+            return None
+        try:
+            base = Decimal(str(context.base_weight))
+        except (ValueError, TypeError, InvalidOperation):
+            return None
+        if not base.is_finite() or base < 0:
+            return None
+
+    reachable = {Decimal(0)}
+    for plate in context.plates:
+        weight = _kg(plate.get("weight"), plate.get("unit", context.step_unit))
+        count = plate.get("count")
+        if weight is None or not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            continue
+        available = count // context.loading_sides
+        increment = weight * context.loading_sides
+        # Values above this bound cannot be the closest reachable load.
+        useful = max(0, int(((target - base) / increment).to_integral_value(rounding=ROUND_FLOOR)) + 1)
+        available = min(available, useful)
+        expanded = {total + increment * n for total in reachable for n in range(available + 1)}
+        ceiling = target - base
+        above = [value for value in expanded if value > ceiling]
+        reachable = {value for value in expanded if value <= ceiling}
+        if not round_down and above:
+            reachable.add(min(above))
+
+    candidates = [base + plates for plates in reachable if base + plates > 0]
+    if not candidates:
+        return None
+    if round_down:
+        candidates = [value for value in candidates if value <= target]
+        return float(max(candidates)) if candidates else None
+    return float(min(candidates, key=lambda value: (abs(value - target), value)))
 
 
 def _resolve_step(category: str, unit: str, steps: Optional[dict]):
