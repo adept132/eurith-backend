@@ -86,6 +86,24 @@ async def test_unavailable_candidates_excluded_with_actionable_issue(scenario, m
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["setup", "bench"])
+async def test_empty_draft_preview_preserves_actionable_gym_issue(scenario, missing):
+    s = scenario
+    if missing == "bench":
+        await setup(s)
+        s.machine.equipment_needed.append("bench")
+    generated = await generate(s)
+    assert generated.days[0].exercises == []
+    preview = await plans.preview_generated_plan(
+        GeneratePlanPreviewRequest(days=generated.days, gym_profile_id=s.gym.id), s.db, s.user)
+    issues = [issue for issue in preview.issues if issue.muscle == "chest"]
+    assert len(issues) == 1
+    assert issues[0].code == "gym_equipment_unavailable"
+    assert issues[0].action.type == "change_equipment"
+    assert ("no_machine_setup" if missing == "setup" else "missing_equipment") in issues[0].reason
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["foreign", "deleted"])
 async def test_rejects_unowned_or_deleted_gym(scenario, state):
     s = scenario

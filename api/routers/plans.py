@@ -628,6 +628,7 @@ async def preview_generated_plan(
     profile, blueprint, pool, primary_goal_id = await _load_generation_context(
         db, current_user, request.blueprint_id,
     )
+    original_pool = pool
     allowed = _allowed_equipment((profile.settings or {}).get("locations"))
     gym, gym_decisions, load_contexts = await _named_gym_context(
         db, current_user.id, request.gym_profile_id, pool)
@@ -724,6 +725,14 @@ async def preview_generated_plan(
                 [request.config.accent_muscle] if request.config.accent_muscle else []
             ),
         ))
+    if gym is not None:
+        gym_issues = _gym_issues(refreshed_days, original_pool, gym_decisions)
+        equipment_gaps = {(issue.day_tag, issue.muscle) for issue in gym_issues}
+        issues = [issue for issue in issues if not (
+            issue.code == "muscle_target_partially_covered"
+            and (issue.day_tag, issue.muscle) in equipment_gaps
+        )]
+        issues.extend(gym_issues)
     return GeneratePlanPreviewResponse(
         days=refreshed_days,
         inputs=inputs,
