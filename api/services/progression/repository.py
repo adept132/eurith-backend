@@ -418,14 +418,18 @@ async def build_context(
     rep_range_source: str = params.REP_SOURCE_FALLBACK,
     phase_effort_tier: str = "medium",
     readiness: Optional[ReadinessVerdict] = None,
+    load_context: EffectiveLoadContext | None = None,
 ) -> SchemeContext:
     """Собрать контекст движка из строк БД. Наружу — только dataclasses."""
     exercise = session_exercise.exercise
-    history = await load_history(session, app_user_id, exercise.id)
-    step = step_kg(
-        getattr(exercise, "equipment_needed", None) or [],
-        (settings or {}).get("weight_unit", "kg"),
-        (settings or {}).get("weight_steps"),
+    history = await load_history(session, app_user_id, exercise.id, load_context=load_context)
+    step = (
+        load_context.step_value * (0.45359237 if load_context.step_unit == "lb" else 1)
+        if load_context is not None else step_kg(
+            getattr(exercise, "equipment_needed", None) or [],
+            (settings or {}).get("weight_unit", "kg"),
+            (settings or {}).get("weight_steps"),
+        )
     )
 
     rep_min = session_exercise.recommended_rep_min

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Literal
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +25,9 @@ from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
 from api.services.workout_superset_service import WorkoutSupersetService
 from api.services.workout_set_context import CONTEXT_KEYS, resolve_set_context
+from api.services.load_context import resolve_load_context
 from api.services.models import WorkoutSession, WorkoutSessionExercise, Exercise, WorkoutSessionSet, AppUser, \
-    AppUserProfile
+    AppUserProfile, GymProfile, GymExerciseSetup, ExerciseLoadPreference
 
 router = APIRouter(tags=["workouts"])
 
@@ -423,6 +426,9 @@ async def get_exercise_autoprogression(
     session_exercise_id: int,
     target_reps: int | None = Query(default=None, gt=0),
     target_effort: str | None = Query(default=None),
+    load_mode: Literal["stack", "plate_loaded"] | None = Query(default=None),
+    setup_id: UUID | None = Query(default=None),
+    gym_profile_id: UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_app_user=Depends(get_current_app_user),
 ):
@@ -461,6 +467,38 @@ async def get_exercise_autoprogression(
     experience_level = profile.experience_level if profile else None
     settings = profile.settings if profile else None
 
+    load_context = None
+    if load_mode is None and (setup_id is not None or gym_profile_id is not None):
+        raise HTTPException(status_code=400, detail="Load mode is required for machine context")
+    if load_mode is not None:
+        selected_gym_id = gym_profile_id if gym_profile_id is not None else session_exercise.workout_session.gym_profile_id
+        gym = await db.get(GymProfile, selected_gym_id) if selected_gym_id is not None else None
+        if selected_gym_id is not None and (
+            gym is None or gym.app_user_id != current_app_user.id or gym.deleted_at is not None
+        ):
+            raise HTTPException(status_code=400, detail="Gym profile is unavailable")
+        catalog = session_exercise.exercise
+        source = "user" if catalog.app_user_id is not None else "global"
+        preference = (await db.execute(select(ExerciseLoadPreference).where(
+            ExerciseLoadPreference.app_user_id == current_app_user.id,
+            ExerciseLoadPreference.exercise_source == source,
+            ExerciseLoadPreference.exercise_id == catalog.id,
+        ))).scalar_one_or_none()
+        setup = await db.get(GymExerciseSetup, setup_id) if setup_id is not None else None
+        if setup_id is not None and (
+            setup is None or gym is None or setup.gym_id != gym.id
+            or setup.exercise_source != source or setup.exercise_id != catalog.id
+            or setup.load_mode != load_mode or setup.deleted_at is not None
+            or not setup.is_available
+        ):
+            raise HTTPException(status_code=400, detail="Machine setup does not match this exercise and gym")
+        load_context = resolve_load_context(
+            catalog.equipment_needed or [], preference, gym,
+            [setup] if setup is not None else [], load_mode, settings,
+        )
+        if load_context is None:
+            raise HTTPException(status_code=400, detail="Load mode is not allowed for this exercise")
+
     # Фаза мезоцикла нужна схеме percent_1rm и правилу deload_phase, но обе
     # сравнивают со строковым effort_tier ("prefailure"/"failure"/"deload"/...),
     # а не с номером фазы. WorkoutSession.mesocycle_phase — это НОМЕР (int), не
@@ -491,6 +529,7 @@ async def get_exercise_autoprogression(
         target_reps=target_reps,
         target_effort=target_effort,
         phase_effort_tier=phase_effort_tier,
+        load_context=load_context,
     )
 
     return AutoprogressionResponse(**data)

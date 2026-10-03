@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Optional
 
 from sqlalchemy import select
@@ -41,6 +42,8 @@ from api.services.progression.metrics import e1rm as set_target_value  # noqa: F
 from api.services.progression.metrics import weight_for_e1rm as weight_for_target  # noqa: F401
 from api.services.progression.rounding import KG_PER_LB, LB_PER_KG  # noqa: F401
 from api.services.progression.rounding import round_to_step as round_weight_for_equipment  # noqa: F401
+from api.services.progression.rounding import round_for_load_context
+from api.services.load_context import EffectiveLoadContext
 
 # Дефолт коэффициента прогрессии по уровню пользователя.
 DEFAULT_FACTOR_BY_LEVEL = {
@@ -136,6 +139,7 @@ async def compute_autoprogression(
     target_effort: Optional[str] = None,
     phase_effort_tier: str = "medium",
     provisional: bool = False,
+    load_context: EffectiveLoadContext | None = None,
 ) -> dict:
     """Совместимая обёртка над движком прогрессии (P0-06).
 
@@ -158,7 +162,7 @@ async def compute_autoprogression(
     #
     # Исключение — пикеры свободной тренировки (target_reps): там
     # пользователь спрашивает «а если», и пересчёт как раз осмыслен.
-    if session_exercise.prescription and target_reps is None:
+    if session_exercise.prescription and target_reps is None and load_context is None:
         stored = Prescription.from_dict(session_exercise.prescription)
         if stored.sets:
             return _response_from(stored)
@@ -170,12 +174,11 @@ async def compute_autoprogression(
         experience_level,
         settings,
         phase_effort_tier=phase_effort_tier,
+        load_context=load_context,
     )
 
     if target_reps is not None:
         # Свободная тренировка: пользователь выбрал повторы и усилие руками.
-        from dataclasses import replace
-
         rir = (
             effort_to_rir(target_effort)
             if target_effort is not None
@@ -188,6 +191,27 @@ async def compute_autoprogression(
         override=override_for(settings, session_exercise.exercise_id),
         provisional=provisional,
     )
+
+    if load_context is not None and load_context.mode == "plate_loaded" and not load_context.plates:
+        return {
+            "has_basis": False, "metric": None, "target_weight": None,
+            "target_reps": None, "modified_target": None, "prescription": None,
+            "scheme": prescription.scheme, "reason_code": "no_reachable_weight",
+            "reason_text": "Нет доступных блинов для выбранного тренажёра",
+        }
+    if load_context is not None and prescription.sets:
+        rounded = tuple(
+            replace(item, weight_kg=round_for_load_context(item.weight_kg, load_context, True)
+                    if item.weight_kg is not None else None)
+            for item in prescription.sets
+        )
+        missing_weight = not any(item.weight_kg is not None for item in rounded)
+        prescription = replace(
+            prescription,
+            sets=rounded,
+            reason_code="no_reachable_weight" if missing_weight else prescription.reason_code,
+            reason_text="Нет достижимого веса для выбранного тренажёра" if missing_weight else prescription.reason_text,
+        )
 
     return _response_from(prescription)
 
