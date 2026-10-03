@@ -124,3 +124,7 @@ class ProgressAchievement(BaseModel):
     reps: int
     achieved_at: datetime
     workout_id: int
+    load_mode: str | None = None
+    gym_name: str | None = None
+    setup_id: str | None = None
+    weight_basis: str | None = None

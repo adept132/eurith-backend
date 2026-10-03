@@ -1,7 +1,7 @@
 from typing import Optional, List
 from uuid import UUID
 
-from sqlalchemy import func, select, case, desc, update
+from sqlalchemy import func, select, case, desc, update, exists
 from fastapi import APIRouter, Depends, Query, HTTPException, status, Request
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -453,6 +453,17 @@ async def get_exercise_last_performance(
             {"weight_basis": weight_basis})
         if requested_key is None:
             raise HTTPException(status_code=400, detail="Invalid machine load context")
+        matching_set = select(1).select_from(WorkoutSessionSet).where(
+            WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id,
+            WorkoutSessionSet.is_completed.is_(True),
+            WorkoutSessionSet.load_mode == load_mode,
+            WorkoutSessionSet.setup_id == setup_id,
+            WorkoutSessionSet.load_snapshot["weight_basis"].as_string() == weight_basis,
+        )
+        if setup_id is None:
+            matching_set = matching_set.where(WorkoutSessionSet.gym_profile_id == gym_profile_id)
+        stmt = stmt.where(exists(matching_set))
+    stmt = stmt.limit(1)
     result = await session.execute(stmt)
     workouts = result.scalars().unique().all()
     workout = None

@@ -30,6 +30,7 @@ from api.services.exercise_search_service import ExerciseSearchService
 from api.services.fatigue.service import compute_readiness
 from api.services.forecast_service import build_strength_forecast
 from api.services.models import Exercise, WorkoutSessionSet, WorkoutSessionExercise, AppUserProfile, WorkoutSession
+from api.services.progression.records_repository import load_variant_key
 from api.services.volume import repository as volume_repo
 from api.services.volume.landmarks import landmarks_for, reachable_mrv
 from api.services.volume.service import targets_from_budget
@@ -56,6 +57,11 @@ async def get_progress_achievements(
             Exercise.name,
             WorkoutSessionSet.weight,
             WorkoutSessionSet.reps,
+            WorkoutSessionSet.load_mode,
+            WorkoutSessionSet.gym_profile_id,
+            WorkoutSessionSet.setup_id,
+            WorkoutSessionSet.load_snapshot,
+            WorkoutSession.gym_snapshot,
         )
         .select_from(WorkoutSessionSet)
         .join(WorkoutSessionExercise)
@@ -76,9 +82,18 @@ async def get_progress_achievements(
         .order_by(WorkoutSession.finished_at, WorkoutSession.id, WorkoutSessionExercise.exercise_id)
     )
 
-    performances: dict[tuple[int, int], dict] = {}
-    for workout_id, finished_at, exercise_id, exercise_name, raw_weight, raw_reps in result.all():
-        key = (workout_id, exercise_id)
+    rows = result.all()
+    machine_exercises = {row[2] for row in rows if len(row) > 6 and row[6] in ("stack", "plate_loaded")}
+    performances: dict[tuple[int, int, str], dict] = {}
+    for row in rows:
+        workout_id, finished_at, exercise_id, exercise_name, raw_weight, raw_reps = row[:6]
+        mode, gym_id, setup_id, snapshot = row[6:10] if len(row) > 6 else (None, None, None, None)
+        session_gym = row[10] if len(row) > 10 else None
+        variant = load_variant_key(mode, gym_id, setup_id, snapshot)
+        if exercise_id in machine_exercises and variant is None:
+            continue
+        group = variant or "legacy"
+        key = (workout_id, exercise_id, group)
         item = performances.setdefault(key, {
             "workout_id": workout_id,
             "achieved_at": finished_at,
@@ -87,6 +102,12 @@ async def get_progress_achievements(
             "e1rm": 0.0,
             "weight": 0.0,
             "reps": 0,
+            "variant": group,
+            "load_mode": mode if variant else None,
+            "gym_name": ((snapshot.get("gym_name") if isinstance(snapshot, dict) else None)
+                         or (session_gym.get("name") if isinstance(session_gym, dict) else None)) if variant else None,
+            "setup_id": str(setup_id) if setup_id and variant else None,
+            "weight_basis": snapshot.get("weight_basis") if isinstance(snapshot, dict) and variant else None,
         })
         weight, reps = float(raw_weight), int(raw_reps)
         # The formula is undefined at 37 reps and negative above it. Those
@@ -99,15 +120,17 @@ async def get_progress_achievements(
             item["weight"] = weight
             item["reps"] = reps
 
-    best: dict[int, float] = {}
+    best: dict[tuple[int, str], float] = {}
     achievements: list[ProgressAchievement] = []
     for item in performances.values():
         if item["e1rm"] <= 0:
             continue
-        previous = best.get(item["exercise_id"])
+        record_key = (item["exercise_id"], item["variant"])
+        previous = best.get(record_key)
         if previous is None or item["e1rm"] > previous + 1e-6:
             achievements.append(ProgressAchievement(
-                id=f'{item["workout_id"]}:{item["exercise_id"]}:e1rm',
+                id=f'{item["workout_id"]}:{item["exercise_id"]}:e1rm'
+                   + (f':{item["variant"]}' if item["variant"] != "legacy" else ""),
                 exercise_id=item["exercise_id"],
                 exercise_name=item["exercise_name"],
                 e1rm=round(item["e1rm"], 1),
@@ -116,8 +139,10 @@ async def get_progress_achievements(
                 reps=item["reps"],
                 achieved_at=item["achieved_at"],
                 workout_id=item["workout_id"],
+                load_mode=item["load_mode"], gym_name=item["gym_name"],
+                setup_id=item["setup_id"], weight_basis=item["weight_basis"],
             ))
-        best[item["exercise_id"]] = max(previous or 0.0, item["e1rm"])
+        best[record_key] = max(previous or 0.0, item["e1rm"])
 
     achievements.sort(key=lambda item: (item.achieved_at, item.workout_id), reverse=True)
     return achievements[:limit]

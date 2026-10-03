@@ -26,11 +26,11 @@ async def test_mixed_history_keeps_saved_labels_and_separate_records(client, db,
     stack = WorkoutSessionSet(workout_session_exercise_id=movement.id, set_number=1,
         set_type="normal", weight=100, reps=5, is_completed=True, load_mode="stack",
         gym_profile_id=gym_id, setup_id=stack_id,
-        load_snapshot={"gym_name": "Старый зал", "weight_basis": "displayed", "mode": "stack"})
+        load_snapshot={"weight_basis": "displayed", "mode": "stack"})
     plate = WorkoutSessionSet(workout_session_exercise_id=movement.id, set_number=2,
         set_type="normal", weight=30, reps=8, is_completed=True, load_mode="plate_loaded",
         gym_profile_id=gym_id, setup_id=plate_id,
-        load_snapshot={"gym_name": "Старый зал", "weight_basis": "plates_only", "mode": "plate_loaded"})
+        load_snapshot={"weight_basis": "plates_only", "mode": "plate_loaded"})
     unknown = WorkoutSessionSet(workout_session_exercise_id=movement.id, set_number=3,
         set_type="normal", weight=120, reps=6, is_completed=True)
     db.add_all([stack, plate, unknown])
@@ -53,6 +53,12 @@ async def test_mixed_history_keeps_saved_labels_and_separate_records(client, db,
                 "setup_id": str(plate_id), "weight_basis": "plates_only"})
     assert plate_last.status_code == 200, plate_last.text
     assert [item["id"] for item in plate_last.json()["sets"]] == [plate.id]
+    achievements = await client.get("/progress/achievements")
+    assert achievements.status_code == 200, achievements.text
+    current = [item for item in achievements.json() if item["workout_id"] == workout.id
+               and item["exercise_id"] == seeded_history.id]
+    assert {item["load_mode"] for item in current} == {"stack", "plate_loaded"}
+    assert {item["gym_name"] for item in current} == {"Старый зал"}
 
     await rebuild_records(db, test_user.id, [seeded_history.id])
     await db.commit()
