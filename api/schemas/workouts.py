@@ -7,6 +7,7 @@ from typing import Literal, Optional, Dict, Union, List
 from api.schemas.supersets import WorkoutStructureResponse
 from api.services.muscle_keys import to_system_key
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from api.schemas.gym_profiles import LoadMode
 
 
 WorkoutSource = Literal["free", "split_day", "plan"]
@@ -202,6 +203,11 @@ class AddWorkoutSetRequest(BaseModel):
     anomaly_confirmed: bool = False
     # P1-14: подход на максимум повторов — режим, ортогональный set_type.
     is_max_reps: bool = False
+    load_mode: LoadMode | None = None
+    gym_profile_id: uuid.UUID | None = None
+    setup_id: uuid.UUID | None = None
+    load_snapshot: dict | None = None
+    shown_target_snapshot: dict | None = None
 
 
 class AddWorkoutSetResponse(BaseModel):
@@ -220,6 +226,11 @@ class AddWorkoutSetResponse(BaseModel):
     is_anomalous: bool = False
     # P1-14: подход на максимум повторов — режим, ортогональный set_type.
     is_max_reps: bool = False
+    load_mode: LoadMode | None = None
+    gym_profile_id: uuid.UUID | None = None
+    setup_id: uuid.UUID | None = None
+    load_snapshot: dict | None = None
+    shown_target_snapshot: dict | None = None
     updated_at: datetime
 
 
@@ -238,6 +249,11 @@ class UpdateWorkoutSetRequest(BaseModel):
     anomaly_confirmed: bool = False
     # P1-14: подход на максимум повторов — режим, ортогональный set_type.
     is_max_reps: bool | None = None
+    load_mode: LoadMode | None = None
+    gym_profile_id: uuid.UUID | None = None
+    setup_id: uuid.UUID | None = None
+    load_snapshot: dict | None = None
+    shown_target_snapshot: dict | None = None
 
 
 class RepeatWorkoutSetRequest(BaseModel):

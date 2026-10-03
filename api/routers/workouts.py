@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,7 @@ from api.services.progression.engine import plan_exercise
 from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
 from api.services.workout_superset_service import WorkoutSupersetService
+from api.services.workout_set_context import CONTEXT_KEYS, resolve_set_context
 from api.services.models import WorkoutSession, WorkoutSessionExercise, Exercise, WorkoutSessionSet, AppUser, \
     AppUserProfile
 
@@ -349,6 +351,24 @@ async def add_set_to_session_exercise(
                 detail="Parent set does not belong to this exercise",
             )
 
+    requested = payload.model_fields_set
+    mode = payload.load_mode if "load_mode" in requested else session_exercise.active_load_mode
+    gym_id = (payload.gym_profile_id if "gym_profile_id" in requested
+              else workout.gym_profile_id)
+    setup_id = (payload.setup_id if "setup_id" in requested
+                else session_exercise.active_setup_id)
+    if "load_mode" in requested and mode != session_exercise.active_load_mode and "setup_id" not in requested:
+        setup_id = None
+    if "gym_profile_id" in requested and gym_id != workout.gym_profile_id and "setup_id" not in requested:
+        setup_id = None
+    try:
+        context = await resolve_set_context(
+            db, current_app_user.id, session_exercise, mode=mode, gym_id=gym_id,
+            setup_id=setup_id, supplied_snapshot=payload.load_snapshot,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
     next_set_number = len(session_exercise.sets) + 1
 
     stats = await load_exercise_stats(
@@ -375,6 +395,8 @@ async def add_set_to_session_exercise(
         is_completed=True,
         is_max_reps=payload.is_max_reps,
         is_anomalous=is_anomalous,
+        **context,
+        shown_target_snapshot=deepcopy(payload.shown_target_snapshot),
     )
 
     print(
@@ -544,6 +566,26 @@ async def update_workout_session_set(
     # в update_data, цикл setattr ниже повесит посторонний атрибут на ORM-объект.
     anomaly_confirmed = bool(update_data.pop("anomaly_confirmed", False))
 
+    if CONTEXT_KEYS.intersection(update_data):
+        mode = update_data.get("load_mode", workout_set.load_mode)
+        gym_id = update_data.get("gym_profile_id", workout_set.gym_profile_id)
+        setup_id = update_data.get("setup_id", workout_set.setup_id)
+        if "load_mode" in update_data and mode != workout_set.load_mode and "setup_id" not in update_data:
+            setup_id = None
+        if "gym_profile_id" in update_data and gym_id != workout_set.gym_profile_id and "setup_id" not in update_data:
+            setup_id = None
+        try:
+            context = await resolve_set_context(
+                db, current_app_user.id, session_exercise, mode=mode, gym_id=gym_id,
+                setup_id=setup_id, supplied_snapshot=update_data.get("load_snapshot"),
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        for key, value in context.items():
+            update_data[key] = value
+    if "shown_target_snapshot" in update_data:
+        update_data["shown_target_snapshot"] = deepcopy(update_data["shown_target_snapshot"])
+
     if "parent_set_id" in update_data and update_data["parent_set_id"] is not None:
         parent_exists = any(s.id == update_data["parent_set_id"] for s in session_exercise.sets)
         if not parent_exists:
@@ -648,6 +690,11 @@ async def repeat_workout_session_set(
                 detail="Workout is not active",
             )
 
+        if (target_session_exercise.exercise_id != source_session_exercise.exercise_id
+                and (source_set.load_mode is not None or source_set.setup_id is not None)):
+            raise HTTPException(status_code=400,
+                                detail="Machine context cannot be repeated for a different exercise")
+
     next_set_number = len(target_session_exercise.sets) + 1
 
     repeated_set = WorkoutSessionSet(
@@ -668,6 +715,11 @@ async def repeat_workout_session_set(
         # P1-14: режим «на максимум повторов» наследуется так же — повтор
         # подхода-максимума должен остаться подходом-максимумом.
         is_max_reps=source_set.is_max_reps,
+        load_mode=source_set.load_mode,
+        gym_profile_id=source_set.gym_profile_id,
+        setup_id=source_set.setup_id,
+        load_snapshot=deepcopy(source_set.load_snapshot),
+        shown_target_snapshot=deepcopy(source_set.shown_target_snapshot),
     )
 
     db.add(repeated_set)
