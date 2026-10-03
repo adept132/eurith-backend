@@ -249,7 +249,13 @@ async def test_load_preferences_use_source_and_exercise_as_distinct_keys(db, tes
     db.add_all([global_preference, user_preference])
     await db.commit()
 
-    rows = (await db.execute(select(ExerciseLoadPreference))).scalars().all()
+    rows = (
+        await db.execute(
+            select(ExerciseLoadPreference).where(
+                ExerciseLoadPreference.app_user_id == test_user.id
+            )
+        )
+    ).scalars().all()
     assert {(row.exercise_source, row.exercise_id) for row in rows} == {
         ("global", 7),
         ("user", 7),
