@@ -57,6 +57,34 @@ async def test_two_modes_one_exercise_one_gym(db, test_user):
 
 
 @pytest.mark.asyncio
+async def test_gym_name_is_unique_only_among_active_gyms(db, test_user):
+    original = GymProfile(app_user_id=test_user.id, name="Shared gym")
+    db.add(original)
+    await db.flush()
+
+    db.add(GymProfile(app_user_id=test_user.id, name="Shared gym"))
+    with pytest.raises(IntegrityError):
+        await db.flush()
+    await db.rollback()
+
+    original = GymProfile(
+        id=uuid.uuid4(), app_user_id=test_user.id, name="Shared gym", deleted_at=datetime.now(UTC)
+    )
+    other_owner = AppUser(firebase_uid=f"other-{uuid.uuid4()}", email=f"other-{uuid.uuid4()}@example.com")
+    db.add_all([original, other_owner])
+    await db.flush()
+    replacement = GymProfile(app_user_id=test_user.id, name="Shared gym")
+    same_name_other_owner = GymProfile(app_user_id=other_owner.id, name="Shared gym")
+    db.add_all([replacement, same_name_other_owner])
+    await db.commit()
+
+    assert replacement.id != original.id
+    archived = await db.get(GymProfile, original.id)
+    assert archived is not None
+    assert archived.deleted_at is not None
+
+
+@pytest.mark.asyncio
 async def test_duplicate_active_same_mode_is_rejected(db, test_user):
     gym = GymProfile(app_user_id=test_user.id, name="Home gym")
     db.add(gym)

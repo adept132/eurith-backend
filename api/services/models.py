@@ -127,7 +127,13 @@ class GymProfile(Base):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("app_user_id", "name", name="uq_gym_profiles_owner_name"),
+        Index(
+            "uq_gym_profiles_owner_name",
+            "app_user_id",
+            "name",
+            unique=True,
+            postgresql_where=deleted_at.is_(None),
+        ),
         CheckConstraint("revision > 0", name="ck_gym_profiles_revision_positive"),
     )
 

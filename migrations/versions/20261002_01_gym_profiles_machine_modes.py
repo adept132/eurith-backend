@@ -32,7 +32,13 @@ def upgrade() -> None:
         sa.CheckConstraint("revision > 0", name="ck_gym_profiles_revision_positive"),
         sa.ForeignKeyConstraint(["app_user_id"], ["app_users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("app_user_id", "name", name="uq_gym_profiles_owner_name"),
+    )
+    op.create_index(
+        "uq_gym_profiles_owner_name",
+        "gym_profiles",
+        ["app_user_id", "name"],
+        unique=True,
+        postgresql_where=sa.text("deleted_at IS NULL"),
     )
 
     op.create_table(
