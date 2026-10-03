@@ -180,6 +180,11 @@ class RevisionedDeletePayload(_Schema):
     expected_revision: int = Field(ge=0)
 
 
+class GymExerciseSetupDeletePayload(_Schema):
+    id: UUID
+    expected_revision: int = Field(ge=0)
+
+
 def _check_mode_basis(mode: LoadMode, basis: WeightBasis, base_weight: float | None) -> None:
     if mode == "stack" and basis != "displayed":
         raise ValueError("stack setups require weight_basis='displayed'")
