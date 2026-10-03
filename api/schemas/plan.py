@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 from typing import List, Dict, Optional, Literal
 from uuid import UUID
 
@@ -76,6 +76,7 @@ class GenerateConfig(BaseModel):
 
 
 class GeneratePlanRequest(BaseModel):
+    gym_profile_id: Optional[UUID] = None
     blueprint_id: Optional[UUID] = None
     # When set, generate only the split day whose DayBlueprint.name matches
     # (single-day generation for the "choose plan" flow). None = whole week.
@@ -85,6 +86,9 @@ class GeneratePlanRequest(BaseModel):
 
 
 class GeneratedExerciseOut(BaseModel):
+    load_mode: Optional[Literal["stack", "plate_loaded"]] = None
+    setup_id: Optional[UUID] = None
+    load_snapshot: Optional[Dict[str, object]] = None
     exercise_id: int
     name: str
     target_sets: int
@@ -96,6 +100,14 @@ class GeneratedExerciseOut(BaseModel):
     override_reps: Optional[str] = None
     override_rir: Optional[int] = Field(default=None, ge=0, le=10)
     preference: Optional[Literal["favorite", "disliked"]] = None
+
+    @model_serializer(mode="wrap")
+    def omit_unused_load_context(self, handler):
+        data = handler(self)
+        if self.load_mode is None and self.setup_id is None and self.load_snapshot is None:
+            for field in ("load_mode", "setup_id", "load_snapshot"):
+                data.pop(field, None)
+        return data
 
 
 class GeneratedDayOut(BaseModel):
@@ -110,6 +122,8 @@ class GeneratedDayOut(BaseModel):
 
 
 class GenerationInputSummary(BaseModel):
+    gym_profile_id: Optional[UUID] = None
+    gym_name: Optional[str] = None
     blueprint_id: UUID
     split_name: str
     mode: Literal["full", "single_day"]
@@ -134,6 +148,14 @@ class GenerationInputSummary(BaseModel):
     timer_mode: Literal["smart", "fixed"] = "smart"
     fixed_rest_seconds: int = 120
     day_effort: str = "medium"
+
+    @model_serializer(mode="wrap")
+    def omit_unused_gym(self, handler):
+        data = handler(self)
+        if self.gym_profile_id is None:
+            data.pop("gym_profile_id", None)
+            data.pop("gym_name", None)
+        return data
 
 
 class GenerationIssueAction(BaseModel):
@@ -197,6 +219,7 @@ class GeneratePlanResponse(BaseModel):
 
 
 class GeneratePlanPreviewRequest(BaseModel):
+    gym_profile_id: Optional[UUID] = None
     days: List[GeneratedDayOut]
     blueprint_id: Optional[UUID] = None
     day_name: Optional[str] = None

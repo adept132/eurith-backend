@@ -45,6 +45,11 @@ def test_generate_returns_days_for_active_split():
     assert len(resp.days[0].exercises) >= 1
     assert resp.inputs.split_name == "Push split"
     assert resp.inputs.mode == "full"
+    # Opting out of named gyms preserves the existing wire response.
+    wire = resp.model_dump(mode="json")
+    assert "gym_profile_id" not in wire["inputs"]
+    assert "load_mode" not in wire["days"][0]["exercises"][0]
+    assert "superset_group_id" in wire["days"][0]["exercises"][0]
 
 
 def test_generate_single_day_filters_by_name():

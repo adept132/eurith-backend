@@ -1,5 +1,6 @@
 from typing import Optional as _Optional
 from dataclasses import replace
+from fastapi.encoders import jsonable_encoder
 import copy
 from datetime import date as _date
 from fastapi import APIRouter, Depends, status, HTTPException
@@ -27,11 +28,15 @@ from api.services.progression import repository as progression_repo
 from api.services.progression.engine import plan_exercise
 from api.services.progression.resolve import override_for
 from api.services.milestones.service import milestone_accents
+from api.services.models import GymProfile, GymExerciseSetup, ExerciseLoadPreference
+from api.services.gym_selection import eligible_for_gym
+from api.services.load_context import resolve_allowed_modes, resolve_load_context
 from api.schemas.plan import (
     GeneratePlanRequest, GeneratePlanResponse, GeneratedDayOut, GeneratedExerciseOut,
     ConfirmPlanRequest, ConfirmPlanResponse, GenerationInputSummary,
     GenerationComparison, GeneratePlanPreviewRequest, GeneratePlanPreviewResponse,
     GeneratorPresetCreate, GeneratorPresetUpdate, GeneratorPresetOut,
+    GenerationIssue, GenerationIssueAction,
 )
 from api.schemas.commands import (ApplyCommandsRequest, ApplyCommandsResponse, CommandOut, ClarifyOut,
                                   GeneratorRuleCreate, GeneratorRuleOut, GeneratorRuleUpdate)
@@ -91,6 +96,92 @@ def _allowed_equipment(locations) -> _Optional[set]:
             return None
         allowed |= s
     return allowed or None
+
+
+async def _named_gym_context(db, user_id, gym_id, pool):
+    if gym_id is None:
+        return None, {}, {}
+    gym = (await db.execute(select(GymProfile).where(
+        GymProfile.id == gym_id, GymProfile.app_user_id == user_id,
+        GymProfile.deleted_at.is_(None),
+    ))).scalar_one_or_none()
+    if gym is None:
+        raise HTTPException(404, "Зал не найден")
+    ids = [ex.id for ex in pool]
+    setups = list((await db.execute(select(GymExerciseSetup).where(
+        GymExerciseSetup.gym_id == gym.id,
+        GymExerciseSetup.exercise_id.in_(ids),
+        GymExerciseSetup.deleted_at.is_(None), GymExerciseSetup.is_available.is_(True),
+    ))).scalars().all())
+    preferences = {(p.exercise_source, p.exercise_id): p for p in (await db.execute(
+        select(ExerciseLoadPreference).where(
+            ExerciseLoadPreference.app_user_id == user_id,
+            ExerciseLoadPreference.exercise_id.in_(ids),
+        )
+    )).scalars().all()}
+    decisions, contexts = {}, {}
+    for ex in pool:
+        source = "user" if ex.app_user_id is not None else "global"
+        rows = [s for s in setups if s.exercise_source == source and s.exercise_id == ex.id]
+        preference = preferences.get((source, ex.id))
+        decision = eligible_for_gym(ex, gym, rows, resolve_allowed_modes(ex.equipment_needed or [], preference, rows))
+        decisions[ex.id] = decision
+        if decision.eligible and decision.selected_mode:
+            context = resolve_load_context(ex.equipment_needed or [], preference, gym,
+                                           [s for s in rows if s.id == decision.setup_id], decision.selected_mode)
+            if context is None:
+                raise HTTPException(400, "Проверьте настройки нагрузки тренажёра в выбранном зале")
+            contexts[ex.id] = context
+    return gym, decisions, contexts
+
+
+def _gym_summary(inputs, gym):
+    if gym is not None:
+        inputs.gym_profile_id = gym.id
+        inputs.gym_name = gym.name
+        inputs.allowed_equipment = sorted(gym.equipment or [])
+        inputs.equipment_locations = []
+        inputs.equipment_unrestricted = False
+    return inputs
+
+
+def _gym_day_context(day, decisions, contexts, *, validate=False):
+    exercises = []
+    for ex in day.exercises:
+        decision = decisions.get(ex.exercise_id)
+        if decision is None or not decision.eligible:
+            raise HTTPException(400, "Упражнение недоступно в выбранном зале: проверьте оборудование и настройки тренажёра")
+        context = contexts.get(ex.exercise_id)
+        mode = context.mode if context else None
+        setup_id = context.setup_id if context else None
+        if validate and ((ex.load_mode is not None and ex.load_mode != mode)
+                         or (ex.setup_id is not None and ex.setup_id != setup_id)):
+            raise HTTPException(400, "Режим или настройка тренажёра устарели для выбранного зала")
+        snapshot = jsonable_encoder(vars(context)) if context else None
+        if validate and ex.load_snapshot:
+            for key in ("gym_id", "setup_id", "mode"):
+                if ex.load_snapshot.get(key) not in (None, (snapshot or {}).get(key)):
+                    raise HTTPException(400, "Снимок нагрузки относится к другому залу, режиму или настройке")
+        exercises.append(ex.model_copy(update={"load_mode": mode, "setup_id": setup_id, "load_snapshot": snapshot}))
+    return day.model_copy(update={"exercises": exercises})
+
+
+def _gym_issues(days, pool, decisions):
+    issues = []
+    for day in days:
+        for muscle, coverage in day.coverage.items():
+            if coverage.get("filled", 0) >= coverage.get("target", 0):
+                continue
+            candidates = [ex for ex in pool if key_for_muscle(ex.main_muscle_group) == muscle]
+            if candidates and not any(decisions[ex.id].eligible for ex in candidates):
+                reasons = sorted({decisions[ex.id].reason_code for ex in candidates})
+                issues.append(GenerationIssue(
+                    code="gym_equipment_unavailable", severity="blocking", day_tag=day.day_tag, muscle=muscle,
+                    title="Нет подходящего оборудования в выбранном зале",
+                    reason="Добавьте оборудование или доступный вариант тренажёра и разрешите его режим нагрузки: " + ", ".join(reasons),
+                    action=GenerationIssueAction(type="change_equipment", label="Настроить оборудование зала"),
+                ))
+    return issues
 
 
 async def _day_effort_by_tag(db: AsyncSession, app_user_id: int) -> dict[str, str]:
@@ -380,6 +471,12 @@ async def generate_plan(request: GeneratePlanRequest,
         db, current_user, request.blueprint_id)
 
     allowed = _allowed_equipment((profile.settings or {}).get("locations"))
+    gym, gym_decisions, load_contexts = await _named_gym_context(
+        db, current_user.id, request.gym_profile_id, pool)
+    original_pool = pool
+    if gym is not None:
+        pool = [ex for ex in pool if gym_decisions[ex.id].eligible]
+        allowed = None  # Named-gym eligibility already checked every equipment requirement.
     prehab = (profile.settings or {}).get("prehab_flags", [])
     # Endpoint tests use a minimal sentinel instead of an AsyncSession; production
     # always has execute(). Keeping the preference layer optional also makes the
@@ -482,15 +579,24 @@ async def generate_plan(request: GeneratePlanRequest,
                     override_reps=None, override_rir=None,
                     preference="favorite" if e.exercise_id in favorite_ids else None) for e in gen.exercises])
             days_out.append(_apply_saved_generator_rules(
-                generated_day, profile, blueprint.id, pool, allowed, prehab,
+                generated_day, profile, blueprint.id,
+                [ex for ex in pool if ex.id not in disliked_ids] if gym is not None else pool, allowed, prehab,
                 request.config, resolved_accents, favorite_ids, effort,
+                validate_pool=gym is not None,
             ))
-    inputs = _generation_input_summary(profile, blueprint, request, primary_goal_id)
+    if gym is not None:
+        days_out = [_gym_day_context(day, gym_decisions, load_contexts) for day in days_out]
+        for day in days_out:
+            for ex in day.exercises:
+                ex.preference = "favorite" if ex.exercise_id in favorite_ids else None
+    inputs = _gym_summary(_generation_input_summary(profile, blueprint, request, primary_goal_id), gym)
     comparison = await _generation_comparison(
         db, current_user, blueprint, days_out, request.target_date,
         single_day=request.day_name is not None,
     )
     issues = list(generation_issues)
+    if gym is not None:
+        issues.extend(_gym_issues(days_out, original_pool, gym_decisions))
     if request.day_name and not requested_day_exists:
         issues.append(missing_requested_day_issue(request.day_name))
     for day in days_out:
@@ -523,8 +629,28 @@ async def preview_generated_plan(
         db, current_user, request.blueprint_id,
     )
     allowed = _allowed_equipment((profile.settings or {}).get("locations"))
+    gym, gym_decisions, load_contexts = await _named_gym_context(
+        db, current_user.id, request.gym_profile_id, pool)
+    if gym is not None:
+        preferences = (await db.execute(select(
+            UserExercisePreference.exercise_id, UserExercisePreference.preference
+        ).where(UserExercisePreference.app_user_id == current_user.id))).all()
+        preference_by_id = dict(preferences)
+        if any(preference_by_id.get(ex.exercise_id) == "disliked" for day in request.days for ex in day.exercises):
+            raise HTTPException(400, "Упражнение исключено в ваших предпочтениях")
+        request = request.model_copy(update={"days": [
+            _gym_day_context(day, gym_decisions, load_contexts, validate=True) for day in request.days
+        ]})
+        for day in request.days:
+            for ex in day.exercises:
+                ex.preference = preference_by_id.get(ex.exercise_id)
+        pool = [ex for ex in pool if gym_decisions[ex.id].eligible]
+        allowed = None
+    elif any(ex.setup_id is not None or ex.load_mode is not None or ex.load_snapshot is not None
+             for day in request.days for ex in day.exercises):
+        raise HTTPException(400, "Для проверки настройки тренажёра выберите зал")
     prehab = (profile.settings or {}).get("prehab_flags", [])
-    inputs = _generation_input_summary(profile, blueprint, request, primary_goal_id)
+    inputs = _gym_summary(_generation_input_summary(profile, blueprint, request, primary_goal_id), gym)
     comparison = await _generation_comparison(
         db, current_user, blueprint, request.days, request.target_date,
         single_day=request.day_name is not None,
@@ -880,6 +1006,7 @@ def _coverage_after_commands(base_coverage: dict, exercises: list[dict]) -> dict
 def _apply_saved_generator_rules(
     day: GeneratedDayOut, profile, blueprint_id, pool, allowed, prehab,
     generation_config=None, accent_muscles=(), favorite_ids=None, day_effort=None,
+    validate_pool=False,
 ):
     matching = [
         rule for rule in _profile_generator_rules(profile)
@@ -888,6 +1015,17 @@ def _apply_saved_generator_rules(
     if not matching:
         return day
     commands = [Command.from_dict(rule["command"]) for rule in matching]
+    rejected_rules = []
+    if validate_pool:
+        eligible_ids = {ex.id for ex in pool}
+        safe_commands = []
+        for command in commands:
+            target_id = command.params.get("to", {}).get("exercise_id") if command.type == CommandType.REPLACE_EXERCISE else None
+            if target_id is not None and target_id not in eligible_ids:
+                rejected_rules.append("Постоянное правило пропущено: упражнение недоступно в выбранном зале или исключено")
+            else:
+                safe_commands.append(command)
+        commands = safe_commands
     exercises, summaries, warnings = apply_commands_exec(
         [exercise.model_dump() for exercise in day.exercises], commands, pool,
         {"allowed_equipment": allowed, "prehab_flags": prehab},
@@ -931,7 +1069,7 @@ def _apply_saved_generator_rules(
         schedule_tags=day.schedule_tags,
         exercises=exercises,
         coverage=_coverage_after_commands(day.coverage, exercises),
-        warnings=[*day.warnings, *applied, *warnings],
+        warnings=[*day.warnings, *applied, *warnings, *rejected_rules],
         estimated_duration_seconds=estimated_seconds,
         duration_limit_met=duration_limit_met,
     )
