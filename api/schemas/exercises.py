@@ -115,6 +115,12 @@ class EquipmentFilter(str):
     FREE = "free"
     MACHINE = "machine"
 
+
+class ExercisePersonalAlias(BaseModel):
+    source: Literal["strong", "hevy", "fitbod", "table", "notes"]
+    external_name: str
+
+
 class ExerciseSearchItem(BaseModel):
     id: int
     name: str
@@ -126,6 +132,8 @@ class ExerciseSearchItem(BaseModel):
     source: str
     image_url: str | None = None  # Миниатюра техники (первое фото), абсолютный URL
     image_approx: bool = False  # True — фото родственника (техника примерная)
+    aliases: list[str] = Field(default_factory=list)
+    personal_aliases: list[ExercisePersonalAlias] = Field(default_factory=list)
 
 
     preference: ExercisePreferenceValue | None = None

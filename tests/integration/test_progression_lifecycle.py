@@ -504,6 +504,7 @@ async def test_load_history_prefers_live_prescription(
             select(WorkoutSessionExercise).where(WorkoutSessionExercise.id == se_id)
         )
     ).scalar_one()
+    row.prescription = _live_payload(40.0, seeded_history.id)
     row.live_prescription = _live_payload(42.5, seeded_history.id)
     await db.commit()
 
@@ -512,6 +513,8 @@ async def test_load_history_prefers_live_prescription(
     outcome = evaluate(newest.prescription, newest.sets, 2.5)
 
     assert newest.prescription.sets[0].weight_kg == 42.5
+    assert newest.initial_prescription is not None
+    assert newest.initial_prescription.sets[0].weight_kg != 42.5
     assert outcome.status == "hit"
 
 
@@ -537,6 +540,7 @@ async def test_load_history_falls_back_to_prescription(
 
     assert history.sessions[0].prescription is not None
     assert history.sessions[0].prescription.sets
+    assert history.sessions[0].initial_prescription == history.sessions[0].prescription
 
 
 @pytest.mark.asyncio
@@ -566,3 +570,4 @@ async def test_live_prescription_of_other_exercise_is_ignored(
     history = await repository.load_history(db, test_user.id, seeded_history.id)
 
     assert history.sessions[0].prescription is None
+    assert history.sessions[0].initial_prescription is not None

@@ -1,13 +1,17 @@
 """Offline workout snapshots keep the context recorded with each set."""
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
 
-from api.services.models import AppUser, ExerciseLoadPreference, GymExerciseSetup, GymProfile, WorkoutSessionSet
+from api.services.models import (
+    AppUser, AppUserProfile, ExerciseLoadPreference, GymExerciseSetup, GymProfile,
+    UserExerciseProgressionState, WorkoutSessionSet,
+)
+from api.services.progression.records_repository import rebuild_records
 
 pytestmark = pytest.mark.asyncio
 
@@ -266,3 +270,82 @@ async def test_explicit_set_edit_changes_only_that_set(client, db, test_user, se
     assert rows[1]["load_mode"] is None
     assert rows[1]["setup_id"] is None
     assert rows[1]["shown_target_snapshot"] is None
+
+
+@pytest.mark.parametrize("mode,basis,plate_unit", [
+    ("stack", "displayed", "kg"), ("plate_loaded", "plates_only", "kg"),
+    ("plate_loaded", "plates_only", "lb"),
+])
+async def test_modern_no_gym_snapshot_reaches_progression_and_records(
+    client, db, test_user, fresh_exercise, mode, basis, plate_unit
+):
+    """The mobile no-gym payload retains its recorded global load context."""
+    step_key = "plate_kg" if plate_unit == "kg" else "plate_lb"
+    config_key = "plate_config_kg" if plate_unit == "kg" else "plate_config_lbs"
+    settings = {"weight_unit": "lbs", "weight_steps": {"block_lb": 10, step_key: 2.5},
+        config_key: {"plates": [{"weight": 5, "count": 20}]}}
+    profile = AppUserProfile(app_user_id=test_user.id, settings=settings)
+    db.add(profile)
+    db.add(ExerciseLoadPreference(app_user_id=test_user.id, exercise_source="user",
+        exercise_id=fresh_exercise.id, enabled_modes=["stack", "plate_loaded"], preferred_mode=mode))
+    await db.commit()
+    recorded = {"gym_id": None, "gym_name": None, "setup_id": None, "mode": mode,
+        "step_value": 10 if mode == "stack" else 2.5,
+        "step_unit": "lb" if mode == "stack" else plate_unit,
+        "loading_sides": 1 if mode == "stack" else 2, "weight_basis": basis,
+        "base_weight": None,
+        "plates": None if mode == "stack" and plate_unit == "kg" else [
+            {"weight": 5, "count": 20, "unit": plate_unit}]}
+    item = {"client_uuid": str(uuid4()), "set_number": 1, "set_type": "normal",
+        "weight": 40, "reps": 10, "effort_level": "medium", "is_completed": True,
+        "load_mode": mode, "gym_profile_id": None, "setup_id": None,
+        "load_snapshot": recorded,
+        "shown_target_snapshot": {"set_number": 1, "weight_kg": 40,
+            "rep_min": 8, "rep_max": 12, "rir": 2, "kind": "normal"}}
+    finished = snapshot(fresh_exercise.id, sets=[item], gym_profile_id=None, gym_snapshot=None)
+    finished.update(status="finished", started_at=(datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+        finished_at=datetime.now(timezone.utc).isoformat())
+    finished["exercises"][0].update(active_load_mode=mode, active_setup_id=None)
+    saved = await client.post("/sync/workouts", json=finished)
+    assert saved.status_code == 200, saved.text
+    workout = saved.json()["workout"]
+    assert workout["exercises"][0]["sets"][0]["load_snapshot"] == recorded
+    active = snapshot(fresh_exercise.id, gym_profile_id=None, gym_snapshot=None)
+    active["exercises"][0].update(active_load_mode=mode, active_setup_id=None)
+    next_workout = await client.post("/sync/workouts", json=active)
+    assert next_workout.status_code == 200, next_workout.text
+    current_id = next_workout.json()["workout"]["exercises"][0]["id"]
+    recommendation_url = f"/workout-session-exercises/{current_id}/autoprogression"
+    recommendation = await client.get(recommendation_url,
+        params={"load_mode": mode, "gym_profile_id": "none"})
+    assert recommendation.status_code == 200, recommendation.text
+    assert recommendation.json()["has_basis"] is True
+    assert recommendation.json()["target_weight"] > 0
+    state = (await db.execute(select(UserExerciseProgressionState).where(
+        UserExerciseProgressionState.app_user_id == test_user.id,
+        UserExerciseProgressionState.exercise_id == fresh_exercise.id))).scalar_one()
+    key = f"gym:none|mode:{mode}|basis:{basis}"
+    assert state.records["variants"][key]["weight_at_reps"]["10"]["weight"] == 40
+    history = await client.get(f"/exercises/{fresh_exercise.id}/history/{workout['id']}")
+    assert history.status_code == 200, history.text
+    assert history.json()["sets"][0]["weight_basis"] == basis
+    # A full replay preserves the old snapshot after global settings change.
+    profile.settings = {**settings, "weight_steps": {"block_lb": 20, step_key: 5}}
+    await db.commit()
+    replay = await client.post("/sync/workouts", json=finished)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["workout"]["exercises"][0]["sets"][0]["load_snapshot"] == recorded
+    # Literal null remains an explicit clear, and the unknown basis stays excluded.
+    cleared = deepcopy(finished)
+    cleared["exercises"][0]["sets"][0]["load_snapshot"] = None
+    response = await client.post("/sync/workouts", json=cleared)
+    assert response.status_code == 200, response.text
+    assert response.json()["workout"]["exercises"][0]["sets"][0]["load_snapshot"] is None
+    await rebuild_records(db, test_user.id, [fresh_exercise.id])
+    await db.commit()
+    await db.refresh(state)
+    assert key not in state.records["variants"]
+    unknown = await client.get(recommendation_url,
+        params={"load_mode": mode, "gym_profile_id": "none"})
+    assert unknown.status_code == 200, unknown.text
+    assert unknown.json()["has_basis"] is False

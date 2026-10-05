@@ -9,6 +9,10 @@ from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import relationship, declarative_base, mapped_column, Mapped
 
 from api.services.day_template import DayTemplateType
+from api.services.exercise_alias_identity import (
+    NORMALIZED_EXTERNAL_NAME_MAX_CHARS,
+    NORMALIZED_EXTERNAL_NAME_SHA256_HEX_CHARS,
+)
 from api.services.exercise_pattern_tags import ExerciseAction, ExerciseVector, ExerciseLaterality
 from api.services.mesocycle_phase import MesocyclePhaseEnum
 from api.services.scheduling import SchedulingMode, WorkoutStatus, MesocyclePhase
@@ -52,6 +56,9 @@ class AppUser(Base):
     )
 
     sessions: Mapped[List["WorkoutSession"]] = relationship("WorkoutSession", back_populates="app_user")
+    routines: Mapped[List["WorkoutRoutine"]] = relationship(
+        "WorkoutRoutine", back_populates="app_user", cascade="all, delete-orphan"
+    )
     user_splits: Mapped[List["UserSplit"]] = relationship("UserSplit", back_populates="app_user")
     mesocycles: Mapped[List["AppUserMesocycle"]] = relationship(
         "AppUserMesocycle",
@@ -402,6 +409,9 @@ class WorkoutSession(Base):
     source: Mapped[str] = mapped_column(String(32), nullable=False)  # free | split_day | plan
     status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
     plan_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("workout_plans.id", ondelete="SET NULL"), nullable=True)
+    routine_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("workout_routines.id", ondelete="SET NULL"), nullable=True
+    )
     split_day_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey('split_day_slots.id', ondelete="SET NULL"),
@@ -451,6 +461,17 @@ class WorkoutSession(Base):
     # не создаёт индексов, при росте объёмов индекс добавить вручную).
     import_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
+    # Ручные исправления истории имеют собственную ревизию, не связанную с
+    # транспортной версией офлайн-синхронизации.
+    entry_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="live", server_default="live"
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    history_request_fingerprint: Mapped[Optional[str]] = mapped_column(String(64))
+
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
@@ -466,6 +487,10 @@ class WorkoutSession(Base):
     __table_args__ = (
         CheckConstraint("source IN ('free', 'split_day', 'plan')", name="ck_workout_sessions_source"),
         CheckConstraint("status IN ('active', 'finished')", name="ck_workout_sessions_status"),
+        CheckConstraint(
+            "entry_mode IN ('live', 'manual', 'screenshot_import')",
+            name="ck_workout_sessions_entry_mode",
+        ),
     )
 
 
@@ -569,6 +594,44 @@ class WorkoutSessionSet(Base):
     )
 
 
+class WorkoutRecalculationOperation(Base):
+    """Устойчивый пересчёт после каждой ревизии исторической тренировки."""
+
+    __tablename__ = "workout_recalculation_operations"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    workout_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workout_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    exercise_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("workout_id", "revision", name="uq_workout_recalculation_revision"),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'completed', 'failed')",
+            name="ck_workout_recalculation_status",
+        ),
+        CheckConstraint("revision >= 0", name="ck_workout_recalculation_revision"),
+        CheckConstraint("attempts >= 0", name="ck_workout_recalculation_attempts"),
+    )
+
+
 class SyncTombstone(Base):
     """Надгробие удалённой сущности — чтобы удаление доехало до других устройств.
 
@@ -606,9 +669,15 @@ class ExerciseImportAlias(Base):
     app_user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    source: Mapped[str] = mapped_column(String(32), default="strong", server_default="strong")
-    # Имя как в файле, приведённое к нижнему регистру и обрезанное.
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="strong", server_default="strong"
+    )
+    # Исходное имя хранится для повторного импорта и показа пользователю.
     external_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    normalized_external_name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_external_name_sha256: Mapped[str] = mapped_column(
+        String(NORMALIZED_EXTERNAL_NAME_SHA256_HEX_CHARS), nullable=False
+    )
     exercise_id: Mapped[int] = mapped_column(
         ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False
     )
@@ -617,6 +686,22 @@ class ExerciseImportAlias(Base):
     )
 
     exercise: Mapped["Exercise"] = relationship("Exercise", lazy="noload")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "source", "normalized_external_name_sha256",
+            name="uq_exercise_import_alias_user_source_name",
+        ),
+        CheckConstraint(
+            "source IN ('strong', 'hevy', 'fitbod', 'table', 'notes')",
+            name="ck_exercise_import_alias_source",
+        ),
+        CheckConstraint(
+            "char_length(normalized_external_name) <= "
+            f"{NORMALIZED_EXTERNAL_NAME_MAX_CHARS}",
+            name="ck_exercise_import_alias_normalized_length",
+        ),
+    )
 
 
 class UserExercise(Base):
@@ -663,6 +748,9 @@ class UserAnthropometry(Base):
     # Идемпотентный ключ offline-записи (дедуп повторной отправки одного замера).
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
+    # Локальная дата ввода и метрики, действительно указанные пользователем.
+    measured_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    submitted_fields: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     # updated_at больше не нужен, так как мы не обновляем эту строку, а пишем новую
 
     app_user: Mapped["AppUser"] = relationship("AppUser", back_populates="anthropometry_history")
@@ -682,9 +770,40 @@ class BodyMeasurement(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    measured_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     # Идемпотентный ключ offline-записи (дедуп повторной отправки одного замера).
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
+
+class BodyProgressPhoto(Base):
+    """Private metadata; image bytes live on a non-public persistent server volume."""
+
+    __tablename__ = "body_progress_photos"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False
+    )
+    taken_on: Mapped[date] = mapped_column(Date, nullable=False)
+    angle: Mapped[str] = mapped_column(String(20), nullable=False, default="unspecified")
+    storage_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    thumbnail_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("app_user_id", "client_uuid", name="uq_body_photos_user_client_uuid"),
+        Index("ix_body_photos_user_date", "app_user_id", "taken_on", "created_at"),
+        CheckConstraint("angle IN ('front', 'side', 'back', 'unspecified')", name="ck_body_photos_angle"),
+        CheckConstraint("state IN ('active', 'deleting')", name="ck_body_photos_state"),
+    )
 
 class UserObservation(Base):
     """Append-only журнал размеченных наблюдений для будущей персонализации.
@@ -1023,6 +1142,18 @@ class WorkoutPlan(Base):
     meso_tag: Mapped[str] = mapped_column(String(20), nullable=False,
                                           index=True)  # 'deload', 'easy', 'medium', 'prefailure', 'failure', 'adaptive'
 
+    supersedes_plan_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("workout_plans.id", ondelete="SET NULL", name="fk_workout_plans_supersedes_plan_id"),
+        nullable=True,
+    )
+    is_archived: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+
     # Связь с упражнениями в плане
     exercises: Mapped[List["WorkoutPlanExercise"]] = relationship(
         "WorkoutPlanExercise",
@@ -1067,9 +1198,31 @@ class WorkoutPlanExercise(Base):
     override_rir: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     plan: Mapped["WorkoutPlan"] = relationship("WorkoutPlan", back_populates="exercises")
-
     exercise: Mapped["Exercise"] = relationship("Exercise")
 
+
+class PlanReplacementOperation(Base):
+    """Durable result of one plan replacement request."""
+
+    __tablename__ = "plan_replacement_operations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    new_plan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("workout_plans.id", ondelete="RESTRICT"), nullable=False
+    )
+    affected_dates: Mapped[list] = mapped_column(JSONB, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "idempotency_key",
+            name="uq_plan_replacement_operation_user_key",
+        ),
+    )
 
 class AppUserMicrocycle(Base):
     __tablename__ = "app_user_microcycles"
@@ -1449,4 +1602,143 @@ class PushDelivery(Base):
 
     __table_args__ = (
         UniqueConstraint("notification_id", "device_id", name="uq_push_delivery_notification_device"),
+    )
+class WorkoutRoutine(Base):
+    """User-managed one-workout structure, separate from WorkoutPlan."""
+
+    __tablename__ = "workout_routines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    client_uuid: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    app_user: Mapped["AppUser"] = relationship("AppUser", back_populates="routines")
+    exercises: Mapped[List["WorkoutRoutineExercise"]] = relationship(
+        "WorkoutRoutineExercise",
+        back_populates="routine",
+        cascade="all, delete-orphan",
+        order_by="WorkoutRoutineExercise.order_index",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "client_uuid", name="uq_workout_routines_user_client_uuid"
+        ),
+        CheckConstraint("sort_order >= 0", name="ck_workout_routines_sort_order"),
+    )
+
+
+class WorkoutRoutineExercise(Base):
+    __tablename__ = "workout_routine_exercises"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    routine_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("workout_routines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    exercise_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("exercises.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    superset_group: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    target_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    set_kinds: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    rep_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rep_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_rir: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rest_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    routine: Mapped["WorkoutRoutine"] = relationship(
+        "WorkoutRoutine", back_populates="exercises"
+    )
+    exercise: Mapped["Exercise"] = relationship("Exercise")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "routine_id", "order_index", name="uq_workout_routine_exercise_order"
+        ),
+        CheckConstraint(
+            "order_index >= 0", name="ck_workout_routine_exercise_order"
+        ),
+        CheckConstraint(
+            "target_sets > 0", name="ck_workout_routine_exercise_target_sets"
+        ),
+        CheckConstraint(
+            "rep_min IS NULL OR rep_min > 0",
+            name="ck_workout_routine_exercise_rep_min",
+        ),
+        CheckConstraint(
+            "rep_max IS NULL OR rep_max >= rep_min",
+            name="ck_workout_routine_exercise_rep_max",
+        ),
+        CheckConstraint(
+            "target_rir IS NULL OR target_rir BETWEEN 0 AND 10",
+            name="ck_workout_routine_exercise_target_rir",
+        ),
+        CheckConstraint(
+            "rest_seconds IS NULL OR rest_seconds >= 0",
+            name="ck_workout_routine_exercise_rest_seconds",
+        ),
+    )
+
+
+class WorkoutImportMlRequestRecord(Base):
+    """Metadata-only request audit; image and model bodies are never stored."""
+
+    __tablename__ = "workout_import_ml_requests"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    byte_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "idempotency_key", name="uq_workout_import_ml_user_idempotency"
+        ),
+        CheckConstraint("image_count BETWEEN 1 AND 3", name="ck_workout_import_ml_image_count"),
+        CheckConstraint("byte_count BETWEEN 1 AND 8388608", name="ck_workout_import_ml_byte_count"),
+        CheckConstraint("latency_ms IS NULL OR latency_ms >= 0", name="ck_workout_import_ml_latency"),
+        CheckConstraint(
+            "status IN ('reserved', 'completed', 'rate_limited', 'timeout', 'unavailable', 'invalid_response', 'invalid_image', 'payload_too_large')",
+            name="ck_workout_import_ml_status",
+        ),
+        Index("ix_workout_import_ml_user_created", "app_user_id", "created_at"),
     )

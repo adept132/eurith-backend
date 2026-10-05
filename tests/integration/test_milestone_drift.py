@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from api.services.models import AppUserProfile, UserAnthropometry
 from app.database import SessionLocal
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("milestone_catalog")]
 
 
 async def _prepare(user_id: int, kg: float) -> None:

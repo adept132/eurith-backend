@@ -139,6 +139,7 @@ class SyncWorkoutSnapshot(BaseModel):
     status: WorkoutStatus
     split_day_id: uuid.UUID | None = None
     plan_id: int | None = None
+    routine_id: int | None = None
     notes: str | None = None
     # Субъективная тяжесть сессии по шкале Борга CR10 (0-10); заполняется позже,
     # после завершения тренировки, поэтому опциональна и в снапшоте.

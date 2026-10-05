@@ -34,7 +34,9 @@ from api.services.progression.volume import apply_volume_trim
 def _latest_outcome(ctx: SchemeContext, step: float) -> Optional[Outcome]:
     """Вердикт по самой свежей сессии, в которой были рабочие подходы."""
     for session in ctx.history.sessions:
-        outcome = evaluate(session.prescription, session.sets, step)
+        outcome = evaluate(
+            session.prescription, session.sets, step, session.initial_prescription
+        )
         if outcome.status != "skipped":
             return outcome
     return None
@@ -50,7 +52,9 @@ def _last_session_skipped(ctx: SchemeContext, step: float) -> bool:
     if not ctx.history.sessions:
         return False
     newest = ctx.history.sessions[0]
-    return evaluate(newest.prescription, newest.sets, step).status == "skipped"
+    return evaluate(
+        newest.prescription, newest.sets, step, newest.initial_prescription
+    ).status == "skipped"
 
 
 def plan_exercise(

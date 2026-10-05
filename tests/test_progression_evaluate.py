@@ -92,7 +92,9 @@ def test_each_set_uses_the_target_it_was_shown_across_mode_switches():
     out = evaluate(old_stack_goal, [stack, plate], STEP)
     assert out.status == "hit"
     assert out.hit_sets == 2
-    assert evaluate(None, [plate], STEP).status == "hit"
+    shown_only = evaluate(None, [plate], STEP)
+    assert shown_only.status == "hit"
+    assert shown_only.original_goal_met is True
 
 
 def test_no_facts_is_skipped():

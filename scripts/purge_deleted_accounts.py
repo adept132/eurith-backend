@@ -23,6 +23,7 @@ from api.services.account_service import (
     purge_at,
 )
 from api.services.models import AppUser
+from api.services.body_photos import cleanup_pending_photos
 from app.database import SessionLocal, engine
 
 
@@ -54,6 +55,14 @@ async def main(apply: bool) -> None:
         else:
             purged = await purge_expired(db, now=now)
             print(f"[purge] удалено аккаунтов: {len(purged)} {purged}")
+
+        if apply:
+            try:
+                removed_photos = await cleanup_pending_photos(db)
+                if removed_photos:
+                    print(f"[body] дочищено фото: {removed_photos}")
+            except Exception as exc:
+                print(f"[body] хранилище фото недоступно: {type(exc).__name__}")
 
     await engine.dispose()
 

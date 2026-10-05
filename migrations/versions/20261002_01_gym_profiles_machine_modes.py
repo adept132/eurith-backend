@@ -1,7 +1,7 @@
 """Add saved gym profiles, machine modes, and workout load snapshots.
 
 Revision ID: 20261002_01
-Revises: 20260908_01
+Revises: 20260929_01
 """
 
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20261002_01"
-down_revision: Union[str, Sequence[str], None] = "20260908_01"
+down_revision: Union[str, Sequence[str], None] = "20260929_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

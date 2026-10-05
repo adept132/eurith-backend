@@ -8,9 +8,10 @@
 from __future__ import annotations
 
 import math
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional
 
-from sqlalchemy import desc, select
+from sqlalchemy import Date, cast, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.models import BodyMeasurement, UserAnthropometry
@@ -82,10 +83,14 @@ def navy_body_fat(
 
 
 async def _latest_anthro(session: AsyncSession, user_id: int) -> Optional[UserAnthropometry]:
+    effective_day = func.coalesce(
+        UserAnthropometry.measured_on,
+        cast(func.timezone("UTC", UserAnthropometry.recorded_at), Date),
+    )
     return (await session.execute(
         select(UserAnthropometry)
         .where(UserAnthropometry.app_user_id == user_id)
-        .order_by(desc(UserAnthropometry.recorded_at))
+        .order_by(desc(effective_day), desc(UserAnthropometry.recorded_at))
         .limit(1)
     )).scalars().first()
 
@@ -99,6 +104,7 @@ async def record_body_entry(
     measurements: Optional[Dict[str, float]] = None,
     gender: Optional[str] = None,
     client_uuid: Optional[str] = None,
+    measured_on: Optional[date] = None,
 ) -> None:
     """Пишет снимок композиции. Вес/рост/жир — новой записью UserAnthropometry
     (недостающие поля переносим из последней записи, чтобы не терять их).
@@ -140,6 +146,12 @@ async def record_body_entry(
         )
 
     if weight is not None or height is not None or resolved_fat is not None:
+        submitted_fields = [
+            key for key, value in (("weight", weight), ("height", height), ("body_fat", body_fat))
+            if value is not None
+        ]
+        if resolved_fat is not None and body_fat is None:
+            submitted_fields.append("body_fat_estimated")
         session.add(UserAnthropometry(
             app_user_id=user_id,
             weight=weight if weight is not None else (last.weight if last else None),
@@ -148,6 +160,8 @@ async def record_body_entry(
             birth_date=last.birth_date if last else None,
             activity_level=last.activity_level if last else None,
             client_uuid=client_uuid,
+            measured_on=measured_on,
+            submitted_fields=submitted_fields,
         ))
 
     for key, value in (measurements or {}).items():
@@ -155,6 +169,7 @@ async def record_body_entry(
             session.add(BodyMeasurement(
                 app_user_id=user_id, metric_key=key, value=float(value),
                 client_uuid=client_uuid,
+                measured_on=measured_on,
             ))
 
     await session.commit()
@@ -178,8 +193,12 @@ async def get_metric_series(
         )).scalars().all())
         for r in rows:
             v = r.weight if metric_key == "weight" else r.body_fat
+            if r.submitted_fields is not None and metric_key not in r.submitted_fields and not (
+                metric_key == "body_fat" and "body_fat_estimated" in r.submitted_fields
+            ):
+                continue
             if v is not None and r.recorded_at is not None:
-                series.append((r.recorded_at.date(), float(v)))
+                series.append((r.measured_on or r.recorded_at.date(), float(v)))
     else:
         rows = list((await session.execute(
             select(BodyMeasurement)
@@ -191,8 +210,8 @@ async def get_metric_series(
         )).scalars().all())
         for r in rows:
             if r.recorded_at is not None:
-                series.append((r.recorded_at.date(), float(r.value)))
-    return series
+                series.append((r.measured_on or r.recorded_at.date(), float(r.value)))
+    return sorted(series, key=lambda point: point[0])
 
 
 async def get_body_entries(session: AsyncSession, user_id: int) -> List[dict]:
@@ -214,26 +233,28 @@ async def get_body_entries(session: AsyncSession, user_id: int) -> List[dict]:
 
     by_date: Dict[str, dict] = {}
 
-    def bucket(dt) -> Optional[dict]:
-        if dt is None:
+    def bucket(day) -> Optional[dict]:
+        if day is None:
             return None
-        key = dt.date().isoformat()
+        key = day.isoformat()
         return by_date.setdefault(
-            key, {"date": key, "weight": None, "body_fat": None, "measurements": {}}
+            key, {"date": key, "weight": None, "body_fat": None, "measurements": {}, "legacy": False}
         )
 
     for a in anthro:
-        b = bucket(a.recorded_at)
+        b = bucket(a.measured_on or (a.recorded_at.date() if a.recorded_at else None))
         if b is None:
             continue
+        b["legacy"] = b["legacy"] or a.measured_on is None or a.submitted_fields is None
         if a.weight is not None:
             b["weight"] = round(float(a.weight), 1)
         if a.body_fat is not None:
             b["body_fat"] = round(float(a.body_fat), 1)
     for m in meas:
-        b = bucket(m.recorded_at)
+        b = bucket(m.measured_on or (m.recorded_at.date() if m.recorded_at else None))
         if b is None:
             continue
+        b["legacy"] = b["legacy"] or m.measured_on is None
         b["measurements"][m.metric_key] = round(float(m.value), 1)
 
     return sorted(by_date.values(), key=lambda e: e["date"], reverse=True)
@@ -255,27 +276,41 @@ async def get_body_overview(session: AsyncSession, user_id: int) -> dict:
 
     history: Dict[str, List[dict]] = {}
 
-    def push(key: str, dt, value):
+    def push(key: str, day, value):
         if value is None:
             return
         history.setdefault(key, []).append(
-            {"date": dt.date().isoformat() if dt else None, "value": round(float(value), 1)}
+            {"date": day.isoformat() if day else None, "value": round(float(value), 1)}
         )
 
     for a in anthro_rows:
-        push("weight", a.recorded_at, a.weight)
-        push("body_fat", a.recorded_at, a.body_fat)
+        day = a.measured_on or (a.recorded_at.date() if a.recorded_at else None)
+        if a.submitted_fields is None or "weight" in a.submitted_fields:
+            push("weight", day, a.weight)
+        if a.submitted_fields is None or "body_fat" in a.submitted_fields or "body_fat_estimated" in a.submitted_fields:
+            push("body_fat", day, a.body_fat)
     for m in meas_rows:
-        push(m.metric_key, m.recorded_at, m.value)
+        push(m.metric_key, m.measured_on or (m.recorded_at.date() if m.recorded_at else None), m.value)
 
-    latest = anthro_rows[-1] if anthro_rows else None
+    for points in history.values():
+        points.sort(key=lambda point: point["date"] or "")
+
+    latest = max(
+        anthro_rows,
+        key=lambda row: (row.measured_on or (row.recorded_at.date() if row.recorded_at else date.min),
+                         row.recorded_at or datetime.min.replace(tzinfo=timezone.utc)),
+        default=None,
+    )
     latest_weight = latest.weight if latest else None
     latest_height = latest.height if latest else None
     latest_body_fat = latest.body_fat if latest else None
 
     # Последние значения замеров — по последней записи каждого ключа.
     latest_measurements: Dict[str, float] = {}
-    for m in meas_rows:
+    for m in sorted(meas_rows, key=lambda row: (
+        row.measured_on or (row.recorded_at.date() if row.recorded_at else date.min),
+        row.recorded_at or datetime.min.replace(tzinfo=timezone.utc),
+    )):
         latest_measurements[m.metric_key] = round(float(m.value), 1)
 
     return {

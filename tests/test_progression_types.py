@@ -55,7 +55,8 @@ def test_prescription_is_immutable():
 def test_every_reason_code_has_text():
     expected = {
         "progressed",
-        "hold_after_miss",
+            "hold_after_miss",
+            "goal_met_in_session",
         "repeated_miss",
         "plateau_reset",
         "deload_phase",

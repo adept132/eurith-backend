@@ -5,6 +5,8 @@ APP_DIR="${APP_DIR:-/opt/eurith}"
 SOURCE_DIR="${SOURCE_DIR:-${APP_DIR}/backend}"
 HEALTH_URL="${HEALTH_URL:-https://api.eurith.app/health}"
 BACKUP_DIR="${APP_DIR}/backups"
+BODY_PHOTO_HOST_DIR="${BODY_PHOTO_HOST_DIR:-${APP_DIR}/private/body-photos}"
+umask 077
 
 if [[ $# -ne 1 ]]; then
   echo "Использование: $0 <commit-or-tag>" >&2
@@ -30,6 +32,12 @@ fi
 
 OLD_COMMIT="$(git rev-parse HEAD)"
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
+
+if [[ ! -d "$BODY_PHOTO_HOST_DIR" ]]; then
+  echo "Приватный том фото не найден: $BODY_PHOTO_HOST_DIR" >&2
+  exit 1
+fi
 
 echo "[1/7] Загружаю изменения из GitHub"
 git fetch --prune origin
@@ -43,11 +51,14 @@ fi
 echo "[2/7] Создаю резервную копию PostgreSQL"
 cd "$APP_DIR"
 BACKUP_FILE="${BACKUP_DIR}/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)-${OLD_COMMIT:0:8}.dump"
+PHOTO_BACKUP_FILE="${BACKUP_FILE%.dump}-body-photos.tar"
 docker compose exec -T postgres pg_dump \
   -U "${POSTGRES_USER:-eurith_app}" \
   -d "${POSTGRES_DB:-eurith}" \
   --format=custom --no-owner --no-privileges > "$BACKUP_FILE"
 test -s "$BACKUP_FILE"
+tar -C "$BODY_PHOTO_HOST_DIR" -cf "$PHOTO_BACKUP_FILE" .
+test -s "$PHOTO_BACKUP_FILE"
 
 echo "[3/7] Переключаю исходники на ${NEW_COMMIT}"
 cd "$SOURCE_DIR"
@@ -61,11 +72,18 @@ if ! docker compose build api; then
   exit 1
 fi
 
+if ! docker compose run --rm --no-deps api python -c 'from api.main import app; print("API import OK")'; then
+  git -C "$SOURCE_DIR" checkout --detach "$OLD_COMMIT"
+  echo "Новый API не загрузился; работающий API не изменён." >&2
+  exit 1
+fi
+
 echo "[5/7] Применяю миграции базы данных"
 if ! docker compose run --rm --no-deps api alembic upgrade head; then
   git -C "$SOURCE_DIR" checkout --detach "$OLD_COMMIT"
   echo "Миграция не удалась; работающий API не изменён." >&2
   echo "Резервная копия: $BACKUP_FILE" >&2
+  echo "Фото: $PHOTO_BACKUP_FILE" >&2
   exit 1
 fi
 
@@ -77,12 +95,17 @@ for attempt in $(seq 1 30); do
   if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null; then
     echo "Деплой успешен: ${OLD_COMMIT:0:8} -> ${NEW_COMMIT:0:8}"
     echo "Резервная копия: $BACKUP_FILE"
+    echo "Фото: $PHOTO_BACKUP_FILE"
     exit 0
   fi
   sleep 2
 done
 
 echo "Health check не прошёл. Возвращаю ${OLD_COMMIT}." >&2
+(
+  umask 077
+  docker compose logs --tail 200 api > "${BACKUP_DIR}/failed-deploy-$(date -u +%Y%m%dT%H%M%SZ)-${NEW_COMMIT:0:8}.log" 2>&1
+) || true
 git -C "$SOURCE_DIR" checkout --detach "$OLD_COMMIT"
 docker compose build api
 docker compose up -d --no-deps api

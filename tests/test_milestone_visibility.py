@@ -1,5 +1,5 @@
 """Правило видимости вех (P1-03 ч.2, §5.2)."""
-from api.services.milestones.visibility import visible_milestones
+from api.services.milestones.visibility import achieved_codes_from_sets, visible_milestones
 
 # Потолок недельного прироста e1RM, доля от текущего (WEEKLY_GROWTH_CAP_PCT).
 INTERMEDIATE_CAP = 0.005
@@ -7,6 +7,36 @@ INTERMEDIATE_CAP = 0.005
 
 def _codes(result):
     return [v.milestone.code for v in result]
+
+
+def test_completed_set_skips_achieved_rung_even_with_lower_current_e1rm():
+    result = visible_milestones(
+        current_e1rm={"bench": 70.0}, bodyweight=80.0,
+        ceiling_pct=INTERMEDIATE_CAP, achieved_codes={"bench_bw"},
+    )
+    assert "bench_bw" not in _codes(result)
+    assert "bench_100kg" in _codes(result)
+
+
+def test_completed_pullup_skips_first_rung_without_bodyweight():
+    result = visible_milestones(
+        current_e1rm={}, bodyweight=None, ceiling_pct=INTERMEDIATE_CAP,
+        achieved_codes={"pullup_first"},
+    )
+    assert "pullup_first" not in _codes(result)
+    assert "pullup_10_reps" in _codes(result)
+
+
+def test_completed_sets_meet_weight_and_repetition_targets():
+    achieved = achieved_codes_from_sets(
+        {"bench": [(80.0, 1), (70.0, 5)], "pullup": [(None, 10)]},
+        bodyweight=80.0,
+    )
+    assert "bench_bw" in achieved
+    assert "bench_100kg" not in achieved
+    assert "pullup_first" in achieved
+    assert "pullup_10_reps" in achieved
+    assert "pullup_plus20" not in achieved
 
 
 def test_one_milestone_per_lift_at_most():
