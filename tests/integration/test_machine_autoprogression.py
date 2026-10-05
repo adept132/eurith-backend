@@ -196,3 +196,52 @@ async def test_no_gym_query_retains_context_validation(client, db, test_user, se
     finally:
         await db.delete(foreign_user)
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_variant_initial_goal_uses_its_own_complete_shown_targets(
+    client, db, test_user, fresh_exercise
+):
+    """A later successful plate set cannot miss an old stack-mode goal."""
+    db.add(AppUserProfile(app_user_id=test_user.id, settings={
+        "weight_steps": {"plate_kg": 2.5},
+        "plate_config_kg": {"plates": [{"weight": 5, "count": 20}]},
+    }))
+    db.add(ExerciseLoadPreference(app_user_id=test_user.id, exercise_source="user",
+        exercise_id=fresh_exercise.id, enabled_modes=["stack", "plate_loaded"],
+        preferred_mode="plate_loaded"))
+    old_stack = Prescription(scheme="double", sets=(
+        SetPrescription(1, 55, 8, 12, 2), SetPrescription(2, 55, 8, 12, 2)),
+        reason_code="stored", reason_text="initial stack goal",
+        basis={"exercise_id": fresh_exercise.id}).to_dict()
+    for days_ago in (2, 1):
+        workout = WorkoutSession(app_user_id=test_user.id, source="free", status="finished",
+            finished_at=datetime.now(timezone.utc) - timedelta(days=days_ago))
+        db.add(workout)
+        await db.flush()
+        movement = WorkoutSessionExercise(workout_session_id=workout.id,
+            exercise_id=fresh_exercise.id, order_index=0, prescription=old_stack,
+            recommended_rep_min=8, recommended_rep_max=12, target_sets=2)
+        db.add(movement)
+        await db.flush()
+        for number, reps in ((1, 7), (2, 8)):
+            db.add(WorkoutSessionSet(workout_session_exercise_id=movement.id,
+                set_number=number, set_type="normal", weight=30, reps=reps,
+                effort_level="medium", is_completed=True, load_mode="plate_loaded",
+                load_snapshot={"weight_basis": "plates_only"},
+                shown_target_snapshot={"set_number": number, "weight_kg": 30,
+                    "rep_min": 8, "rep_max": 12, "rir": 2, "kind": "normal"}))
+    active = WorkoutSession(app_user_id=test_user.id, source="free", status="active")
+    db.add(active)
+    await db.flush()
+    current = WorkoutSessionExercise(workout_session_id=active.id,
+        exercise_id=fresh_exercise.id, order_index=0, recommended_rep_min=8,
+        recommended_rep_max=12, target_sets=2, active_load_mode="plate_loaded")
+    db.add(current)
+    await db.commit()
+    response = await client.get(f"/workout-session-exercises/{current.id}/autoprogression",
+        params={"load_mode": "plate_loaded", "gym_profile_id": "none"})
+    assert response.status_code == 200, response.text
+    assert response.json()["has_basis"] is True
+    assert response.json()["target_weight"] == 30
+    assert response.json()["reason_code"] == "goal_met_in_session"

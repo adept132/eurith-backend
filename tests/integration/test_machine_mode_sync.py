@@ -273,7 +273,8 @@ async def test_explicit_set_edit_changes_only_that_set(client, db, test_user, se
 
 
 @pytest.mark.parametrize("mode,basis,plate_unit", [
-    ("stack", "displayed", "kg"), ("plate_loaded", "plates_only", "kg"),
+    ("stack", "displayed", "kg"), ("stack", "displayed", "lb"),
+    ("plate_loaded", "plates_only", "kg"),
     ("plate_loaded", "plates_only", "lb"),
 ])
 async def test_modern_no_gym_snapshot_reaches_progression_and_records(
@@ -349,3 +350,34 @@ async def test_modern_no_gym_snapshot_reaches_progression_and_records(
         params={"load_mode": mode, "gym_profile_id": "none"})
     assert unknown.status_code == 200, unknown.text
     assert unknown.json()["has_basis"] is False
+
+
+@pytest.mark.parametrize("mode,basis", [("stack", "displayed"), ("plate_loaded", "plates_only")])
+async def test_no_gym_snapshot_without_saved_global_configuration(
+    client, db, test_user, fresh_exercise, mode, basis
+):
+    """UI defaults must not invent plate inventory in a recorded snapshot."""
+    db.add(AppUserProfile(app_user_id=test_user.id, settings={}))
+    db.add(ExerciseLoadPreference(app_user_id=test_user.id, exercise_source="user",
+        exercise_id=fresh_exercise.id, enabled_modes=["stack", "plate_loaded"], preferred_mode=mode))
+    await db.commit()
+    recorded = {"gym_id": None, "gym_name": None, "setup_id": None, "mode": mode,
+        "step_value": 10 if mode == "stack" else 2.5,
+        "step_unit": "lb" if mode == "stack" else "kg",
+        "loading_sides": 1 if mode == "stack" else 2, "weight_basis": basis,
+        "base_weight": None, "plates": None}
+    item = {"client_uuid": str(uuid4()), "set_number": 1, "set_type": "normal",
+        "weight": 20, "reps": 8, "effort_level": "medium", "is_completed": True,
+        "load_mode": mode, "gym_profile_id": None, "setup_id": None,
+        "load_snapshot": recorded}
+    payload = snapshot(fresh_exercise.id, sets=[item], gym_profile_id=None, gym_snapshot=None)
+    payload.update(status="finished", finished_at=datetime.now(timezone.utc).isoformat())
+    payload["exercises"][0].update(active_load_mode=mode, active_setup_id=None)
+    response = await client.post("/sync/workouts", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["workout"]["exercises"][0]["sets"][0]["load_snapshot"] == recorded
+    state = (await db.execute(select(UserExerciseProgressionState).where(
+        UserExerciseProgressionState.app_user_id == test_user.id,
+        UserExerciseProgressionState.exercise_id == fresh_exercise.id))).scalar_one()
+    assert state.records["variants"][f"gym:none|mode:{mode}|basis:{basis}"][
+        "weight_at_reps"]["8"]["weight"] == 20

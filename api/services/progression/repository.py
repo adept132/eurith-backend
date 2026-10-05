@@ -393,6 +393,9 @@ async def load_history(
                     scheme="double", sets=targets, reason_code="shown_target",
                     reason_text="", basis={"exercise_id": exercise_id},
                 )
+            # The original-goal guard must use this variant's recorded targets,
+            # rather than an exercise-level goal from a different machine mode.
+            initial_prescription = prescription
 
         effort_tier = deload_map.get(workout.id)
         sessions.append(
