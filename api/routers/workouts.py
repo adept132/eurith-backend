@@ -428,7 +428,7 @@ async def get_exercise_autoprogression(
     target_effort: str | None = Query(default=None),
     load_mode: Literal["stack", "plate_loaded"] | None = Query(default=None),
     setup_id: UUID | None = Query(default=None),
-    gym_profile_id: UUID | None = Query(default=None),
+    gym_profile_id: UUID | Literal["none"] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_app_user=Depends(get_current_app_user),
 ):
@@ -471,7 +471,13 @@ async def get_exercise_autoprogression(
     if load_mode is None and (setup_id is not None or gym_profile_id is not None):
         raise HTTPException(status_code=400, detail="Load mode is required for machine context")
     if load_mode is not None:
-        selected_gym_id = gym_profile_id if gym_profile_id is not None else session_exercise.workout_session.gym_profile_id
+        # Omitted query keeps the persisted workout context for older clients;
+        # explicit "none" reflects a local no-gym choice before workout sync.
+        selected_gym_id = (
+            None if gym_profile_id == "none"
+            else gym_profile_id if gym_profile_id is not None
+            else session_exercise.workout_session.gym_profile_id
+        )
         gym = await db.get(GymProfile, selected_gym_id) if selected_gym_id is not None else None
         if selected_gym_id is not None and (
             gym is None or gym.app_user_id != current_app_user.id or gym.deleted_at is not None
