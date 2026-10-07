@@ -28,6 +28,8 @@ async def test_language_patch_is_acknowledged_and_read_back(
                                   json={"language": language})
     assert response.status_code == 200, response.text
     assert response.json()["settings"] == {**original, "language": language}
+    # Installed APK 28/29 acknowledge queued language writes at the top level.
+    assert response.json().get("language") == language
     reread = await client.get("/profile", headers=auth_headers)
     assert reread.status_code == 200, reread.text
     assert reread.json()["settings"] == {**original, "language": language}
@@ -36,6 +38,7 @@ async def test_language_patch_is_acknowledged_and_read_back(
     unrelated = await client.patch("/profile/settings", headers=auth_headers,
                                    json={"reminders_enabled": False})
     assert unrelated.json()["settings"]["language"] == language
+    assert unrelated.json()["language"] == language
 
 
 @pytest.mark.asyncio

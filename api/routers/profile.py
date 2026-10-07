@@ -284,7 +284,10 @@ async def update_profile_settings(
         refresh_goal_proposals(db, current_user.id, utc_today()),
     )
 
-    return {"status": "ok", "settings": profile.settings}
+    # Installed APK 28/29 acknowledge language at the top level. Preserve the
+    # established settings envelope while exposing the same saved value there.
+    return {"status": "ok", "settings": profile.settings,
+            "language": profile.settings["language"]}
 
 
 @router.patch("/profile/onboarding")
