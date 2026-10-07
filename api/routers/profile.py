@@ -13,6 +13,14 @@ from api.services.volume_calculator import calculate_volume_budget
 router = APIRouter(tags=["profile"])
 
 
+def _settings_with_language(settings: dict | None) -> dict:
+    """Expose a valid default for legacy settings while preserving other keys."""
+    result = dict(settings or {})
+    if result.get("language") not in ("ru", "en"):
+        result["language"] = "ru"
+    return result
+
+
 @router.get("/users/me/profile", response_model=ProfileResponse)
 async def get_profile_me(
     app_user: AppUser = Depends(get_current_app_user),
@@ -94,7 +102,7 @@ async def get_my_profile(
         "total_workouts": profile.total_workouts,
         "pro_mode_enabled": profile.pro_mode_enabled,
         "volume_budget": profile.volume_budget,
-        "settings": profile.settings,
+        "settings": _settings_with_language(profile.settings),
         "latest_anthropometry": {
             "weight": latest_anthro.weight,
             "height": latest_anthro.height
@@ -117,7 +125,9 @@ async def update_profile_settings(
         raise HTTPException(status_code=404, detail="Профиль не найден")
 
     # Обновляем JSONB поле settings (частично — только переданные поля)
-    current_settings = dict(profile.settings) if profile.settings else {}
+    current_settings = _settings_with_language(profile.settings)
+    if payload.language is not None:
+        current_settings["language"] = payload.language
     if payload.locations is not None:
         current_settings["locations"] = payload.locations
     if payload.prehab_flags is not None:
