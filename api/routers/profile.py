@@ -118,8 +118,13 @@ async def update_profile_settings(
         current_user: AppUser = Depends(get_current_app_user),
         db: AsyncSession = Depends(get_db)
 ):
+    # Serialize the whole JSONB read/merge/write so an overlapping legacy
+    # request cannot replace newer warmup values with its earlier snapshot.
     profile_result = await db.execute(
-        select(AppUserProfile).where(AppUserProfile.app_user_id == current_user.id)
+        select(AppUserProfile)
+        .where(AppUserProfile.app_user_id == current_user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     profile = profile_result.scalars().first()
 
