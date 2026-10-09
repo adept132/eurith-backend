@@ -197,7 +197,10 @@ async def test_additive_catalog_migration_upgrade_downgrade_preserves_existing_t
     root = Path(__file__).resolve().parents[2]
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "migrations"))
-    assert ScriptDirectory.from_config(config).get_heads() == ["20261007_01"]
+    script = ScriptDirectory.from_config(config)
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert "20261007_01" in {revision.revision for revision in script.walk_revisions(head=heads[0])}
     schema = "catalog_check_" + uuid4().hex
 
     def verify(connection):

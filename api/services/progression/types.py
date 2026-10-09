@@ -26,6 +26,8 @@ class SetFact:
     shown_target: Optional[SetPrescription] = None
     # Position among all normal roots, including unfinished and unusable rows.
     working_ordinal: Optional[int] = None
+    # Lookup coordinate of the selected saved prescription; never a factual renumbering.
+    prescription_set_number: Optional[int] = None
 
 
 @dataclass(frozen=True)

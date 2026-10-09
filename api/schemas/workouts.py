@@ -16,6 +16,8 @@ WorkoutStatus = Literal["active", "finished"]
 WorkoutSetType = Literal["normal", "warmup", "drop"]
 
 WorkoutEffortLevel = Literal[
+    # Both existing client and server spellings are factual aliases, not set roles.
+    "warmup",
     "warmup_effort",
     "light",
     "medium",

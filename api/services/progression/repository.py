@@ -319,6 +319,8 @@ async def load_history(
                 is_anomalous=bool(s.is_anomalous),
                 shown_target=_parse_shown_target(s.shown_target_snapshot),
                 working_ordinal=ordinals.get(s.id),
+                # Existing client live targets use technical slots; original goals use working ordinals.
+                prescription_set_number=s.set_number if se.live_prescription else ordinals.get(s.id),
             )
             for s in se.sets
             if s.is_completed and s.parent_set_id is None

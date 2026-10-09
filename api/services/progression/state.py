@@ -141,7 +141,8 @@ def evaluate(
 
     for s in usable:
         sp = s.shown_target or (
-            _prescription_for(prescription, s.working_ordinal if s.working_ordinal is not None else s.set_number)
+            _prescription_for(prescription, s.prescription_set_number if s.prescription_set_number is not None
+                              else s.working_ordinal if s.working_ordinal is not None else s.set_number)
             if prescription is not None and prescription.sets else None
         )
         if sp is None:
