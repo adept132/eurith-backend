@@ -283,6 +283,7 @@ class GymProfile(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     equipment: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     bars: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    collars: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     discs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     steps: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -404,6 +405,39 @@ class ExerciseWarmupPreference(Base):
         CheckConstraint("exercise_id > 0", name="ck_exercise_warmup_preferences_exercise_positive"),
         CheckConstraint("jsonb_typeof(override) = 'object'", name="ck_exercise_warmup_preferences_override_object"),
         CheckConstraint("revision > 0", name="ck_exercise_warmup_preferences_revision_positive"),
+    )
+
+
+class ExerciseEquipmentPreference(Base):
+    """An owner's equipment choices for a gym/exercise/loading context."""
+
+    __tablename__ = "exercise_equipment_preferences"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    gym_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("gym_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    exercise_source: Mapped[str] = mapped_column(String(10), nullable=False)
+    exercise_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    context_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    selected_bar: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    # Collar identity belongs to a JSON inventory, not a relational foreign key.
+    # Keeping the choice after removal lets callers require explicit re-selection.
+    selected_collar_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+    __table_args__ = (
+        UniqueConstraint("app_user_id", "gym_id", "exercise_source", "exercise_id", "context_key",
+                         name="uq_equipment_preferences_owner_context"),
+        CheckConstraint("exercise_source IN ('global', 'user')", name="ck_equipment_preferences_source"),
+        CheckConstraint("exercise_id > 0", name="ck_equipment_preferences_exercise_positive"),
+        CheckConstraint("length(btrim(context_key)) > 0", name="ck_equipment_preferences_context_nonempty"),
+        CheckConstraint("selected_bar IS NULL OR jsonb_typeof(selected_bar) = 'object'",
+                        name="ck_equipment_preferences_bar_object"),
+        CheckConstraint("revision > 0", name="ck_equipment_preferences_revision_positive"),
     )
 
 

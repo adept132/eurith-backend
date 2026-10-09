@@ -18,6 +18,8 @@ from api.schemas.gym_profiles import (
     ExerciseLoadPreferencePayload,
     ExerciseLoadPreferenceView,
     ExerciseSource,
+    EquipmentPreferencePayload,
+    EquipmentPreferenceView,
     GymExerciseSetupDeletePayload,
     GymExerciseSetupPayload,
     GymExerciseSetupView,
@@ -25,6 +27,13 @@ from api.schemas.gym_profiles import (
     GymProfileView,
     LoadMode,
     RevisionedDeletePayload,
+)
+from api.services.equipment_preferences import (
+    EquipmentPreferenceNotFound,
+    EquipmentPreferenceRevisionConflict,
+    EquipmentSelectionUnavailable,
+    list_equipment_preferences,
+    put_equipment_preference,
 )
 from api.services.app_user_service import get_current_app_user
 from api.services.exercise_load_preferences import (
@@ -52,6 +61,7 @@ from api.services.models import (
     AppUser,
     AppUserProfile,
     ExerciseLoadPreference,
+    ExerciseEquipmentPreference,
     GymExerciseSetup,
     GymProfile,
 )
@@ -76,6 +86,7 @@ def _gym_view(row: GymProfile, active_id: str | None) -> GymProfileView:
         name=row.name,
         equipment=row.equipment,
         bars=row.bars,
+        collars=row.collars,
         discs=row.discs,
         steps=row.steps,
         revision=row.revision,
@@ -113,6 +124,15 @@ def _preference_view(row: ExerciseLoadPreference) -> ExerciseLoadPreferenceView:
     )
 
 
+def _equipment_preference_view(row: ExerciseEquipmentPreference) -> EquipmentPreferenceView:
+    return EquipmentPreferenceView(
+        id=row.id, gym_id=row.gym_id, exercise_source=row.exercise_source,
+        exercise_id=row.exercise_id, context_key=row.context_key,
+        selected_bar=row.selected_bar, selected_collar_id=row.selected_collar_id,
+        revision=row.revision,
+    )
+
+
 def _conflict(error: Exception, current) -> HTTPException:
     row = current.model_dump(mode="json") if hasattr(current, "model_dump") else current
     if not isinstance(row, dict):
@@ -123,6 +143,8 @@ def _conflict(error: Exception, current) -> HTTPException:
             row = _gym_view(current, None).model_dump(mode="json")
         elif isinstance(current, GymExerciseSetup):
             row = _setup_view(current).model_dump(mode="json")
+        elif isinstance(current, ExerciseEquipmentPreference):
+            row = _equipment_preference_view(current).model_dump(mode="json")
         elif isinstance(current, ExerciseLoadPreference):
             row = _preference_view(current).model_dump(mode="json")
     return HTTPException(
@@ -296,3 +318,39 @@ async def put_exercise_load_preference_route(
     except ExerciseLoadPreferenceRevisionConflict as error:
         raise _conflict(error, error.current) from error
     return _preference_view(row)
+
+
+@router.get("/gym-profiles/{gym_id}/equipment-preferences", response_model=list[EquipmentPreferenceView])
+async def get_equipment_preferences_route(
+    gym_id: UUID,
+    current_user: AppUser = Depends(get_current_app_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[EquipmentPreferenceView]:
+    try:
+        rows = await list_equipment_preferences(db, current_user.id, gym_id)
+    except EquipmentPreferenceNotFound as error:
+        raise HTTPException(status_code=404, detail="Gym profile not found") from error
+    return [_equipment_preference_view(row) for row in rows]
+
+
+@router.put("/gym-profiles/{gym_id}/equipment-preferences/{source}/{exercise_id}",
+            response_model=EquipmentPreferenceView)
+async def put_equipment_preference_route(
+    gym_id: UUID,
+    source: ExerciseSource,
+    exercise_id: Annotated[int, Path(gt=0)],
+    payload: EquipmentPreferencePayload,
+    current_user: AppUser = Depends(get_current_app_user),
+    db: AsyncSession = Depends(get_db),
+) -> EquipmentPreferenceView:
+    try:
+        row = await put_equipment_preference(db, current_user.id, gym_id, source, exercise_id, payload)
+    except EquipmentPreferenceNotFound as error:
+        raise HTTPException(status_code=404, detail="Gym, exercise or equipment preference not found") from error
+    except EquipmentPreferenceRevisionConflict as error:
+        raise _conflict(error, error.current) from error
+    except EquipmentSelectionUnavailable as error:
+        raise HTTPException(status_code=422, detail={
+            "code": "equipment_selection_requires_reselection", "message": str(error),
+        }) from error
+    return _equipment_preference_view(row)

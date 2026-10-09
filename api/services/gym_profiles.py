@@ -27,6 +27,10 @@ class GymRevisionConflict(Exception):
 
 def _payload_values(payload: GymProfilePayload) -> dict:
     values = payload.model_dump(mode="json", exclude={"expected_revision"})
+    # Old clients do not know about collars; only explicit inventory updates
+    # may replace them. Creation still uses the database's empty-list default.
+    if "collars" not in payload.model_fields_set:
+        values.pop("collars")
     return values
 
 

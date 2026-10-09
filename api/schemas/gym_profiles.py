@@ -26,6 +26,41 @@ class WeightedCount(_Schema):
     unit: WeightUnit
 
 
+class Collar(WeightedCount):
+    id: UUID
+
+
+class SelectedBar(_Schema):
+    weight: float = Field(gt=0, allow_inf_nan=False)
+    unit: WeightUnit
+
+
+class EquipmentPreferencePayload(_Schema):
+    id: UUID
+    context_key: str = Field(min_length=1, max_length=512)
+    selected_bar: SelectedBar | None
+    selected_collar_id: UUID | None
+    expected_revision: int = Field(ge=0)
+
+    @field_validator("context_key")
+    @classmethod
+    def reject_blank_context(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("context_key must not be blank")
+        return value
+
+
+class EquipmentPreferenceView(_Schema):
+    id: UUID
+    gym_id: UUID
+    exercise_source: ExerciseSource
+    exercise_id: int = Field(gt=0)
+    context_key: str = Field(min_length=1, max_length=512)
+    selected_bar: SelectedBar | None
+    selected_collar_id: UUID | None
+    revision: int = Field(ge=1)
+
+
 class PlateInventoryItem(_Schema):
     weight: float = Field(gt=0, allow_inf_nan=False)
     count: int = Field(strict=True, ge=0)
@@ -41,9 +76,17 @@ class GymProfilePayload(_Schema):
     name: str = Field(min_length=1, max_length=120)
     equipment: list[str] = Field(default_factory=list)
     bars: list[WeightedCount] = Field(default_factory=list)
+    collars: list[Collar] = Field(default_factory=list)
     discs: list[WeightedCount] = Field(default_factory=list)
     steps: list[GymStep] = Field(default_factory=list)
     expected_revision: int = Field(ge=0)
+
+    @field_validator("collars")
+    @classmethod
+    def reject_duplicate_collars(cls, values: list[Collar]) -> list[Collar]:
+        if len({row.id for row in values}) != len(values):
+            raise ValueError("collar ids must be unique within a gym profile")
+        return values
 
     @field_validator("name", mode="before")
     @classmethod
@@ -64,6 +107,7 @@ class GymProfileView(_Schema):
     name: str
     equipment: list[str]
     bars: list[WeightedCount]
+    collars: list[Collar] = Field(default_factory=list)
     discs: list[WeightedCount]
     steps: list[GymStep]
     revision: int = Field(ge=1)

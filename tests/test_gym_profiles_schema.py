@@ -216,3 +216,51 @@ def test_load_preference_views_and_active_gym_delete_payloads():
     assert RevisionedDeletePayload(expected_revision=0).expected_revision == 0
     with pytest.raises(ValidationError):
         RevisionedDeletePayload(expected_revision=-1)
+
+
+def test_collar_inventory_accepts_stable_ids_and_distinguishes_omission():
+    collar_id = str(uuid4())
+    row = {"id": collar_id, "weight": 0.25, "unit": "kg", "count": 2}
+    payload = GymProfilePayload(name="Home", collars=[row], expected_revision=0)
+    assert payload.model_dump(mode="json")["collars"] == [row]
+    omitted = GymProfilePayload(name="Home", expected_revision=0)
+    assert "collars" not in omitted.model_fields_set
+    explicit = GymProfilePayload(name="Home", collars=[], expected_revision=0)
+    assert "collars" in explicit.model_fields_set
+
+
+@pytest.mark.parametrize("change", [{"weight": 0}, {"weight": nan}, {"weight": inf},
+                                    {"count": -1}, {"count": 1.5}, {"count": True},
+                                    {"unit": "lbs"}, {"id": "bad"}, {"extra": 1}])
+def test_collar_inventory_rejects_invalid_values(change):
+    row = {"id": str(uuid4()), "weight": 0.25, "unit": "kg", "count": 0, **change}
+    with pytest.raises(ValidationError):
+        GymProfilePayload(name="Home", collars=[row], expected_revision=0)
+
+
+def test_collar_inventory_rejects_duplicate_identity():
+    row = {"id": str(uuid4()), "weight": 0.25, "unit": "kg", "count": 2}
+    with pytest.raises(ValidationError):
+        GymProfilePayload(name="Home", collars=[row, {**row, "weight": 0.5}], expected_revision=0)
+
+
+@pytest.mark.parametrize("change", [{"context_key": ""}, {"context_key": "   "},
+                                    {"selected_bar": {"weight": 0, "unit": "kg"}},
+                                    {"selected_bar": {"weight": nan, "unit": "kg"}},
+                                    {"selected_bar": {"weight": 15, "unit": "lbs"}},
+                                    {"selected_collar_id": "bad"}, {"expected_revision": -1},
+                                    {"extra": 1}])
+def test_equipment_preference_rejects_invalid_values(change):
+    from api.schemas.gym_profiles import EquipmentPreferencePayload
+    with pytest.raises(ValidationError):
+        EquipmentPreferencePayload.model_validate({"id": str(uuid4()), "context_key": "barbell",
+            "selected_bar": None, "selected_collar_id": None, "expected_revision": 0, **change})
+
+
+def test_equipment_preference_context_key_length_boundary():
+    from api.schemas.gym_profiles import EquipmentPreferencePayload
+    data = {"id": str(uuid4()), "context_key": "x" * 512, "selected_bar": None,
+            "selected_collar_id": None, "expected_revision": 0}
+    assert EquipmentPreferencePayload.model_validate(data).context_key == "x" * 512
+    with pytest.raises(ValidationError):
+        EquipmentPreferencePayload.model_validate({**data, "context_key": "x" * 513})

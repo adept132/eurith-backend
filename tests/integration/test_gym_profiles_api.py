@@ -267,3 +267,26 @@ async def test_preference_get_create_retry_stale_conflict_and_exercise_ownership
     assert (await client.get(f"/exercise-load-preferences/user/{own.id}", headers=auth_headers)).status_code == 200
     assert (await client.get(f"/exercise-load-preferences/user/{foreign.id}", headers=auth_headers)).status_code == 404
     assert (await client.get(f"/exercise-load-preferences/global/{own.id}", headers=auth_headers)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_collars_old_payload_preserves_saved(client, auth_headers):
+    gym_id = str(uuid.uuid4())
+    collar = {"id": str(uuid.uuid4()), "weight": 0.25, "unit": "kg", "count": 2}
+    returned = await client.put(f"/gym-profiles/{gym_id}", headers=auth_headers,
+                               json={**gym_payload(), "collars": [collar]})
+    assert returned.status_code == 200, returned.text
+    returned = returned.json()
+    assert returned["collars"][0]["weight"] == 0.25
+    after_old_put = await client.put(f"/gym-profiles/{gym_id}", headers=auth_headers,
+                                    json=gym_payload("Renamed", 1))
+    assert after_old_put.status_code == 200, after_old_put.text
+    assert after_old_put.json()["collars"] == returned["collars"]
+    retry = await client.put(f"/gym-profiles/{gym_id}", headers=auth_headers,
+                             json=gym_payload("Renamed", 1))
+    assert retry.json() == after_old_put.json()
+    listed = (await client.get("/gym-profiles", headers=auth_headers)).json()
+    assert listed[0]["collars"] == [collar]
+    cleared = await client.put(f"/gym-profiles/{gym_id}", headers=auth_headers,
+                              json={**gym_payload("Renamed", 2), "collars": []})
+    assert cleared.status_code == 200 and cleared.json()["collars"] == []
