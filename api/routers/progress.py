@@ -328,6 +328,7 @@ async def get_fatigue_architecture(
             WorkoutSession.app_user_id == actual_user_id,
             WorkoutSession.status == 'finished',
             WorkoutSessionSet.is_completed == True,
+            WorkoutSessionSet.set_type != "warmup",
             WorkoutSession.started_at >= start_date,
             (is_direct | is_indirect)  # Берем только если мышца вообще участвовала
         )

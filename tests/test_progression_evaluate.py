@@ -201,3 +201,28 @@ def test_mixed_prescription_with_weight_fact_evaluates_normally():
     out = evaluate(p, [fact(1, None, 10), fact(2, 40.0, 10)], STEP)
     assert out.status == "hit"
     assert out.total_sets == 1
+
+
+def test_working_goal_mapping_ignores_warmup_positions():
+    from dataclasses import replace
+    p = presc((1, 80, 10, 12), (2, 70, 8, 10), (3, 60, 6, 8))
+    baseline = [fact(1, 80, 10), fact(2, 70, 8), fact(3, 60, 6)]
+    shifted = []
+    for ordinal, row in enumerate(baseline, 1):
+        row = replace(row, set_number=ordinal + 3, working_ordinal=ordinal)
+        shifted.append(row)
+    warmups = [fact(i, 200, 20, set_type="warmup") for i in range(1, 4)]
+    assert evaluate(p, warmups + shifted, STEP) == evaluate(p, baseline, STEP)
+
+
+def test_sparse_standalone_facts_and_shown_targets_keep_precedence():
+    p = presc((1, 80, 10, 12), (2, 60, 6, 8))
+    assert evaluate(p, [fact(2, 60, 6)], STEP).hit_sets == 1
+    target = SetPrescription(99, 40, 5, 8, 2, "normal")
+    row = SetFact(4, 40, 5, 2, shown_target=target, working_ordinal=1)
+    assert evaluate(p, [row], STEP).hit_sets == 1
+
+
+def test_warmup_shown_target_does_not_supply_working_basis():
+    warmup = SetFact(1, 200, 20, 2, "warmup", shown_target=SetPrescription(1, 200, 20, 20, 2, "normal"))
+    assert evaluate(None, [warmup], STEP) == evaluate(None, [], STEP)

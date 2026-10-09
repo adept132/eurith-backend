@@ -4,6 +4,7 @@ from typing import Optional, List, Literal
 ExercisePreferenceValue = Literal["favorite", "disliked"]
 
 from pydantic import BaseModel, Field
+from api.schemas.warmups import WarmupGroupSnapshot, WarmupRowSnapshot
 
 
 class ExerciseListItemResponse(BaseModel):
@@ -71,6 +72,9 @@ class ExerciseHistoryItemResponse(BaseModel):
 
 class ExerciseHistoryWorkoutSetResponse(BaseModel):
     id: int
+    workout_session_exercise_id: int | None = None
+    client_uuid: str | None = None
+    warmup_snapshot: WarmupRowSnapshot | None = None
     set_number: int
     set_type: str
     weight: float | None = None
@@ -87,6 +91,12 @@ class ExerciseHistoryWorkoutSetResponse(BaseModel):
     load_snapshot: dict | None = None
 
 
+class ExerciseHistoryWarmupGroupResponse(BaseModel):
+    workout_session_exercise_id: int
+    client_uuid: str | None = None
+    warmup_group: WarmupGroupSnapshot
+
+
 class ExerciseHistoryWorkoutDetailResponse(BaseModel):
     workout_id: int
     finished_at: datetime | None = None
@@ -97,6 +107,7 @@ class ExerciseHistoryWorkoutDetailResponse(BaseModel):
     total_reps: int
     total_volume: float
     sets: list[ExerciseHistoryWorkoutSetResponse]
+    warmup_groups: list[ExerciseHistoryWarmupGroupResponse] = Field(default_factory=list)
 
 class ExerciseLastPerformanceResponse(BaseModel):
     workout_id: int

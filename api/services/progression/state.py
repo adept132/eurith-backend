@@ -94,7 +94,9 @@ def evaluate(
 ) -> Outcome:
     """Вердикт по сессии. Приоритет: no_basis, deviated, miss, strained, overshoot, hit."""
     if (prescription is None or not prescription.sets) and not any(
-        fact.shown_target is not None for fact in facts
+        fact.shown_target is not None
+        and (fact.set_type or "normal").lower() not in params.IGNORED_SET_TYPES
+        for fact in facts
     ):
         return Outcome(status="no_basis")
 
@@ -139,7 +141,7 @@ def evaluate(
 
     for s in usable:
         sp = s.shown_target or (
-            _prescription_for(prescription, s.set_number)
+            _prescription_for(prescription, s.working_ordinal if s.working_ordinal is not None else s.set_number)
             if prescription is not None and prescription.sets else None
         )
         if sp is None:

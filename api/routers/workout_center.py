@@ -852,7 +852,7 @@ async def finish_workout(
     exercise_summaries: list[WorkoutFinishedExerciseSummary] = []
 
     for session_exercise in workout.exercises:
-        exercise_sets = [s for s in session_exercise.sets if s.is_completed]
+        exercise_sets = [s for s in session_exercise.sets if s.is_completed and s.set_type != "warmup"]
 
         sets_count = len(exercise_sets)
         reps_sum = sum(s.reps or 0 for s in exercise_sets)

@@ -286,6 +286,7 @@ async def load_history(
             WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id,
             WorkoutSessionSet.is_completed.is_(True),
             WorkoutSessionSet.parent_set_id.is_(None),
+            WorkoutSessionSet.set_type == "normal",
             WorkoutSessionSet.load_mode == load_context.mode,
             WorkoutSessionSet.gym_profile_id == load_context.gym_id,
             WorkoutSessionSet.load_snapshot["weight_basis"].as_string() == load_context.weight_basis,
@@ -305,6 +306,9 @@ async def load_history(
         if se is None:
             continue
 
+        # Compute before completion, validity, anomaly and variant filtering.
+        normal_roots = [s for s in se.sets if (s.set_type or "normal") == "normal" and s.parent_set_id is None]
+        ordinals = {s.id: ordinal for ordinal, s in enumerate(normal_roots, 1)}
         facts = tuple(
             SetFact(
                 set_number=s.set_number,
@@ -314,6 +318,7 @@ async def load_history(
                 set_type=s.set_type or "normal",
                 is_anomalous=bool(s.is_anomalous),
                 shown_target=_parse_shown_target(s.shown_target_snapshot),
+                working_ordinal=ordinals.get(s.id),
             )
             for s in se.sets
             if s.is_completed and s.parent_set_id is None
@@ -384,8 +389,9 @@ async def load_history(
         # For a requested variant, the targets actually shown with its sets
         # supersede the exercise-level write-once target, which may belong to
         # a different mode. Partial/old snapshots retain legacy fallback.
-        if load_context is not None and facts and all(f.shown_target is not None for f in facts):
-            targets = tuple(f.shown_target for f in facts)
+        working_facts = tuple(f for f in facts if f.set_type == "normal")
+        if load_context is not None and working_facts and all(f.shown_target is not None for f in working_facts):
+            targets = tuple(f.shown_target for f in working_facts)
             if prescription is not None:
                 prescription = replace(prescription, sets=targets)
             else:

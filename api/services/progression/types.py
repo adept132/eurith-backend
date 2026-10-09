@@ -24,6 +24,8 @@ class SetFact:
     set_type: str = "normal"
     is_anomalous: bool = False
     shown_target: Optional[SetPrescription] = None
+    # Position among all normal roots, including unfinished and unusable rows.
+    working_ordinal: Optional[int] = None
 
 
 @dataclass(frozen=True)

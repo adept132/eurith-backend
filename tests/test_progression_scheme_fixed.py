@@ -147,3 +147,23 @@ def test_emergency_branch_output_is_grid_fixed_point(anchor):
         assert round_down_to_step(s.weight_kg, ["block_machine"], "kg", None) == pytest.approx(
             s.weight_kg
         )
+
+
+def test_fixed_increment_required_reps_use_working_ordinal():
+    from dataclasses import replace
+    base = last_session(80, [10, 6])
+    session = base.sessions[0]
+    prescription = replace(session.prescription, sets=(
+        SetPrescription(1, 80, 10, 10, 2, "normal"),
+        SetPrescription(2, 80, 6, 6, 2, "normal"),
+    ))
+    # First set misses its 10-rep goal; technical 4 must not fall back to 6.
+    normal = (SetFact(1, 80, 8, 2), SetFact(2, 80, 6, 2))
+    baseline = replace(base, sessions=(replace(session, prescription=prescription, sets=normal),))
+    shifted = []
+    for ordinal, row in enumerate(normal, 1):
+        row = replace(row, set_number=ordinal + 3, working_ordinal=ordinal)
+        shifted.append(row)
+    with_warmup = replace(base, sessions=(replace(session, prescription=prescription,
+        sets=(SetFact(1, 200, 20, 2, "warmup"), *shifted)),))
+    assert plan(ctx(with_warmup)) == plan(ctx(baseline))

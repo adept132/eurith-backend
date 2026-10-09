@@ -92,7 +92,7 @@ def _last_session_completed(ctx: SchemeContext) -> Optional[bool]:
         required = {sp.set_number: sp.rep_min for sp in session.prescription.sets}
         default = session.prescription.sets[-1].rep_min
         return all(
-            int(s.reps) >= required.get(s.set_number, default) for s in usable
+            int(s.reps) >= required.get(s.working_ordinal if s.working_ordinal is not None else s.set_number, default) for s in usable
         )
     return None
 

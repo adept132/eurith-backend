@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 from typing import Annotated, Literal
 
 from api.schemas.warmups import WarmupGroupSnapshot, WarmupRowSnapshot
@@ -42,6 +43,10 @@ class WorkoutHistorySetDraft(StrictHistoryModel):
     notes: str | None = None
     is_completed: bool = True
     warmup_snapshot: WarmupRowSnapshot | None = None
+    load_mode: str | None = None
+    gym_profile_id: UUID | None = None
+    setup_id: UUID | None = None
+    load_snapshot: dict | None = None
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)
 

@@ -273,6 +273,8 @@ def _history_set_response(row: WorkoutSessionSet, workout: WorkoutSession) -> Ex
     gym_name = (snapshot or {}).get("gym_name") or (session_gym or {}).get("name")
     return ExerciseHistoryWorkoutSetResponse(
         id=row.id, set_number=row.set_number, set_type=row.set_type,
+        workout_session_exercise_id=row.workout_session_exercise_id,
+        client_uuid=row.client_uuid, warmup_snapshot=row.warmup_snapshot,
         weight=float(row.weight) if row.weight is not None else None,
         reps=row.reps, notes=row.notes, is_completed=row.is_completed,
         parent_set_id=row.parent_set_id, effort_level=row.effort_level,
@@ -300,6 +302,7 @@ async def get_exercise_history(
             WorkoutSessionSet.weight,
             WorkoutSessionSet.reps,
             WorkoutSessionSet.is_completed,
+            WorkoutSessionSet.set_type,
         )
         .join(
             WorkoutSessionExercise,
@@ -335,7 +338,7 @@ async def get_exercise_history(
                 "total_volume": 0.0,
             }
 
-        if row.is_completed:
+        if row.is_completed and row.set_type != "warmup":
             grouped[workout_id]["sets_count"] += 1
             grouped[workout_id]["total_reps"] += row.reps or 0
             grouped[workout_id]["total_volume"] += float((row.weight or 0) * (row.reps or 0))
@@ -379,7 +382,7 @@ async def get_exercise_history_workout_detail(
         )
 
     all_sets = [s for item in movements for s in item.sets]
-    completed_sets = [s for s in all_sets if s.is_completed]
+    completed_sets = [s for s in all_sets if s.is_completed and s.set_type != "warmup"]
     total_reps = sum(s.reps or 0 for s in completed_sets)
     total_volume = sum(float((s.weight or 0) * (s.reps or 0)) for s in completed_sets)
 
@@ -393,6 +396,10 @@ async def get_exercise_history_workout_detail(
         total_reps=total_reps,
         total_volume=total_volume,
         sets=[_history_set_response(s, workout) for s in all_sets],
+        warmup_groups=[{
+            "workout_session_exercise_id": item.id, "client_uuid": item.client_uuid,
+            "warmup_group": item.warmup_group,
+        } for item in movements if item.warmup_group is not None],
     )
 
 @router.get(
@@ -456,6 +463,7 @@ async def get_exercise_last_performance(
         matching_set = select(1).select_from(WorkoutSessionSet).where(
             WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id,
             WorkoutSessionSet.is_completed.is_(True),
+            WorkoutSessionSet.set_type != "warmup",
             WorkoutSessionSet.load_mode == load_mode,
             WorkoutSessionSet.setup_id == setup_id,
             WorkoutSessionSet.load_snapshot["weight_basis"].as_string() == weight_basis,
@@ -463,7 +471,13 @@ async def get_exercise_last_performance(
         if setup_id is None:
             matching_set = matching_set.where(WorkoutSessionSet.gym_profile_id == gym_profile_id)
         stmt = stmt.where(exists(matching_set))
-    stmt = stmt.limit(1)
+    # A warmup-only session cannot replace the previous working performance.
+    working_set = select(1).select_from(WorkoutSessionSet).where(
+        WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id,
+        WorkoutSessionSet.is_completed.is_(True),
+        WorkoutSessionSet.set_type != "warmup",
+    )
+    stmt = stmt.where(exists(working_set)).limit(1)
     result = await session.execute(stmt)
     workouts = result.scalars().unique().all()
     workout = None
@@ -473,7 +487,7 @@ async def get_exercise_last_performance(
         movements = [item for item in candidate.exercises if item.exercise_id == exercise_id]
         if not movements:
             continue
-        completed = [s for item in movements for s in item.sets if s.is_completed]
+        completed = [s for item in movements for s in item.sets if s.is_completed and s.set_type != "warmup"]
         if requested_key:
             completed = [s for s in completed if load_variant_key(
                 s.load_mode, s.gym_profile_id, s.setup_id, s.load_snapshot) == requested_key]

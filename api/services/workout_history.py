@@ -79,6 +79,9 @@ class WorkoutHistoryIdempotencyConflict(WorkoutHistoryError):
         super().__init__(server_draft.client_uuid)
 
 
+_OPTIONAL_SET_METADATA = ("warmup_snapshot", "load_mode", "gym_profile_id", "setup_id", "load_snapshot")
+
+
 def _history_request_fingerprint(draft: WorkoutHistoryDraft) -> str:
     data = draft.model_dump(mode="json")
     # Preserve hashes made by older clients/servers which knew no snapshot keys.
@@ -86,8 +89,9 @@ def _history_request_fingerprint(draft: WorkoutHistoryDraft) -> str:
         if "warmup_group" not in source.model_fields_set:
             target.pop("warmup_group", None)
         for row, target_row in zip(source.sets, target["sets"]):
-            if "warmup_snapshot" not in row.model_fields_set:
-                target_row.pop("warmup_snapshot", None)
+            for field in _OPTIONAL_SET_METADATA:
+                if field not in row.model_fields_set:
+                    target_row.pop(field, None)
     canonical = json.dumps(
         data,
         ensure_ascii=False,
@@ -125,6 +129,7 @@ def _history_set_state(item: WorkoutHistorySetDraft) -> tuple[object, ...]:
         item.notes,
         item.is_completed,
         snapshot_json(item.warmup_snapshot),
+        item.load_mode, item.gym_profile_id, item.setup_id, item.load_snapshot,
     )
 
 
@@ -178,8 +183,10 @@ def _is_exact_history_correction_replay(
             item.warmup_group = prior.warmup_group
         prior_rows = {row.client_uuid: row for row in prior.sets}
         for row in item.sets:
-            if "warmup_snapshot" not in row.model_fields_set and row.client_uuid in prior_rows:
-                row.warmup_snapshot = prior_rows[row.client_uuid].warmup_snapshot
+            if row.client_uuid in prior_rows:
+                for field in _OPTIONAL_SET_METADATA:
+                    if field not in row.model_fields_set:
+                        setattr(row, field, getattr(prior_rows[row.client_uuid], field))
     return (
         workout.revision == draft.base_revision + 1
         and _history_mutable_state(draft_from_workout(workout))
@@ -253,6 +260,9 @@ def _apply_set_fields(
     target.is_completed = source.is_completed
     if "warmup_snapshot" in source.model_fields_set:
         target.warmup_snapshot = snapshot_json(source.warmup_snapshot)
+    for field in ("load_mode", "gym_profile_id", "setup_id", "load_snapshot"):
+        if field in source.model_fields_set:
+            setattr(target, field, getattr(source, field))
     verdict = check_set(
         float(source.weight) if source.weight is not None else None,
         source.reps,
@@ -587,6 +597,10 @@ def _draft_sets_from_exercise(
             "notes": workout_set.notes,
             "is_completed": workout_set.is_completed,
             "warmup_snapshot": workout_set.warmup_snapshot,
+            "load_mode": workout_set.load_mode,
+            "gym_profile_id": workout_set.gym_profile_id,
+            "setup_id": workout_set.setup_id,
+            "load_snapshot": workout_set.load_snapshot,
         }
         for workout_set in exercise.sets
     ]
