@@ -1,16 +1,21 @@
 """Durable, workout-scoped child deletion identities; never workout tombstones."""
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from api.services.models import SyncTombstone
 
 
-async def child_was_deleted(db, workout, entity_type, client_uuid, server_id=None):
+async def child_was_deleted(db, workout, entity_type, client_uuid, server_id=None, *, legacy_server_id=None):
     identities = []
     if client_uuid is not None:
         identities.append(SyncTombstone.client_uuid == client_uuid)
     if server_id is not None:
         identities.append(SyncTombstone.server_id == server_id)
+    if legacy_server_id is not None:
+        # History's generated aliases only identify UUID-null legacy markers.
+        # A real, unrelated client identity must not match by a parsed suffix.
+        identities.append(and_(SyncTombstone.client_uuid.is_(None),
+                               SyncTombstone.server_id == legacy_server_id))
     if not identities:
         return False
     return bool(await db.scalar(select(SyncTombstone.id).where(

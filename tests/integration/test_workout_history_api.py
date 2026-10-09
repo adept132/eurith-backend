@@ -464,3 +464,99 @@ async def test_patch_hides_foreign_workout(
     await db.delete(workout)
     await db.delete(other)
     await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("child_kind", ["set", "exercise"])
+async def test_history_replay_cannot_restore_deleted_legacy_child(
+    client, db: AsyncSession, test_user: AppUser, history_exercise: Exercise, child_kind,
+):
+    from copy import deepcopy
+    workout = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    loaded = (await db.execute(select(WorkoutSession)
+        .where(WorkoutSession.id == workout.id)
+        .options(selectinload(WorkoutSession.exercises).selectinload(WorkoutSessionExercise.sets)))).scalar_one()
+    original_exercise = loaded.exercises[0]
+    original_set = original_exercise.sets[0]
+    original_exercise.client_uuid = None
+    original_set.client_uuid = None
+    child_id = original_set.id if child_kind == "set" else original_exercise.id
+    await db.commit()
+
+    stale = history_body(history_exercise.id, base_revision=0, entry_mode="live")
+    conflict = await client.patch(f"/workouts/{workout.id}/history", json=stale)
+    assert conflict.status_code == 409, conflict.text
+    retained = conflict.json()["detail"]["server_draft"]
+    for item in retained["exercises"]:
+        item.pop("exercise_name", None)  # Response-only catalog label.
+    assert retained["exercises"][0]["client_uuid"] == f"server-exercise-{original_exercise.id}"
+    assert retained["exercises"][0]["sets"][0]["client_uuid"] == f"server-set-{original_set.id}"
+
+    deletion = deepcopy(retained)
+    if child_kind == "set":
+        deletion["exercises"][0]["sets"] = []
+    else:
+        deletion["exercises"] = []
+    deleted = await client.patch(f"/workouts/{workout.id}/history", json=deletion)
+    assert deleted.status_code == 200, deleted.text
+    bucket = "sets" if child_kind == "set" else "exercises"
+    marker = deleted.json()["workout"]["child_tombstones"][bucket][0]
+    assert marker["client_uuid"] is None
+    assert marker["server_id"] == child_id
+
+    retained["base_revision"] = deleted.json()["workout"]["revision"]
+    replay = await client.patch(f"/workouts/{workout.id}/history", json=retained)
+    assert replay.status_code == 200, replay.text
+    actual = replay.json()["workout"]
+    assert actual["child_tombstones"][bucket] == [marker]
+    if child_kind == "set":
+        assert actual["exercises"][0]["sets"] == []
+    else:
+        assert actual["exercises"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("child_kind", ["set", "exercise"])
+@pytest.mark.parametrize("case", ["other_workout", "other_type", "named_child", "noncanonical", "oversized", "existing_literal"])
+async def test_history_alias_lookup_preserves_unrelated_client_identities(
+    client, db: AsyncSession, test_user: AppUser, history_exercise: Exercise, child_kind, case,
+):
+    from api.services.models import SyncTombstone
+    workout = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    loaded = (await db.execute(select(WorkoutSession)
+        .where(WorkoutSession.id == workout.id)
+        .options(selectinload(WorkoutSession.exercises).selectinload(WorkoutSessionExercise.sets)))).scalar_one()
+    exercise = loaded.exercises[0]
+    row = exercise.sets[0]
+    marker_id = 2147480000
+    prefix = "server-set-" if child_kind == "set" else "server-exercise-"
+    identity = f"{prefix}{marker_id}"
+    marker_workout = workout
+    marker_type = "workout_set" if child_kind == "set" else "workout_exercise"
+    marker_uuid = None
+    if case == "other_workout":
+        marker_workout = await _create_finished_workout(db, test_user.id, history_exercise.id)
+    elif case == "other_type":
+        marker_type = "workout_exercise" if child_kind == "set" else "workout_set"
+    elif case == "named_child":
+        marker_uuid = "a-real-different-client-identity"
+    elif case == "noncanonical":
+        identity = f"{prefix}0{marker_id}"
+    elif case == "oversized":
+        identity = prefix + "9" * 40
+    elif case == "existing_literal":
+        (row if child_kind == "set" else exercise).client_uuid = identity
+    db.add(SyncTombstone(app_user_id=test_user.id, workout_session_id=marker_workout.id,
+        entity_type=marker_type, client_uuid=marker_uuid, server_id=marker_id))
+    await db.commit()
+
+    body = history_body(history_exercise.id, base_revision=workout.revision, entry_mode="live")
+    body["client_uuid"] = workout.client_uuid
+    target = body["exercises"][0]["sets"][0] if child_kind == "set" else body["exercises"][0]
+    target["client_uuid"] = identity
+    response = await client.patch(f"/workouts/{workout.id}/history", json=body)
+    assert response.status_code == 200, response.text
+    saved = response.json()["workout"]["exercises"][0]
+    if child_kind == "set":
+        saved = saved["sets"][0]
+    assert saved["client_uuid"] == identity

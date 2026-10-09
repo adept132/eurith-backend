@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
 
 from fastapi import HTTPException
 from api.schemas.warmups import snapshot_json, validate_warmup_rows
@@ -295,6 +296,18 @@ def _new_session_exercise(
     return item
 
 
+def _legacy_history_server_id(client_uuid: str, prefix: str, existing) -> int | None:
+    """Resolve only canonical generated aliases; actual stored UUIDs take priority."""
+    if existing is not None and existing.client_uuid is not None:
+        return None
+    match = re.fullmatch(re.escape(prefix) + r"([1-9][0-9]{0,9})", client_uuid)
+    if match is None:
+        return None
+    server_id = int(match.group(1))
+    # Both child PKs are PostgreSQL INTEGER. Arbitrary client strings may be larger.
+    return server_id if server_id <= 2147483647 else None
+
+
 async def _replace_exercises(
     db: AsyncSession,
     workout: WorkoutSession,
@@ -335,12 +348,16 @@ async def _replace_exercises(
             await db.delete(existing)
 
     for source_exercise in draft.exercises:
-        if await child_was_deleted(db, workout, "workout_exercise", source_exercise.client_uuid):
+        existing_exercise = existing_exercises.get(source_exercise.client_uuid)
+        legacy_id = _legacy_history_server_id(
+            source_exercise.client_uuid, "server-exercise-", existing_exercise)
+        if await child_was_deleted(db, workout, "workout_exercise", source_exercise.client_uuid,
+                                   legacy_server_id=legacy_id):
             continue
         stats = await load_exercise_stats(
             db, workout.app_user_id, source_exercise.exercise_id
         )
-        target_exercise = existing_exercises.get(source_exercise.client_uuid)
+        target_exercise = existing_exercise
         if target_exercise is None:
             target_exercise = _new_session_exercise(
                 workout.id,
@@ -377,9 +394,11 @@ async def _replace_exercises(
 
         target_sets_by_client_uuid: dict[str, WorkoutSessionSet] = {}
         for source_set in source_exercise.sets:
-            if await child_was_deleted(db, workout, "workout_set", source_set.client_uuid):
-                continue
             target_set = existing_sets.get(source_set.client_uuid)
+            legacy_id = _legacy_history_server_id(source_set.client_uuid, "server-set-", target_set)
+            if await child_was_deleted(db, workout, "workout_set", source_set.client_uuid,
+                                       legacy_server_id=legacy_id):
+                continue
             if target_set is None:
                 target_set = WorkoutSessionSet(
                     workout_session_exercise_id=target_exercise.id,
