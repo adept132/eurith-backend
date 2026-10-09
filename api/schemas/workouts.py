@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Literal, Optional, Dict, Union, List
 from api.schemas.supersets import WorkoutStructureResponse
 from api.services.muscle_keys import to_system_key
+from api.schemas.warmups import WarmupGroupSnapshot, WarmupRowSnapshot
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from api.schemas.gym_profiles import LoadMode
 
@@ -123,6 +124,7 @@ class WorkoutSessionSetResponse(BaseModel):
     setup_id: uuid.UUID | None = None
     load_snapshot: dict | None = None
     shown_target_snapshot: dict | None = None
+    warmup_snapshot: WarmupRowSnapshot | None = None
     updated_at: datetime
 
 
@@ -136,6 +138,7 @@ class WorkoutSessionExerciseResponse(BaseModel):
     notes: str | None = None
     active_load_mode: str | None = None
     active_setup_id: uuid.UUID | None = None
+    warmup_group: WarmupGroupSnapshot | None = None
     updated_at: datetime
 
     exercise: ExerciseShortResponse
@@ -153,7 +156,20 @@ class MuscleVolumeTarget(BaseModel):
     target_sets: int
     max_session_cap: int
 
+class ChildTombstone(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    client_uuid: str | None
+    server_id: int | None
+    deleted_at: datetime
+
+
+class WorkoutChildTombstones(BaseModel):
+    sets: list[ChildTombstone] = Field(default_factory=list)
+    exercises: list[ChildTombstone] = Field(default_factory=list)
+
+
 class WorkoutSessionDetailResponse(BaseModel):
+    child_tombstones: WorkoutChildTombstones = Field(default_factory=WorkoutChildTombstones)
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -184,6 +200,7 @@ class WorkoutSessionDetailResponse(BaseModel):
 
 
 class AddWorkoutExerciseRequest(BaseModel):
+    warmup_group: WarmupGroupSnapshot | None = None
     exercise_id: int = Field(gt=0)
     notes: str | None = None
     superset_group: str | None = Field(default=None, max_length=64)
@@ -212,6 +229,7 @@ class AddWorkoutSetRequest(BaseModel):
     setup_id: uuid.UUID | None = None
     load_snapshot: dict | None = None
     shown_target_snapshot: dict | None = None
+    warmup_snapshot: WarmupRowSnapshot | None = None
 
 
 class AddWorkoutSetResponse(BaseModel):
@@ -235,6 +253,7 @@ class AddWorkoutSetResponse(BaseModel):
     setup_id: uuid.UUID | None = None
     load_snapshot: dict | None = None
     shown_target_snapshot: dict | None = None
+    warmup_snapshot: WarmupRowSnapshot | None = None
     updated_at: datetime
 
 
@@ -258,6 +277,7 @@ class UpdateWorkoutSetRequest(BaseModel):
     setup_id: uuid.UUID | None = None
     load_snapshot: dict | None = None
     shown_target_snapshot: dict | None = None
+    warmup_snapshot: WarmupRowSnapshot | None = None
 
 
 class RepeatWorkoutSetRequest(BaseModel):

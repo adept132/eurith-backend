@@ -698,6 +698,18 @@ class WorkoutSession(Base):
                                                                      cascade="all, delete-orphan",
                                                                      order_by="WorkoutSessionExercise.order_index")
 
+    sync_child_tombstones: Mapped[List["SyncTombstone"]] = relationship(
+        "SyncTombstone", lazy="selectin", cascade="all, delete-orphan", passive_deletes=True,
+    )
+
+    @property
+    def child_tombstones(self):
+        markers = self.__dict__.get("sync_child_tombstones", [])
+        return {
+            "sets": [row for row in markers if row.entity_type == "workout_set"],
+            "exercises": [row for row in markers if row.entity_type == "workout_exercise"],
+        }
+
     __table_args__ = (
         CheckConstraint("source IN ('free', 'split_day', 'plan')", name="ck_workout_sessions_source"),
         CheckConstraint("status IN ('active', 'finished')", name="ck_workout_sessions_status"),
@@ -741,6 +753,7 @@ class WorkoutSessionExercise(Base):
     live_prescription: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     active_load_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     active_setup_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    warmup_group: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     target_sets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
@@ -790,6 +803,7 @@ class WorkoutSessionSet(Base):
     setup_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     load_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     shown_target_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    warmup_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     parent_set_id: Mapped[Optional[int]] = mapped_column(ForeignKey("workout_session_sets.id", ondelete="SET NULL"))
     superset_round: Mapped[Optional[int]] = mapped_column()
     updated_at: Mapped[datetime] = mapped_column(
@@ -860,8 +874,11 @@ class SyncTombstone(Base):
     app_user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    workout_session_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("workout_sessions.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)  # workout
-    client_uuid: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     server_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     deleted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True

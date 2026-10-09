@@ -243,3 +243,29 @@ async def test_forged_context_and_cross_exercise_repeat_are_rejected(
     assert repeat.status_code == 400, repeat.text
     await db.delete(foreign)
     await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_warmup_repeat_uses_destination_group_or_legacy_null(client):
+    from tests.integration.test_sync_warmup_snapshots import payload_fixture, push
+    source = await push(client, await payload_fixture(client))
+    target_payload = await payload_fixture(client)
+    target = await push(client, target_payload)
+    source_row = source["exercises"][0]["sets"][0]
+    target_exercise = target["exercises"][0]
+    response = await client.post(f"/workout-session-sets/{source_row['id']}/repeat",
+        json={"target_session_exercise_id": target_exercise["id"]})
+    assert response.status_code == 200, response.text
+    assert response.json()["warmup_snapshot"] == {
+        "group_id": target_exercise["warmup_group"]["id"], "calculation_version": None,
+        "order": 4, "fraction": None, "raw_weight_kg": None, "manually_edited": True}
+    assert response.json()["weight"] == source_row["weight"]
+    target_payload["exercises"][0]["warmup_group"] = None
+    for row in target_payload["exercises"][0]["sets"]:
+        row["warmup_snapshot"] = None
+    await push(client, target_payload)
+    legacy = await client.post(f"/workout-session-sets/{source_row['id']}/repeat",
+        json={"target_session_exercise_id": target_exercise["id"]})
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["set_type"] == "warmup"
+    assert legacy.json()["warmup_snapshot"] is None

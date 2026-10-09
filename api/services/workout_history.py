@@ -4,6 +4,10 @@ from datetime import datetime, timezone
 import hashlib
 import json
 
+from fastapi import HTTPException
+from api.schemas.warmups import snapshot_json, validate_warmup_rows
+from api.services.workout_tombstones import record_child_deletion, child_was_deleted
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,8 +79,16 @@ class WorkoutHistoryIdempotencyConflict(WorkoutHistoryError):
 
 
 def _history_request_fingerprint(draft: WorkoutHistoryDraft) -> str:
+    data = draft.model_dump(mode="json")
+    # Preserve hashes made by older clients/servers which knew no snapshot keys.
+    for source, target in zip(draft.exercises, data["exercises"]):
+        if "warmup_group" not in source.model_fields_set:
+            target.pop("warmup_group", None)
+        for row, target_row in zip(source.sets, target["sets"]):
+            if "warmup_snapshot" not in row.model_fields_set:
+                target_row.pop("warmup_snapshot", None)
     canonical = json.dumps(
-        draft.model_dump(mode="json"),
+        data,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
@@ -111,6 +123,7 @@ def _history_set_state(item: WorkoutHistorySetDraft) -> tuple[object, ...]:
         item.effort_level,
         item.notes,
         item.is_completed,
+        snapshot_json(item.warmup_snapshot),
     )
 
 
@@ -121,6 +134,7 @@ def _history_exercise_state(item: WorkoutHistoryExerciseDraft) -> tuple[object, 
         item.order_index,
         item.superset_group,
         item.notes,
+        snapshot_json(item.warmup_group),
         tuple(
             _history_set_state(workout_set)
             for workout_set in sorted(
@@ -152,10 +166,23 @@ def _is_exact_history_correction_replay(
     workout: WorkoutSession,
     draft: WorkoutHistoryDraft,
 ) -> bool:
+    effective = draft.model_copy(deep=True)
+    saved = draft_from_workout(workout)
+    saved_exercises = {item.client_uuid: item for item in saved.exercises}
+    for item in effective.exercises:
+        prior = saved_exercises.get(item.client_uuid)
+        if prior is None:
+            continue
+        if "warmup_group" not in item.model_fields_set:
+            item.warmup_group = prior.warmup_group
+        prior_rows = {row.client_uuid: row for row in prior.sets}
+        for row in item.sets:
+            if "warmup_snapshot" not in row.model_fields_set and row.client_uuid in prior_rows:
+                row.warmup_snapshot = prior_rows[row.client_uuid].warmup_snapshot
     return (
         workout.revision == draft.base_revision + 1
         and _history_mutable_state(draft_from_workout(workout))
-        == _history_mutable_state(draft)
+        == _history_mutable_state(effective)
     )
 
 
@@ -223,6 +250,8 @@ def _apply_set_fields(
     target.effort_level = source.effort_level
     target.notes = source.notes
     target.is_completed = source.is_completed
+    if "warmup_snapshot" in source.model_fields_set:
+        target.warmup_snapshot = snapshot_json(source.warmup_snapshot)
     verdict = check_set(
         float(source.weight) if source.weight is not None else None,
         source.reps,
@@ -237,11 +266,13 @@ def _apply_set_parent_links(
     target_sets_by_client_uuid: dict[str, WorkoutSessionSet],
 ) -> None:
     for source_set in source_sets:
-        target_set = target_sets_by_client_uuid[source_set.client_uuid]
+        target_set = target_sets_by_client_uuid.get(source_set.client_uuid)
+        if target_set is None:
+            continue
         parent_uuid = source_set.parent_client_uuid
         target_set.parent_set_id = (
             target_sets_by_client_uuid[parent_uuid].id
-            if parent_uuid is not None
+            if parent_uuid in target_sets_by_client_uuid
             else None
         )
 
@@ -300,9 +331,12 @@ async def _replace_exercises(
     for existing in list(workout.exercises):
         existing_key = existing.client_uuid or f"server-exercise-{existing.id}"
         if existing_key not in retained_exercise_uuids:
+            await record_child_deletion(db, workout, "workout_exercise", existing.client_uuid, existing.id)
             await db.delete(existing)
 
     for source_exercise in draft.exercises:
+        if await child_was_deleted(db, workout, "workout_exercise", source_exercise.client_uuid):
+            continue
         stats = await load_exercise_stats(
             db, workout.app_user_id, source_exercise.exercise_id
         )
@@ -326,6 +360,8 @@ async def _replace_exercises(
             if target_exercise.client_uuid is None:
                 target_exercise.client_uuid = source_exercise.client_uuid
 
+        if "warmup_group" in source_exercise.model_fields_set:
+            target_exercise.warmup_group = snapshot_json(source_exercise.warmup_group)
         existing_sets = {
             item.client_uuid or f"server-set-{item.id}": item
             for item in target_exercise.sets
@@ -336,10 +372,13 @@ async def _replace_exercises(
                 existing_set.client_uuid or f"server-set-{existing_set.id}"
             )
             if existing_set_key not in retained_set_uuids:
+                await record_child_deletion(db, workout, "workout_set", existing_set.client_uuid, existing_set.id)
                 await db.delete(existing_set)
 
         target_sets_by_client_uuid: dict[str, WorkoutSessionSet] = {}
         for source_set in source_exercise.sets:
+            if await child_was_deleted(db, workout, "workout_set", source_set.client_uuid):
+                continue
             target_set = existing_sets.get(source_set.client_uuid)
             if target_set is None:
                 target_set = WorkoutSessionSet(
@@ -351,7 +390,21 @@ async def _replace_exercises(
             elif target_set.client_uuid is None:
                 target_set.client_uuid = source_set.client_uuid
             _apply_set_fields(target_set, source_set, stats)
+            if "warmup_snapshot" in source_set.model_fields_set:
+                try:
+                    validate_warmup_rows(target_exercise.warmup_group, [target_set.warmup_snapshot])
+                except ValueError as error:
+                    raise HTTPException(status_code=422, detail=str(error)) from error
             target_sets_by_client_uuid[source_set.client_uuid] = target_set
+
+        if any("warmup_snapshot" in row.model_fields_set for row in source_exercise.sets):
+            group_id = (target_exercise.warmup_group or {}).get("id")
+            rows = [row.warmup_snapshot for row in target_sets_by_client_uuid.values()
+                    if row.warmup_snapshot and row.warmup_snapshot.get("group_id") == group_id]
+            try:
+                validate_warmup_rows(target_exercise.warmup_group, rows)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
 
         # IDs for newly created root/drop rows are needed before ancestry can
         # be resolved. The public contract uses stable client UUIDs so the
@@ -514,6 +567,7 @@ def _draft_sets_from_exercise(
             "effort_level": workout_set.effort_level,
             "notes": workout_set.notes,
             "is_completed": workout_set.is_completed,
+            "warmup_snapshot": workout_set.warmup_snapshot,
         }
         for workout_set in exercise.sets
     ]
@@ -537,6 +591,7 @@ def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryServerSnapshot:
                 "superset_group": item.superset_group,
                 "notes": item.notes,
                 "sets": _draft_sets_from_exercise(item),
+                "warmup_group": item.warmup_group,
             }
             for item in workout.exercises
         ],

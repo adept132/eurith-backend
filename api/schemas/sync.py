@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
+from api.schemas.warmups import WarmupGroupSnapshot, WarmupRowSnapshot
 from pydantic import BaseModel, Field
 
 from api.schemas.readiness import CheckinRequest
@@ -56,6 +57,7 @@ class SyncSetSnapshot(BaseModel):
     setup_id: uuid.UUID | None = None
     load_snapshot: dict | None = None
     shown_target_snapshot: dict | None = None
+    warmup_snapshot: WarmupRowSnapshot | None = None
 
 
 class SyncSetPrescriptionSnapshot(BaseModel):
@@ -125,6 +127,7 @@ class SyncExerciseSnapshot(BaseModel):
     updated_at: datetime | None = None
     active_load_mode: LoadMode | None = None
     active_setup_id: uuid.UUID | None = None
+    warmup_group: WarmupGroupSnapshot | None = None
     sets: list[SyncSetSnapshot] = []
 
 

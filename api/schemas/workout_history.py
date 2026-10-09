@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
+from api.schemas.warmups import WarmupGroupSnapshot, WarmupRowSnapshot
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from api.schemas.workouts import (
@@ -40,6 +41,7 @@ class WorkoutHistorySetDraft(StrictHistoryModel):
     effort_level: WorkoutEffortLevel | None = None
     notes: str | None = None
     is_completed: bool = True
+    warmup_snapshot: WarmupRowSnapshot | None = None
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)
 
@@ -50,6 +52,7 @@ class WorkoutHistoryExerciseDraft(StrictHistoryModel):
     order_index: int = Field(ge=0)
     superset_group: str | None = Field(default=None, max_length=64)
     notes: str | None = None
+    warmup_group: WarmupGroupSnapshot | None = None
     sets: list[WorkoutHistorySetDraft] = Field(default_factory=list)
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)

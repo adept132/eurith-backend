@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.deps import get_db
+from api.schemas.warmups import snapshot_json, validate_warmup_rows
+from api.services.workout_tombstones import record_child_deletion
 from api.schemas.supersets import CreateSupersetRequest, ReorderWorkoutStructureRequest
 from api.schemas.workouts import WorkoutSessionDetailResponse, AddWorkoutExerciseRequest, AddWorkoutSetResponse, \
     AddWorkoutSetRequest, UpdateWorkoutSetRequest, RepeatWorkoutSetRequest, AutoprogressionResponse
@@ -219,6 +221,7 @@ async def add_exercise_to_workout(
         order_index=next_order_index,
         superset_group=payload.superset_group,
         notes=payload.notes,
+        warmup_group=snapshot_json(payload.warmup_group),
         # ДОБАВЛЯЕМ СНИМКИ
         # (фикс несовпадения ключей: calculate_exercise_recommendations возвращает
         # "recommended_rir"/"recommended_rep_min"/"recommended_rep_max", а не "rir"/"rmin"/"rmax" —
@@ -354,6 +357,12 @@ async def add_set_to_session_exercise(
                 detail="Parent set does not belong to this exercise",
             )
 
+    if payload.warmup_snapshot is not None:
+        try:
+            validate_warmup_rows(session_exercise.warmup_group,
+                [s.warmup_snapshot for s in session_exercise.sets] + [payload.warmup_snapshot])
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
     requested = payload.model_fields_set
     mode = payload.load_mode if "load_mode" in requested else session_exercise.active_load_mode
     gym_id = (payload.gym_profile_id if "gym_profile_id" in requested
@@ -400,6 +409,7 @@ async def add_set_to_session_exercise(
         is_anomalous=is_anomalous,
         **context,
         shown_target_snapshot=deepcopy(payload.shown_target_snapshot),
+        warmup_snapshot=snapshot_json(payload.warmup_snapshot),
     )
 
     print(
@@ -607,6 +617,16 @@ async def update_workout_session_set(
 
     update_data = payload.model_dump(exclude_unset=True)
 
+    if "warmup_snapshot" in payload.model_fields_set:
+        update_data["warmup_snapshot"] = snapshot_json(payload.warmup_snapshot)
+        if payload.warmup_snapshot is not None:
+            try:
+                validate_warmup_rows(session_exercise.warmup_group,
+                    [s.warmup_snapshot for s in session_exercise.sets if s.id != set_id]
+                    + [payload.warmup_snapshot])
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+
     # anomaly_confirmed — флаг запроса, а не колонка модели. Если оставить его
     # в update_data, цикл setattr ниже повесит посторонний атрибут на ORM-объект.
     anomaly_confirmed = bool(update_data.pop("anomaly_confirmed", False))
@@ -742,6 +762,15 @@ async def repeat_workout_session_set(
 
     next_set_number = len(target_session_exercise.sets) + 1
 
+    repeated_snapshot = None
+    if source_set.warmup_snapshot and target_session_exercise.warmup_group:
+        group_id = target_session_exercise.warmup_group["id"]
+        orders = [s.warmup_snapshot["order"] for s in target_session_exercise.sets
+                  if s.warmup_snapshot and s.warmup_snapshot["group_id"] == group_id]
+        repeated_snapshot = {"group_id": group_id, "calculation_version": None,
+            "order": max(orders, default=0) + 1, "fraction": None,
+            "raw_weight_kg": None, "manually_edited": True}
+
     repeated_set = WorkoutSessionSet(
         workout_session_exercise_id=target_session_exercise.id,
         set_number=next_set_number,
@@ -765,6 +794,7 @@ async def repeat_workout_session_set(
         setup_id=source_set.setup_id,
         load_snapshot=deepcopy(source_set.load_snapshot),
         shown_target_snapshot=deepcopy(source_set.shown_target_snapshot),
+        warmup_snapshot=repeated_snapshot,
     )
 
     db.add(repeated_set)
@@ -816,6 +846,7 @@ async def delete_workout_session_exercise(
 
     deleted_exercise_id = session_exercise.id
 
+    await record_child_deletion(db, workout, "workout_exercise", session_exercise.client_uuid, session_exercise.id)
     await db.delete(session_exercise)
     await db.flush()
 
@@ -875,6 +906,7 @@ async def delete_workout_session_set(
 
     deleted_set_id = workout_set.id
 
+    await record_child_deletion(db, workout, "workout_set", workout_set.client_uuid, workout_set.id)
     await db.delete(workout_set)
     await db.flush()
 

@@ -20,6 +20,8 @@ from api.schemas.sync import (
     SyncWorkoutSnapshot,
 )
 from api.schemas.workouts import WorkoutSessionDetailResponse
+from api.schemas.warmups import snapshot_json, validate_warmup_rows
+from api.services.workout_tombstones import child_was_deleted, record_child_deletion
 from api.services.anomaly_guard import check_set, resolve_is_anomalous
 from api.services.anomaly_stats import load_exercise_stats
 from api.services.app_user_service import get_current_app_user
@@ -192,6 +194,18 @@ async def _apply_snapshot(
             detail=conflict.model_dump(mode="json"),
         )
 
+    if workout is None:
+        identities = [SyncTombstone.client_uuid == payload.client_uuid]
+        if payload.server_id is not None:
+            identities.append(SyncTombstone.server_id == payload.server_id)
+        deleted_before = await db.scalar(select(SyncTombstone.id).where(
+            SyncTombstone.app_user_id == app_user_id,
+            SyncTombstone.entity_type == "workout",
+            or_(*identities),
+        ).limit(1))
+        if deleted_before:
+            return SyncWorkoutResponse(deleted=True, id_map={}, sync_version=0, workout=None)
+
     # 3. Удаление тренировки (tombstone).
     if payload.deleted:
         if workout is not None:
@@ -330,7 +344,11 @@ async def _apply_snapshot(
         if exercise is not None:
             staged_existing_ids.add(exercise.id)
 
+        if await child_was_deleted(db, workout, "workout_exercise", ex_snap.client_uuid, ex_snap.server_id):
+            continue
         if ex_snap.deleted:
+            await record_child_deletion(db, workout, "workout_exercise", ex_snap.client_uuid,
+                                        exercise.id if exercise is not None else ex_snap.server_id)
             if exercise is not None:
                 touched_exercise_ids.add(exercise.id)
                 await db.delete(exercise)
@@ -360,6 +378,8 @@ async def _apply_snapshot(
         exercise.recommended_rep_min = ex_snap.recommended_rep_min
         exercise.recommended_rep_max = ex_snap.recommended_rep_max
         exercise.target_sets = ex_snap.target_sets
+        if "warmup_group" in ex_snap.model_fields_set:
+            exercise.warmup_group = snapshot_json(ex_snap.warmup_group)
         previous_mode = exercise.active_load_mode
         previous_setup_id = exercise.active_setup_id
         if "active_load_mode" in ex_snap.model_fields_set:
@@ -418,7 +438,11 @@ async def _apply_snapshot(
                 if workout_set is not None:
                     workout_set.client_uuid = set_snap.client_uuid
 
+            if await child_was_deleted(db, workout, "workout_set", set_snap.client_uuid, set_snap.server_id):
+                continue
             if set_snap.deleted:
+                await record_child_deletion(db, workout, "workout_set", set_snap.client_uuid,
+                                            workout_set.id if workout_set is not None else set_snap.server_id)
                 if workout_set is not None:
                     await db.delete(workout_set)
                 continue
@@ -469,6 +493,12 @@ async def _apply_snapshot(
                         workout_set.load_snapshot = None
                 elif "load_snapshot" in requested_context and set_snap.load_snapshot is None:
                     workout_set.load_snapshot = None
+            if "warmup_snapshot" in set_snap.model_fields_set:
+                workout_set.warmup_snapshot = snapshot_json(set_snap.warmup_snapshot)
+                try:
+                    validate_warmup_rows(exercise.warmup_group, [workout_set.warmup_snapshot])
+                except ValueError as error:
+                    raise HTTPException(status_code=422, detail=str(error)) from error
             if "shown_target_snapshot" in set_snap.model_fields_set:
                 workout_set.shown_target_snapshot = deepcopy(set_snap.shown_target_snapshot)
             # Ревью, находка 1: только когда поле реально пришло в снимке —
@@ -494,6 +524,19 @@ async def _apply_snapshot(
             await db.flush()
             id_map[set_snap.client_uuid] = workout_set.id
             set_by_client[set_snap.client_uuid] = workout_set
+
+        # Check the effective surviving rows, including omitted rows on partial pushes.
+        if any("warmup_snapshot" in row.model_fields_set and not row.deleted for row in ex_snap.sets):
+            effective = {row.id: row for row in loaded_sets if row not in db.deleted}
+            effective.update({row.id: row for row in set_by_client.values()})
+            group_id = (exercise.warmup_group or {}).get("id")
+            rows = [row.warmup_snapshot for row in effective.values()
+                    if row.warmup_snapshot and row.warmup_snapshot.get("group_id") == group_id
+                    and not await child_was_deleted(db, workout, "workout_set", row.client_uuid, row.id)]
+            try:
+                validate_warmup_rows(exercise.warmup_group, rows)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
 
         # Второй проход: связать дропсеты с родителями по client_uuid.
         for set_snap in ex_snap.sets:
