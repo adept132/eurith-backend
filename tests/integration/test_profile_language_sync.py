@@ -4,6 +4,9 @@ import pytest_asyncio
 
 from api.services.models import AppUserProfile
 
+WARMUP_DEFAULTS = {"compound_count": 3, "isolation_count": 2, "between_seconds": 30,
+                   "before_work": {"mode": "working"}}
+
 
 @pytest_asyncio.fixture
 async def language_profile(db, test_user):
@@ -27,14 +30,14 @@ async def test_language_patch_is_acknowledged_and_read_back(
     response = await client.patch("/profile/settings", headers=auth_headers,
                                   json={"language": language})
     assert response.status_code == 200, response.text
-    assert response.json()["settings"] == {**original, "language": language}
+    assert response.json()["settings"] == {**original, "language": language, "warmup": WARMUP_DEFAULTS}
     # Installed APK 28/29 acknowledge queued language writes at the top level.
     assert response.json().get("language") == language
     reread = await client.get("/profile", headers=auth_headers)
     assert reread.status_code == 200, reread.text
-    assert reread.json()["settings"] == {**original, "language": language}
+    assert reread.json()["settings"] == {**original, "language": language, "warmup": WARMUP_DEFAULTS}
     await db.refresh(language_profile)
-    assert language_profile.settings == {**original, "language": language}
+    assert language_profile.settings == {**original, "language": language, "warmup": WARMUP_DEFAULTS}
     unrelated = await client.patch("/profile/settings", headers=auth_headers,
                                    json={"reminders_enabled": False})
     assert unrelated.json()["settings"]["language"] == language
@@ -48,13 +51,13 @@ async def test_legacy_profile_returns_default_language_without_destroying_settin
     original = dict(language_profile.settings)
     response = await client.get("/profile", headers=auth_headers)
     assert response.status_code == 200, response.text
-    assert response.json()["settings"] == {**original, "language": "ru"}
+    assert response.json()["settings"] == {**original, "language": "ru", "warmup": WARMUP_DEFAULTS}
     await db.refresh(language_profile)
     assert language_profile.settings == original
     patch = await client.patch("/profile/settings", headers=auth_headers,
                                json={"weight_unit": "kg"})
     assert patch.status_code == 200, patch.text
-    assert patch.json()["settings"] == {**original, "weight_unit": "kg", "language": "ru"}
+    assert patch.json()["settings"] == {**original, "weight_unit": "kg", "language": "ru", "warmup": WARMUP_DEFAULTS}
 
 
 @pytest.mark.asyncio

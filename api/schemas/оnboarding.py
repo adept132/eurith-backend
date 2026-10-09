@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field, root_validator
 from typing import Any, List, Literal, Dict, Optional
 
+from api.schemas.warmups import WarmupDefaultsPatch
+
 
 class OnboardingWidgetRequest(BaseModel):
     gender: Optional[str] = None
@@ -51,6 +53,7 @@ class VolumeBudget(BaseModel):
     weekly_targets: Dict[str, MuscleTarget]
 
 class UpdateSettingsRequest(BaseModel):
+    warmup: Optional[WarmupDefaultsPatch] = None
     language: Optional[Literal["ru", "en"]] = None
     locations: Optional[List[str]] = None
     prehab_flags: Optional[List[str]] = None

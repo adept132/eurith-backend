@@ -9,15 +9,17 @@ from api.services.app_user_service import get_current_app_user
 from api.services.models import AppUser, AppUserProfile, UserAnthropometry
 from api.services.progression.resolve import KNOWN_SCHEMES
 from api.services.volume_calculator import calculate_volume_budget
+from api.services.warmup_preferences import warmup_defaults, merge_warmup_defaults
 
 router = APIRouter(tags=["profile"])
 
 
-def _settings_with_language(settings: dict | None) -> dict:
-    """Expose a valid default for legacy settings while preserving other keys."""
+def _settings_with_defaults(settings: dict | None) -> dict:
+    """Expose defaults for legacy settings while preserving other keys."""
     result = dict(settings or {})
     if result.get("language") not in ("ru", "en"):
         result["language"] = "ru"
+    result["warmup"] = warmup_defaults(result)
     return result
 
 
@@ -102,7 +104,7 @@ async def get_my_profile(
         "total_workouts": profile.total_workouts,
         "pro_mode_enabled": profile.pro_mode_enabled,
         "volume_budget": profile.volume_budget,
-        "settings": _settings_with_language(profile.settings),
+        "settings": _settings_with_defaults(profile.settings),
         "latest_anthropometry": {
             "weight": latest_anthro.weight,
             "height": latest_anthro.height
@@ -125,7 +127,9 @@ async def update_profile_settings(
         raise HTTPException(status_code=404, detail="Профиль не найден")
 
     # Обновляем JSONB поле settings (частично — только переданные поля)
-    current_settings = _settings_with_language(profile.settings)
+    current_settings = _settings_with_defaults(profile.settings)
+    if payload.warmup is not None:
+        current_settings["warmup"] = merge_warmup_defaults(current_settings, payload.warmup)
     if payload.language is not None:
         current_settings["language"] = payload.language
     if payload.locations is not None:

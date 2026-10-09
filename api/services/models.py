@@ -381,6 +381,32 @@ class ExerciseLoadPreference(Base):
     )
 
 
+class ExerciseWarmupPreference(Base):
+    """Owner/source scoped per-exercise warmup overrides."""
+
+    __tablename__ = "exercise_warmup_preferences"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    exercise_source: Mapped[str] = mapped_column(String(10), nullable=False)
+    exercise_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    override: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id", "exercise_source", "exercise_id",
+            name="uq_exercise_warmup_preferences_owner_exercise",
+        ),
+        CheckConstraint("exercise_source IN ('global', 'user')", name="ck_exercise_warmup_preferences_source"),
+        CheckConstraint("exercise_id > 0", name="ck_exercise_warmup_preferences_exercise_positive"),
+        CheckConstraint("jsonb_typeof(override) = 'object'", name="ck_exercise_warmup_preferences_override_object"),
+        CheckConstraint("revision > 0", name="ck_exercise_warmup_preferences_revision_positive"),
+    )
+
+
 # --- СПРАВОЧНИК УПРАЖНЕНИЙ ---
 
 class Exercise(Base):
