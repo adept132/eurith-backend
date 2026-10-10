@@ -203,3 +203,58 @@ async def test_deleted_completed_generated_warmup_cannot_return_on_snapshot_repl
     result = await push(client, payload)
     assert deleted['client_uuid'] not in {r['client_uuid'] for r in result['exercises'][0]['sets']}
     assert any(t['client_uuid'] == deleted['client_uuid'] for t in result['child_tombstones']['sets'])
+
+
+# Generated exclusively by the opt-in real Workspace/repository serializer regression.
+# The server creates owner/catalog fixtures; equipment/core/row values remain byte-for-byte JSON values.
+import json
+from pathlib import Path
+from uuid import UUID
+from api.services.models import GymProfile, GymExerciseSetup
+
+_workspace_cases = json.loads((Path(__file__).parents[1] / 'fixtures' / 'workspace_machine_payloads.json').read_text())['cases']
+
+@pytest.mark.parametrize('case', _workspace_cases, ids=lambda c: f"{c['mode']}-{c['display']}-{c['canonical']}-{c['path']}")
+async def test_workspace_produced_mixed_unit_machine_http(client, db, test_user, case):
+    payload = _snapshot(str(uuid4()), await _exercise_id(client))
+    ex = payload['exercises'][0]
+    catalog = await db.get(Exercise, ex['exercise_id'])
+    catalog.equipment_needed = ['block_machine', 'free_machine']
+    gym_data, setup_data = case['gym'], case['setup']
+    gym = GymProfile(id=UUID(gym_data['id']), app_user_id=test_user.id,
+        name=gym_data['name'], equipment=gym_data['equipment'], bars=gym_data['bars'],
+        discs=gym_data['discs'], steps=gym_data['steps'], collars=gym_data['collars'])
+    setup = GymExerciseSetup(id=UUID(setup_data['id']), gym_id=gym.id,
+        exercise_source='user' if catalog.app_user_id is not None else 'global', exercise_id=catalog.id,
+        load_mode=setup_data['mode'], is_available=True, is_preferred=True,
+        step_value=setup_data['step_value'], step_unit=setup_data['step_unit'],
+        loading_sides=setup_data['loading_sides'], base_weight=setup_data['base_weight'],
+        weight_basis=setup_data['weight_basis'], plate_inventory=setup_data['plate_inventory'])
+    db.add(gym); await db.flush(); db.add(setup); await db.commit()
+    ex['sets'] = deepcopy(case['rows'])
+    ex['warmup_group'] = deepcopy(case['group'])
+    response = await client.post('/sync/workouts', json=payload)
+    assert response.status_code == 200, response.text
+    saved = response.json()['workout']
+    rows = saved['exercises'][0]['sets']
+    for sent in case['rows']:
+        row = next(r for r in rows if r['client_uuid'] == sent['client_uuid'])
+        assert row['load_snapshot'] == sent['load_snapshot']
+        assert row['warmup_snapshot'] == sent['warmup_snapshot']
+        assert row['load_snapshot']['equipment']['step'] == {'value': 2.5, 'unit': case['canonical']}
+        assert row['load_snapshot']['display_unit'] == case['display']
+    readback = (await client.get(f"/workouts/{saved['id']}")).json()
+    # Pydantic renders millisecond timestamps with six fractional digits; compare instants only.
+    expected_group = deepcopy(case['group'])
+    actual_group = deepcopy(readback['exercises'][0]['warmup_group'])
+    for group in (expected_group, actual_group):
+        group['updated_at'] = datetime.fromisoformat(group['updated_at'])
+        for version in group['versions']:
+            version['calculated_at'] = datetime.fromisoformat(version['calculated_at'])
+    assert actual_group == expected_group
+    # Keep the strict equality guard: a display-converted extension is never authoritative.
+    bad = deepcopy(payload)
+    target = bad['exercises'][0]['sets'][0]
+    target['client_uuid'] = str(uuid4())
+    target['load_snapshot']['equipment']['step'] = {'value': 2.5 * (2.2046226218 if case['canonical']=='kg' else .45359237), 'unit': 'lb' if case['canonical']=='kg' else 'kg'}
+    assert (await client.post('/sync/workouts', json=bad)).status_code in (400, 422)

@@ -1,0 +1,1877 @@
+{
+  "producer": "WarmupWorkflow.integration.test.tsx: Workspace -> repository -> buildSnapshot -> JSON",
+  "cases": [
+    {
+      "mode": "stack",
+      "display": "lbs",
+      "canonical": "kg",
+      "gym": {
+        "id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+        "name": "Contract machine gym",
+        "equipment": [
+          "block_machine",
+          "free_machine"
+        ],
+        "bars": [],
+        "discs": [],
+        "steps": [],
+        "collars": []
+      },
+      "setup": {
+        "id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+        "mode": "stack",
+        "is_available": true,
+        "is_preferred": true,
+        "step_value": 2.5,
+        "step_unit": "kg",
+        "loading_sides": 1,
+        "base_weight": null,
+        "weight_basis": "displayed",
+        "plate_inventory": [
+          {
+            "weight": 2.5,
+            "count": 100
+          }
+        ]
+      },
+      "path": "generated",
+      "group": {
+        "id": "5432053c-01a1-4006-bdad-27089f3a4650",
+        "active_version": "23066a04-01a1-400b-8f1a-27089f669f1a",
+        "versions": [
+          {
+            "version": "23066a04-01a1-400b-8f1a-27089f669f1a",
+            "calculated_at": "2026-10-10T18:17:18.950Z",
+            "algorithm_version": 1,
+            "source": {
+              "set_client_uuid": "82ff9a0a-01a1-4005-bf62-27089f1fcafd",
+              "weight_kg": 36.29,
+              "reps": 10,
+              "rir": 2,
+              "load_context": {
+                "kind": "step",
+                "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+                "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+                "load_mode": "stack",
+                "loading_sides": 1,
+                "weight_basis": "displayed",
+                "base_weight_kg": null,
+                "bar": null,
+                "collar": null,
+                "step": {
+                  "value": 2.5,
+                  "unit": "kg"
+                },
+                "inventory": {
+                  "mode": "limited",
+                  "items": [
+                    {
+                      "weight": 5.51155655,
+                      "count": 100,
+                      "unit": "lb"
+                    }
+                  ]
+                }
+              }
+            },
+            "source_e1rm_kg": 50.806,
+            "settings": {
+              "count": 3,
+              "between_seconds": 30,
+              "before_work": {
+                "mode": "working"
+              },
+              "category": "compound",
+              "count_origin": "global",
+              "warnings": []
+            },
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "settings": {
+          "count": 3,
+          "between_seconds": 30,
+          "before_work": {
+            "mode": "working"
+          },
+          "category": "compound",
+          "count_origin": "global",
+          "warnings": []
+        },
+        "equipment": {
+          "kind": "step",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_mode": "stack",
+          "loading_sides": 1,
+          "weight_basis": "displayed",
+          "base_weight_kg": null,
+          "bar": null,
+          "collar": null,
+          "step": {
+            "value": 2.5,
+            "unit": "kg"
+          },
+          "inventory": {
+            "mode": "limited",
+            "items": [
+              {
+                "weight": 5.51155655,
+                "count": 100,
+                "unit": "lb"
+              }
+            ]
+          }
+        },
+        "updated_at": "2026-10-10T18:17:18.950Z"
+      },
+      "rows": [
+        {
+          "client_uuid": "65d239d2-01a1-400c-836d-27089f66d12a",
+          "set_number": 1,
+          "set_type": "warmup",
+          "weight": 7.5,
+          "reps": 16,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "5432053c-01a1-4006-bdad-27089f3a4650",
+            "calculation_version": "23066a04-01a1-400b-8f1a-27089f669f1a",
+            "order": 1,
+            "fraction": 0.25,
+            "raw_weight_kg": 7.938437499999999,
+            "manually_edited": false
+          },
+          "load_mode": "stack",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "stack",
+            "step_value": 2.5,
+            "step_unit": "kg",
+            "loading_sides": 1,
+            "weight_basis": "displayed",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "kg"
+              }
+            ],
+            "display_unit": "lbs",
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:18.996Z"
+        },
+        {
+          "client_uuid": "dbe016aa-01a1-400d-ba8c-27089f66a7e3",
+          "set_number": 2,
+          "set_type": "warmup",
+          "weight": 15,
+          "reps": 13,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "5432053c-01a1-4006-bdad-27089f3a4650",
+            "calculation_version": "23066a04-01a1-400b-8f1a-27089f669f1a",
+            "order": 2,
+            "fraction": 0.5,
+            "raw_weight_kg": 16.935333333333332,
+            "manually_edited": false
+          },
+          "load_mode": "stack",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "stack",
+            "step_value": 2.5,
+            "step_unit": "kg",
+            "loading_sides": 1,
+            "weight_basis": "displayed",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "kg"
+              }
+            ],
+            "display_unit": "lbs",
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:18.996Z"
+        },
+        {
+          "client_uuid": "06819d80-01a1-400e-a479-27089f669b48",
+          "set_number": 3,
+          "set_type": "warmup",
+          "weight": 25,
+          "reps": 10,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "5432053c-01a1-4006-bdad-27089f3a4650",
+            "calculation_version": "23066a04-01a1-400b-8f1a-27089f669f1a",
+            "order": 3,
+            "fraction": 0.75,
+            "raw_weight_kg": 27.2175,
+            "manually_edited": false
+          },
+          "load_mode": "stack",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "stack",
+            "step_value": 2.5,
+            "step_unit": "kg",
+            "loading_sides": 1,
+            "weight_basis": "displayed",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "kg"
+              }
+            ],
+            "display_unit": "lbs",
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:18.996Z"
+        }
+      ]
+    },
+    {
+      "mode": "stack",
+      "display": "kg",
+      "canonical": "lb",
+      "gym": {
+        "id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+        "name": "Contract machine gym",
+        "equipment": [
+          "block_machine",
+          "free_machine"
+        ],
+        "bars": [],
+        "discs": [],
+        "steps": [],
+        "collars": []
+      },
+      "setup": {
+        "id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+        "mode": "stack",
+        "is_available": true,
+        "is_preferred": true,
+        "step_value": 2.5,
+        "step_unit": "lb",
+        "loading_sides": 1,
+        "base_weight": null,
+        "weight_basis": "displayed",
+        "plate_inventory": [
+          {
+            "weight": 2.5,
+            "count": 100
+          }
+        ]
+      },
+      "path": "generated",
+      "group": {
+        "id": "ad64b49a-01a1-4013-a8e0-27089ff361e3",
+        "active_version": "96086b8b-01a1-4018-9696-2708a01afeb2",
+        "versions": [
+          {
+            "version": "96086b8b-01a1-4018-9696-2708a01afeb2",
+            "calculated_at": "2026-10-10T18:17:19.130Z",
+            "algorithm_version": 1,
+            "source": {
+              "set_client_uuid": "2c8f631b-01a1-4012-bba1-27089fe2a839",
+              "weight_kg": 80,
+              "reps": 10,
+              "rir": 2,
+              "load_context": {
+                "kind": "step",
+                "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+                "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+                "load_mode": "stack",
+                "loading_sides": 1,
+                "weight_basis": "displayed",
+                "base_weight_kg": null,
+                "bar": null,
+                "collar": null,
+                "step": {
+                  "value": 2.5,
+                  "unit": "lb"
+                },
+                "inventory": {
+                  "mode": "limited",
+                  "items": [
+                    {
+                      "weight": 1.13398093,
+                      "count": 100,
+                      "unit": "kg"
+                    }
+                  ]
+                }
+              }
+            },
+            "source_e1rm_kg": 112,
+            "settings": {
+              "count": 3,
+              "between_seconds": 30,
+              "before_work": {
+                "mode": "working"
+              },
+              "category": "compound",
+              "count_origin": "global",
+              "warnings": []
+            },
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "settings": {
+          "count": 3,
+          "between_seconds": 30,
+          "before_work": {
+            "mode": "working"
+          },
+          "category": "compound",
+          "count_origin": "global",
+          "warnings": []
+        },
+        "equipment": {
+          "kind": "step",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_mode": "stack",
+          "loading_sides": 1,
+          "weight_basis": "displayed",
+          "base_weight_kg": null,
+          "bar": null,
+          "collar": null,
+          "step": {
+            "value": 2.5,
+            "unit": "lb"
+          },
+          "inventory": {
+            "mode": "limited",
+            "items": [
+              {
+                "weight": 1.13398093,
+                "count": 100,
+                "unit": "kg"
+              }
+            ]
+          }
+        },
+        "updated_at": "2026-10-10T18:17:19.130Z"
+      },
+      "rows": [
+        {
+          "client_uuid": "a7546a4e-01a1-4019-b037-2708a01a7251",
+          "set_number": 1,
+          "set_type": "warmup",
+          "weight": 17.00971395,
+          "reps": 16,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "ad64b49a-01a1-4013-a8e0-27089ff361e3",
+            "calculation_version": "96086b8b-01a1-4018-9696-2708a01afeb2",
+            "order": 1,
+            "fraction": 0.25,
+            "raw_weight_kg": 17.5,
+            "manually_edited": false
+          },
+          "load_mode": "stack",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "stack",
+            "step_value": 2.5,
+            "step_unit": "lb",
+            "loading_sides": 1,
+            "weight_basis": "displayed",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "lb"
+              }
+            ],
+            "display_unit": "kg",
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.159Z"
+        },
+        {
+          "client_uuid": "1ce96d72-01a1-401a-81f2-2708a01bb165",
+          "set_number": 2,
+          "set_type": "warmup",
+          "weight": 36.28738976,
+          "reps": 13,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "ad64b49a-01a1-4013-a8e0-27089ff361e3",
+            "calculation_version": "96086b8b-01a1-4018-9696-2708a01afeb2",
+            "order": 2,
+            "fraction": 0.5,
+            "raw_weight_kg": 37.333333333333336,
+            "manually_edited": false
+          },
+          "load_mode": "stack",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "stack",
+            "step_value": 2.5,
+            "step_unit": "lb",
+            "loading_sides": 1,
+            "weight_basis": "displayed",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "lb"
+              }
+            ],
+            "display_unit": "kg",
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.159Z"
+        },
+        {
+          "client_uuid": "5b961ba4-01a1-401b-bf62-2708a01badc1",
+          "set_number": 3,
+          "set_type": "warmup",
+          "weight": 58.96700836,
+          "reps": 10,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "ad64b49a-01a1-4013-a8e0-27089ff361e3",
+            "calculation_version": "96086b8b-01a1-4018-9696-2708a01afeb2",
+            "order": 3,
+            "fraction": 0.75,
+            "raw_weight_kg": 60.00000000000001,
+            "manually_edited": false
+          },
+          "load_mode": "stack",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "stack",
+            "step_value": 2.5,
+            "step_unit": "lb",
+            "loading_sides": 1,
+            "weight_basis": "displayed",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "lb"
+              }
+            ],
+            "display_unit": "kg",
+            "equipment": {
+              "kind": "step",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "stack",
+              "loading_sides": 1,
+              "weight_basis": "displayed",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.159Z"
+        }
+      ]
+    },
+    {
+      "mode": "plate_loaded",
+      "display": "lbs",
+      "canonical": "kg",
+      "gym": {
+        "id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+        "name": "Contract machine gym",
+        "equipment": [
+          "block_machine",
+          "free_machine"
+        ],
+        "bars": [],
+        "discs": [],
+        "steps": [],
+        "collars": []
+      },
+      "setup": {
+        "id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+        "mode": "plate_loaded",
+        "is_available": true,
+        "is_preferred": true,
+        "step_value": 2.5,
+        "step_unit": "kg",
+        "loading_sides": 2,
+        "base_weight": null,
+        "weight_basis": "plates_only",
+        "plate_inventory": [
+          {
+            "weight": 2.5,
+            "count": 100
+          }
+        ]
+      },
+      "path": "generated",
+      "group": {
+        "id": "9f1a276f-01a1-4021-93dd-2708a09573e2",
+        "active_version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+        "versions": [
+          {
+            "version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+            "calculated_at": "2026-10-10T18:17:19.311Z",
+            "algorithm_version": 1,
+            "source": {
+              "set_client_uuid": "e6a1ed8b-01a1-4020-907f-2708a0800ee5",
+              "weight_kg": 36.29,
+              "reps": 10,
+              "rir": 2,
+              "load_context": {
+                "kind": "plate_loaded",
+                "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+                "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+                "load_mode": "plate_loaded",
+                "loading_sides": 2,
+                "weight_basis": "plates_only",
+                "base_weight_kg": null,
+                "bar": null,
+                "collar": null,
+                "step": {
+                  "value": 2.5,
+                  "unit": "kg"
+                },
+                "inventory": {
+                  "mode": "limited",
+                  "items": [
+                    {
+                      "weight": 5.51155655,
+                      "count": 100,
+                      "unit": "lb"
+                    }
+                  ]
+                }
+              }
+            },
+            "source_e1rm_kg": 50.806,
+            "settings": {
+              "count": 3,
+              "between_seconds": 30,
+              "before_work": {
+                "mode": "working"
+              },
+              "category": "compound",
+              "count_origin": "global",
+              "warnings": []
+            },
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "settings": {
+          "count": 3,
+          "between_seconds": 30,
+          "before_work": {
+            "mode": "working"
+          },
+          "category": "compound",
+          "count_origin": "global",
+          "warnings": []
+        },
+        "equipment": {
+          "kind": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_mode": "plate_loaded",
+          "loading_sides": 2,
+          "weight_basis": "plates_only",
+          "base_weight_kg": null,
+          "bar": null,
+          "collar": null,
+          "step": {
+            "value": 2.5,
+            "unit": "kg"
+          },
+          "inventory": {
+            "mode": "limited",
+            "items": [
+              {
+                "weight": 5.51155655,
+                "count": 100,
+                "unit": "lb"
+              }
+            ]
+          }
+        },
+        "updated_at": "2026-10-10T18:17:19.311Z"
+      },
+      "rows": [
+        {
+          "client_uuid": "0a2785db-01a1-4027-a46b-2708a0d0f875",
+          "set_number": 1,
+          "set_type": "warmup",
+          "weight": 5,
+          "reps": 16,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "9f1a276f-01a1-4021-93dd-2708a09573e2",
+            "calculation_version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+            "order": 1,
+            "fraction": 0.25,
+            "raw_weight_kg": 7.938437499999999,
+            "manually_edited": false
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "kg",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "kg"
+              }
+            ],
+            "display_unit": "lbs",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.343Z"
+        },
+        {
+          "client_uuid": "01c1bb7c-01a1-4028-8a60-2708a0d0964b",
+          "set_number": 2,
+          "set_type": "warmup",
+          "weight": 15,
+          "reps": 13,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "9f1a276f-01a1-4021-93dd-2708a09573e2",
+            "calculation_version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+            "order": 2,
+            "fraction": 0.5,
+            "raw_weight_kg": 16.935333333333332,
+            "manually_edited": false
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "kg",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "kg"
+              }
+            ],
+            "display_unit": "lbs",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.343Z"
+        },
+        {
+          "client_uuid": "b6d11632-01a1-4029-9dea-2708a0d098c9",
+          "set_number": 3,
+          "set_type": "warmup",
+          "weight": 25,
+          "reps": 10,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "9f1a276f-01a1-4021-93dd-2708a09573e2",
+            "calculation_version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+            "order": 3,
+            "fraction": 0.75,
+            "raw_weight_kg": 27.2175,
+            "manually_edited": false
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "kg",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "kg"
+              }
+            ],
+            "display_unit": "lbs",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.343Z"
+        }
+      ]
+    },
+    {
+      "mode": "plate_loaded",
+      "display": "lbs",
+      "canonical": "kg",
+      "gym": {
+        "id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+        "name": "Contract machine gym",
+        "equipment": [
+          "block_machine",
+          "free_machine"
+        ],
+        "bars": [],
+        "discs": [],
+        "steps": [],
+        "collars": []
+      },
+      "setup": {
+        "id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+        "mode": "plate_loaded",
+        "is_available": true,
+        "is_preferred": true,
+        "step_value": 2.5,
+        "step_unit": "kg",
+        "loading_sides": 2,
+        "base_weight": null,
+        "weight_basis": "plates_only",
+        "plate_inventory": [
+          {
+            "weight": 2.5,
+            "count": 100
+          }
+        ]
+      },
+      "path": "calculator",
+      "group": {
+        "id": "9f1a276f-01a1-4021-93dd-2708a09573e2",
+        "active_version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+        "versions": [
+          {
+            "version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+            "calculated_at": "2026-10-10T18:17:19.311Z",
+            "algorithm_version": 1,
+            "source": {
+              "set_client_uuid": "e6a1ed8b-01a1-4020-907f-2708a0800ee5",
+              "weight_kg": 36.29,
+              "reps": 10,
+              "rir": 2,
+              "load_context": {
+                "kind": "plate_loaded",
+                "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+                "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+                "load_mode": "plate_loaded",
+                "loading_sides": 2,
+                "weight_basis": "plates_only",
+                "base_weight_kg": null,
+                "bar": null,
+                "collar": null,
+                "step": {
+                  "value": 2.5,
+                  "unit": "kg"
+                },
+                "inventory": {
+                  "mode": "limited",
+                  "items": [
+                    {
+                      "weight": 5.51155655,
+                      "count": 100,
+                      "unit": "lb"
+                    }
+                  ]
+                }
+              }
+            },
+            "source_e1rm_kg": 50.806,
+            "settings": {
+              "count": 3,
+              "between_seconds": 30,
+              "before_work": {
+                "mode": "working"
+              },
+              "category": "compound",
+              "count_origin": "global",
+              "warnings": []
+            },
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "settings": {
+          "count": 3,
+          "between_seconds": 30,
+          "before_work": {
+            "mode": "working"
+          },
+          "category": "compound",
+          "count_origin": "global",
+          "warnings": []
+        },
+        "equipment": {
+          "kind": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_mode": "plate_loaded",
+          "loading_sides": 2,
+          "weight_basis": "plates_only",
+          "base_weight_kg": null,
+          "bar": null,
+          "collar": null,
+          "step": {
+            "value": 2.5,
+            "unit": "kg"
+          },
+          "inventory": {
+            "mode": "limited",
+            "items": [
+              {
+                "weight": 5.51155655,
+                "count": 100,
+                "unit": "lb"
+              }
+            ]
+          }
+        },
+        "updated_at": "2026-10-10T18:17:19.311Z"
+      },
+      "rows": [
+        {
+          "client_uuid": "0a2785db-01a1-4027-a46b-2708a0d0f875",
+          "set_number": 1,
+          "set_type": "warmup",
+          "weight": 0,
+          "reps": 16,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "9f1a276f-01a1-4021-93dd-2708a09573e2",
+            "calculation_version": "5ca4b0fa-01a1-4026-b88a-2708a0cf1400",
+            "order": 1,
+            "fraction": 0.25,
+            "raw_weight_kg": 7.938437499999999,
+            "manually_edited": true
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "kg",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "kg"
+              }
+            ],
+            "display_unit": "lbs",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "kg"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 5.51155655,
+                    "count": 100,
+                    "unit": "lb"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.478Z"
+        }
+      ]
+    },
+    {
+      "mode": "plate_loaded",
+      "display": "kg",
+      "canonical": "lb",
+      "gym": {
+        "id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+        "name": "Contract machine gym",
+        "equipment": [
+          "block_machine",
+          "free_machine"
+        ],
+        "bars": [],
+        "discs": [],
+        "steps": [],
+        "collars": []
+      },
+      "setup": {
+        "id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+        "mode": "plate_loaded",
+        "is_available": true,
+        "is_preferred": true,
+        "step_value": 2.5,
+        "step_unit": "lb",
+        "loading_sides": 2,
+        "base_weight": null,
+        "weight_basis": "plates_only",
+        "plate_inventory": [
+          {
+            "weight": 2.5,
+            "count": 100
+          }
+        ]
+      },
+      "path": "generated",
+      "group": {
+        "id": "24424806-01a1-402e-bcd8-2708a1ecacb5",
+        "active_version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+        "versions": [
+          {
+            "version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+            "calculated_at": "2026-10-10T18:17:19.636Z",
+            "algorithm_version": 1,
+            "source": {
+              "set_client_uuid": "4958db02-01a1-402d-b996-2708a1dbe78c",
+              "weight_kg": 80,
+              "reps": 10,
+              "rir": 2,
+              "load_context": {
+                "kind": "plate_loaded",
+                "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+                "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+                "load_mode": "plate_loaded",
+                "loading_sides": 2,
+                "weight_basis": "plates_only",
+                "base_weight_kg": null,
+                "bar": null,
+                "collar": null,
+                "step": {
+                  "value": 2.5,
+                  "unit": "lb"
+                },
+                "inventory": {
+                  "mode": "limited",
+                  "items": [
+                    {
+                      "weight": 1.13398093,
+                      "count": 100,
+                      "unit": "kg"
+                    }
+                  ]
+                }
+              }
+            },
+            "source_e1rm_kg": 112,
+            "settings": {
+              "count": 3,
+              "between_seconds": 30,
+              "before_work": {
+                "mode": "working"
+              },
+              "category": "compound",
+              "count_origin": "global",
+              "warnings": []
+            },
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "settings": {
+          "count": 3,
+          "between_seconds": 30,
+          "before_work": {
+            "mode": "working"
+          },
+          "category": "compound",
+          "count_origin": "global",
+          "warnings": []
+        },
+        "equipment": {
+          "kind": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_mode": "plate_loaded",
+          "loading_sides": 2,
+          "weight_basis": "plates_only",
+          "base_weight_kg": null,
+          "bar": null,
+          "collar": null,
+          "step": {
+            "value": 2.5,
+            "unit": "lb"
+          },
+          "inventory": {
+            "mode": "limited",
+            "items": [
+              {
+                "weight": 1.13398093,
+                "count": 100,
+                "unit": "kg"
+              }
+            ]
+          }
+        },
+        "updated_at": "2026-10-10T18:17:19.636Z"
+      },
+      "rows": [
+        {
+          "client_uuid": "4e1587f8-01a1-4034-b6d7-2708a2144896",
+          "set_number": 1,
+          "set_type": "warmup",
+          "weight": 15.87573302,
+          "reps": 16,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "24424806-01a1-402e-bcd8-2708a1ecacb5",
+            "calculation_version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+            "order": 1,
+            "fraction": 0.25,
+            "raw_weight_kg": 17.5,
+            "manually_edited": false
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "lb",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "lb"
+              }
+            ],
+            "display_unit": "kg",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.664Z"
+        },
+        {
+          "client_uuid": "e5cbdb4a-01a1-4035-b8fc-2708a214c87d",
+          "set_number": 2,
+          "set_type": "warmup",
+          "weight": 36.28738976,
+          "reps": 13,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "24424806-01a1-402e-bcd8-2708a1ecacb5",
+            "calculation_version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+            "order": 2,
+            "fraction": 0.5,
+            "raw_weight_kg": 37.333333333333336,
+            "manually_edited": false
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "lb",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "lb"
+              }
+            ],
+            "display_unit": "kg",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.664Z"
+        },
+        {
+          "client_uuid": "8629c9a9-01a1-4036-94f8-2708a2142dc8",
+          "set_number": 3,
+          "set_type": "warmup",
+          "weight": 58.96700836,
+          "reps": 10,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "24424806-01a1-402e-bcd8-2708a1ecacb5",
+            "calculation_version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+            "order": 3,
+            "fraction": 0.75,
+            "raw_weight_kg": 60.00000000000001,
+            "manually_edited": false
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "lb",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "lb"
+              }
+            ],
+            "display_unit": "kg",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.664Z"
+        }
+      ]
+    },
+    {
+      "mode": "plate_loaded",
+      "display": "kg",
+      "canonical": "lb",
+      "gym": {
+        "id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+        "name": "Contract machine gym",
+        "equipment": [
+          "block_machine",
+          "free_machine"
+        ],
+        "bars": [],
+        "discs": [],
+        "steps": [],
+        "collars": []
+      },
+      "setup": {
+        "id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+        "mode": "plate_loaded",
+        "is_available": true,
+        "is_preferred": true,
+        "step_value": 2.5,
+        "step_unit": "lb",
+        "loading_sides": 2,
+        "base_weight": null,
+        "weight_basis": "plates_only",
+        "plate_inventory": [
+          {
+            "weight": 2.5,
+            "count": 100
+          }
+        ]
+      },
+      "path": "calculator",
+      "group": {
+        "id": "24424806-01a1-402e-bcd8-2708a1ecacb5",
+        "active_version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+        "versions": [
+          {
+            "version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+            "calculated_at": "2026-10-10T18:17:19.636Z",
+            "algorithm_version": 1,
+            "source": {
+              "set_client_uuid": "4958db02-01a1-402d-b996-2708a1dbe78c",
+              "weight_kg": 80,
+              "reps": 10,
+              "rir": 2,
+              "load_context": {
+                "kind": "plate_loaded",
+                "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+                "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+                "load_mode": "plate_loaded",
+                "loading_sides": 2,
+                "weight_basis": "plates_only",
+                "base_weight_kg": null,
+                "bar": null,
+                "collar": null,
+                "step": {
+                  "value": 2.5,
+                  "unit": "lb"
+                },
+                "inventory": {
+                  "mode": "limited",
+                  "items": [
+                    {
+                      "weight": 1.13398093,
+                      "count": 100,
+                      "unit": "kg"
+                    }
+                  ]
+                }
+              }
+            },
+            "source_e1rm_kg": 112,
+            "settings": {
+              "count": 3,
+              "between_seconds": 30,
+              "before_work": {
+                "mode": "working"
+              },
+              "category": "compound",
+              "count_origin": "global",
+              "warnings": []
+            },
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "settings": {
+          "count": 3,
+          "between_seconds": 30,
+          "before_work": {
+            "mode": "working"
+          },
+          "category": "compound",
+          "count_origin": "global",
+          "warnings": []
+        },
+        "equipment": {
+          "kind": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_mode": "plate_loaded",
+          "loading_sides": 2,
+          "weight_basis": "plates_only",
+          "base_weight_kg": null,
+          "bar": null,
+          "collar": null,
+          "step": {
+            "value": 2.5,
+            "unit": "lb"
+          },
+          "inventory": {
+            "mode": "limited",
+            "items": [
+              {
+                "weight": 1.13398093,
+                "count": 100,
+                "unit": "kg"
+              }
+            ]
+          }
+        },
+        "updated_at": "2026-10-10T18:17:19.636Z"
+      },
+      "rows": [
+        {
+          "client_uuid": "4e1587f8-01a1-4034-b6d7-2708a2144896",
+          "set_number": 1,
+          "set_type": "warmup",
+          "weight": 15.88,
+          "reps": 16,
+          "effort_level": "warmup",
+          "notes": null,
+          "parent_client_uuid": null,
+          "superset_round": null,
+          "is_completed": false,
+          "is_max_reps": false,
+          "warmup_snapshot": {
+            "group_id": "24424806-01a1-402e-bcd8-2708a1ecacb5",
+            "calculation_version": "2d8a6e24-01a1-4033-adcc-2708a2145302",
+            "order": 1,
+            "fraction": 0.25,
+            "raw_weight_kg": 17.5,
+            "manually_edited": true
+          },
+          "load_mode": "plate_loaded",
+          "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+          "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+          "load_snapshot": {
+            "gym_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+            "gym_name": "Contract machine gym",
+            "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+            "mode": "plate_loaded",
+            "step_value": 2.5,
+            "step_unit": "lb",
+            "loading_sides": 2,
+            "weight_basis": "plates_only",
+            "base_weight": null,
+            "plates": [
+              {
+                "weight": 2.5,
+                "count": 100,
+                "unit": "lb"
+              }
+            ],
+            "display_unit": "kg",
+            "equipment": {
+              "kind": "plate_loaded",
+              "gym_profile_id": "779c8ae1-5d4b-4fa4-80af-a5b5c3286aaf",
+              "setup_id": "817c57b0-9a79-4ab1-83b4-49ae8c6b9532",
+              "load_mode": "plate_loaded",
+              "loading_sides": 2,
+              "weight_basis": "plates_only",
+              "base_weight_kg": null,
+              "bar": null,
+              "collar": null,
+              "step": {
+                "value": 2.5,
+                "unit": "lb"
+              },
+              "inventory": {
+                "mode": "limited",
+                "items": [
+                  {
+                    "weight": 1.13398093,
+                    "count": 100,
+                    "unit": "kg"
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-10-10T18:17:19.781Z"
+        }
+      ]
+    }
+  ]
+}
