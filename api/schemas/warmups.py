@@ -129,7 +129,7 @@ class WorkingGoal(_SnapshotModel):
 class WarmupCalculationSnapshot(_SnapshotModel):
     version: UUID
     calculated_at: datetime
-    algorithm_version: Literal[1]
+    algorithm_version: Literal[1, 2]
     source: WorkingGoal
     source_e1rm_kg: float = Field(gt=0, allow_inf_nan=False)
     settings: ResolvedWarmupSettings

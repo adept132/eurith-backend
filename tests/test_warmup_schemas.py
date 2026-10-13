@@ -67,7 +67,7 @@ def test_invalid_calculation_snapshot_rejected(case):
     from uuid import uuid4
     group = group_fixture()
     version = group["versions"][0]
-    if case == "algorithm": version["algorithm_version"] = 2
+    if case == "algorithm": version["algorithm_version"] = 3
     if case == "active": group["active_version"] = str(uuid4())
     if case == "duplicate_version": group["versions"].append(version)
     if case == "source_identity": version["source"]["set_client_uuid"] = "invented-row-1"
@@ -89,3 +89,19 @@ def test_manual_group_retains_historical_versions_and_optional_metadata():
     del group["versions"][0]["equipment"]["step"]
     del group["versions"][0]["settings"]["warnings"]
     assert snapshot_json(WarmupGroupSnapshot.model_validate(group)) == group
+
+
+def test_new_algorithm_and_historical_calculation_round_trip_together():
+    from copy import deepcopy
+    from uuid import uuid4
+    from api.schemas.warmups import WarmupGroupSnapshot, snapshot_json
+    from tests.integration.test_sync_warmup_snapshots import group_fixture
+    group = group_fixture()
+    historical = deepcopy(group["versions"][0])
+    updated = deepcopy(historical)
+    updated["version"] = str(uuid4())
+    updated["algorithm_version"] = 2
+    group["versions"].append(updated)
+    group["active_version"] = updated["version"]
+    assert snapshot_json(WarmupGroupSnapshot.model_validate(group)) == group
+    assert group["versions"][0] == historical
