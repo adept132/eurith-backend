@@ -3,6 +3,7 @@ from datetime import date
 from pydantic import BaseModel, Field, model_serializer
 from typing import List, Dict, Optional, Literal
 from uuid import UUID
+from api.schemas.rest_timer import RestTimerPolicy
 
 
 # Описание упражнения внутри плана
@@ -72,6 +73,7 @@ class GenerateConfig(BaseModel):
     seed: Optional[int] = None
     timer_mode: Literal["smart", "fixed"] = "smart"
     fixed_rest_seconds: int = Field(default=120, ge=30, le=600)
+    rest_timer_policy: RestTimerPolicy | None = None
     day_effort: Literal["deload", "easy", "medium", "hard", "prefailure", "failure"] = "medium"
 
 
@@ -148,6 +150,7 @@ class GenerationInputSummary(BaseModel):
     timer_mode: Literal["smart", "fixed"] = "smart"
     fixed_rest_seconds: int = 120
     day_effort: str = "medium"
+    rest_timer_policy: RestTimerPolicy = Field(default_factory=RestTimerPolicy)
 
     @model_serializer(mode="wrap")
     def omit_unused_gym(self, handler):

@@ -9,6 +9,8 @@ from api.services import equipment as equip
 from api.services.exercise_selection_engine import SelectedExercise
 from api.services.muscle_keys import key_for_muscle
 from api.services.resolvers import DayTacticalType, resolve_rep_range
+from api.schemas.rest_timer import RestTimerPolicy
+from api.services.rest_timer_policy import configured_rest_seconds
 
 TimerMode = Literal["smart", "fixed"]
 
@@ -17,15 +19,6 @@ SUPERSET_SWITCH_SECONDS = 15
 MIN_SETS_PER_EXERCISE = 2
 
 REP_SECONDS = {1: 4.0, 2: 3.5, 3: 3.0}
-SMART_REST_SECONDS = {1: 180, 2: 120, 3: 90}
-EFFORT_REST_MODIFIER = {
-    "easy": -30,
-    "medium": 0,
-    "hard": 30,
-    "prefailure": 30,
-    "failure": 60,
-    "deload": -30,
-}
 
 
 @dataclass(frozen=True)
@@ -33,6 +26,7 @@ class DurationConfig:
     timer_mode: TimerMode = "smart"
     fixed_rest_seconds: int = 120
     day_effort: str = "medium"
+    rest_timer_policy: RestTimerPolicy | None = None
 
 
 @dataclass(frozen=True)
@@ -64,7 +58,10 @@ def preparation_seconds(exercise) -> int:
 def rest_seconds(tier: int, config: DurationConfig) -> int:
     if config.timer_mode == "fixed":
         return max(0, config.fixed_rest_seconds)
-    return max(30, SMART_REST_SECONDS.get(tier, 120) + EFFORT_REST_MODIFIER.get(config.day_effort, 0))
+    effort = {"easy": "light", "deload": "light", "hard": "prefailure"}.get(
+        config.day_effort, config.day_effort,
+    )
+    return configured_rest_seconds(tier, effort, config.rest_timer_policy or RestTimerPolicy())
 
 
 def set_execution_seconds(tier: int, day_effort: str) -> int:
@@ -112,9 +109,9 @@ def estimate_duration_seconds(
             continue
 
         rounds = max(row.sets for row in block)
-        block_rest = max(rest_seconds(row.fatigue_tier, config) for row in block)
         for round_index in range(rounds):
             active = [row for row in block if row.sets > round_index]
+            block_rest = max(rest_seconds(row.fatigue_tier, config) for row in active)
             total += sum(set_execution_seconds(row.fatigue_tier, config.day_effort) for row in active)
             total += max(0, len(active) - 1) * SUPERSET_SWITCH_SECONDS
             if round_index < rounds - 1:

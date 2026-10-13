@@ -24,6 +24,7 @@ from api.services.plan_generation_insights import (
 from api.services.muscle_keys import key_for_muscle
 from api.services.exercise_selection_engine import SelectionConfig, SelectionPolicy, SelectedExercise
 from api.services.plan_duration import DurationConfig, estimate_duration_seconds, fit_to_duration
+from api.services.rest_timer_policy import rest_timer_policy
 from api.services.progression import repository as progression_repo
 from api.services.progression.engine import plan_exercise
 from api.services.progression.resolve import override_for
@@ -345,6 +346,7 @@ def _generation_input_summary(
         timer_mode=config.timer_mode,
         fixed_rest_seconds=config.fixed_rest_seconds,
         day_effort=config.day_effort,
+        rest_timer_policy=config.rest_timer_policy or rest_timer_policy(profile.settings),
     )
 
 
@@ -470,6 +472,10 @@ async def generate_plan(request: GeneratePlanRequest,
     profile, blueprint, pool, primary_goal_id = await _load_generation_context(
         db, current_user, request.blueprint_id)
 
+    request = request.model_copy(update={"config": request.config.model_copy(update={
+        "rest_timer_policy": request.config.rest_timer_policy or rest_timer_policy(profile.settings),
+    })})
+
     allowed = _allowed_equipment((profile.settings or {}).get("locations"))
     gym, gym_decisions, load_contexts = await _named_gym_context(
         db, current_user.id, request.gym_profile_id, pool)
@@ -558,7 +564,8 @@ async def generate_plan(request: GeneratePlanRequest,
                             profile.experience_level, variant_cfg, SelectionPolicy(),
                             timer_mode=request.config.timer_mode,
                             fixed_rest_seconds=request.config.fixed_rest_seconds,
-                            day_effort=effort)
+                            day_effort=effort,
+                            rest_timer_policy=request.config.rest_timer_policy)
             schedule_tags = [variant_tag] if request.day_name else (
                 [tag for tag, _ in occurrences]
                 if request.config.repeated_days_mode == "shared"
@@ -703,6 +710,7 @@ async def preview_generated_plan(
                 timer_mode=request.config.timer_mode,
                 fixed_rest_seconds=request.config.fixed_rest_seconds,
                 day_effort=effort,
+                rest_timer_policy=request.config.rest_timer_policy or rest_timer_policy(profile.settings),
             ),
         )
         refreshed_day = day.model_copy(update={
@@ -1144,6 +1152,7 @@ def _apply_saved_generator_rules(
                     timer_mode=generation_config.timer_mode,
                     fixed_rest_seconds=generation_config.fixed_rest_seconds,
                     day_effort=day_effort or generation_config.day_effort,
+                    rest_timer_policy=generation_config.rest_timer_policy or rest_timer_policy(profile.settings),
                 ),
                 accent_muscles=accent_muscles,
                 favorite_ids=favorite_ids or set(),

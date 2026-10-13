@@ -10,6 +10,7 @@ from api.services.exercise_selection_engine import (
 from api.services.muscle_keys import key_for_muscle
 from api.services.validator import AntiSuicideValidator, PlanExerciseInput
 from api.services.plan_duration import DurationConfig, fit_to_duration
+from api.schemas.rest_timer import RestTimerPolicy
 
 
 @dataclass
@@ -28,7 +29,8 @@ def build_day(day_tag: str, day_name: str, session_targets: dict, pool: list,
               experience_level: str, config: SelectionConfig,
               policy: SelectionPolicy = SelectionPolicy(),
               timer_mode: str = "smart", fixed_rest_seconds: int = 120,
-              day_effort: str = "medium") -> GeneratedDay:
+              day_effort: str = "medium",
+              rest_timer_policy: RestTimerPolicy | None = None) -> GeneratedDay:
     configured = configured_targets(session_targets, config)
     set_cap = AntiSuicideValidator.workout_set_cap(experience_level)
     capped_targets = {
@@ -64,6 +66,7 @@ def build_day(day_tag: str, day_name: str, session_targets: dict, pool: list,
             timer_mode=timer_mode,
             fixed_rest_seconds=fixed_rest_seconds,
             day_effort=day_effort,
+            rest_timer_policy=rest_timer_policy,
         ),
         accent_muscles=config.accent_muscles or (
             [config.accent_muscle] if config.accent_muscle else []

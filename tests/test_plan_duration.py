@@ -1,5 +1,9 @@
 from types import SimpleNamespace
 
+import pytest
+
+from api.schemas.rest_timer import RestTimerPolicy
+
 from api.services.exercise_selection_engine import SelectedExercise
 from api.services.plan_duration import (
     DurationConfig,
@@ -80,3 +84,48 @@ def test_fitting_reduces_sets_and_reports_unreachable_minimum():
     unreachable = fit_to_duration(exercises, pools, 1, cfg)
     assert unreachable.limit_met is False
     assert all(row.sets >= 2 for row in unreachable.exercises)
+
+
+def custom_policy():
+    return RestTimerPolicy.model_validate({
+        "base_seconds": {"tier2": 150},
+        "effort_seconds": {"light": -60, "prefailure": 45, "failure": 90},
+    })
+
+
+@pytest.mark.parametrize("effort, expected", [
+    ("medium", 150), ("easy", 90), ("deload", 90),
+    ("hard", 195), ("prefailure", 195), ("failure", 240), ("unknown", 150),
+])
+def test_configured_rest_and_effort_aliases(effort, expected):
+    cfg = DurationConfig(rest_timer_policy=custom_policy(), day_effort=effort)
+    assert rest_seconds(2, cfg) == expected
+
+
+def test_configured_formula_keeps_fixed_mode_and_execution_estimate():
+    cfg = DurationConfig(timer_mode="fixed", fixed_rest_seconds=75,
+                         rest_timer_policy=custom_policy(), day_effort="failure")
+    assert rest_seconds(2, cfg) == 75
+    exercises = [selected(1, 3)]
+    smart = DurationConfig(rest_timer_policy=custom_policy())
+    assert estimate_duration_seconds(exercises, {1: pool(1)}, smart) == 90 + 60 + 3 * 45 + 2 * 150
+
+
+def test_custom_superset_rests_once_using_maximum_of_active_round_participants():
+    policy = RestTimerPolicy.model_validate({"base_seconds": {"tier2": 240, "tier3": 90}})
+    rows = [selected(1, 2, 2, "g"), selected(2, 4, 3, "g")]
+    cfg = DurationConfig(rest_timer_policy=policy, day_effort="hard")
+    # Round 1/2 contain tier2 (270s); round 3 contains tier3 only (120s).
+    expected = 90 + 90 + 2 * (set_execution_seconds(2, "hard") + set_execution_seconds(3, "hard") + 15)
+    expected += 2 * set_execution_seconds(3, "hard") + 2 * 270 + 120
+    assert estimate_duration_seconds(rows, {1: pool(1), 2: pool(2, "bodyweight")}, cfg) == expected
+
+
+def test_default_duration_rest_matches_shared_golden_without_personalization():
+    import json
+    from pathlib import Path
+
+    for case in json.loads((Path(__file__).parent / "fixtures/rest_policy_golden.json").read_text(encoding="utf-8")):
+        cfg = DurationConfig(rest_timer_policy=RestTimerPolicy.model_validate(case["policy"]),
+                             day_effort=case["effort"])
+        assert rest_seconds(case["tier"], cfg) == case["expected"]["recommendedSeconds"], case["name"]
