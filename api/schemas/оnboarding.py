@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, field_validator, root_validator
 from typing import Any, List, Literal, Dict, Optional
 
 from api.schemas.warmups import WarmupDefaultsPatch
+from api.schemas.rest_timer import RestTimerPolicyPatch
 
 
 class OnboardingWidgetRequest(BaseModel):
@@ -54,6 +55,7 @@ class VolumeBudget(BaseModel):
 
 class UpdateSettingsRequest(BaseModel):
     warmup: Optional[WarmupDefaultsPatch] = None
+    rest_timer_policy: RestTimerPolicyPatch | None = None
     language: Optional[Literal["ru", "en"]] = None
     locations: Optional[List[str]] = None
     prehab_flags: Optional[List[str]] = None
@@ -77,3 +79,10 @@ class UpdateSettingsRequest(BaseModel):
     # {"checkin_enabled": bool}. Полностью выключает и предсессионный
     # чек-ин, и вопрос о боли в итогах тренировки.
     readiness: Optional[dict] = None
+
+    @field_validator("rest_timer_policy", mode="before")
+    @classmethod
+    def rest_timer_policy_cannot_be_null(cls, value):
+        if value is None:
+            raise ValueError("rest_timer_policy cannot be null")
+        return value

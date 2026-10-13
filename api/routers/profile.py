@@ -10,6 +10,7 @@ from api.services.models import AppUser, AppUserProfile, UserAnthropometry
 from api.services.progression.resolve import KNOWN_SCHEMES
 from api.services.volume_calculator import calculate_volume_budget
 from api.services.warmup_preferences import warmup_defaults, merge_warmup_defaults
+from api.services.rest_timer_policy import rest_timer_policy, merge_rest_timer_policy
 
 router = APIRouter(tags=["profile"])
 
@@ -20,6 +21,7 @@ def _settings_with_defaults(settings: dict | None) -> dict:
     if result.get("language") not in ("ru", "en"):
         result["language"] = "ru"
     result["warmup"] = warmup_defaults(result)
+    result["rest_timer_policy"] = rest_timer_policy(result).model_dump(mode="json")
     return result
 
 
@@ -135,6 +137,10 @@ async def update_profile_settings(
     current_settings = _settings_with_defaults(profile.settings)
     if payload.warmup is not None:
         current_settings["warmup"] = merge_warmup_defaults(current_settings, payload.warmup)
+    if payload.rest_timer_policy is not None:
+        current_settings["rest_timer_policy"] = merge_rest_timer_policy(
+            rest_timer_policy(current_settings), payload.rest_timer_policy
+        ).model_dump(mode="json")
     if payload.language is not None:
         current_settings["language"] = payload.language
     if payload.locations is not None:

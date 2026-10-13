@@ -1,0 +1,50 @@
+[
+  {
+    "name": "default_tier2_medium",
+    "policy": { "version": 1, "base_seconds": { "tier1": 180, "tier2": 120, "tier3": 90 }, "effort_seconds": { "light": -30, "medium": 0, "prefailure": 30, "failure": 60 } },
+    "tier": 2,
+    "effort": "medium",
+    "personalSeconds": 0,
+    "expected": { "tier": 2, "tierFallback": false, "baseSeconds": 120, "effortSeconds": 0, "formulaSeconds": 120, "personalSeconds": 0, "recommendedSeconds": 120, "clampDeltaSeconds": 0 }
+  },
+  {
+    "name": "custom_tier1_failure",
+    "policy": { "version": 1, "base_seconds": { "tier1": 210, "tier2": 150, "tier3": 105 }, "effort_seconds": { "light": -45, "medium": 30, "prefailure": 45, "failure": 90 } },
+    "tier": 1,
+    "effort": "failure",
+    "personalSeconds": 0,
+    "expected": { "tier": 1, "tierFallback": false, "baseSeconds": 210, "effortSeconds": 90, "formulaSeconds": 300, "personalSeconds": 0, "recommendedSeconds": 300, "clampDeltaSeconds": 0 }
+  },
+  {
+    "name": "unknown_tier_falls_back_to_two",
+    "policy": { "version": 1, "base_seconds": { "tier1": 180, "tier2": 120, "tier3": 90 }, "effort_seconds": { "light": -30, "medium": 0, "prefailure": 30, "failure": 60 } },
+    "tier": 99,
+    "effort": "medium",
+    "personalSeconds": 0,
+    "expected": { "tier": 2, "tierFallback": true, "baseSeconds": 120, "effortSeconds": 0, "formulaSeconds": 120, "personalSeconds": 0, "recommendedSeconds": 120, "clampDeltaSeconds": 0 }
+  },
+  {
+    "name": "custom_medium_does_not_apply_to_missing_effort",
+    "policy": { "version": 1, "base_seconds": { "tier1": 180, "tier2": 120, "tier3": 90 }, "effort_seconds": { "light": -30, "medium": 30, "prefailure": 30, "failure": 60 } },
+    "tier": 2,
+    "effort": null,
+    "personalSeconds": 0,
+    "expected": { "tier": 2, "tierFallback": false, "effort": null, "effortMissing": true, "baseSeconds": 120, "effortSeconds": 0, "formulaSeconds": 120, "personalSeconds": 0, "recommendedSeconds": 120, "clampDeltaSeconds": 0 }
+  },
+  {
+    "name": "lower_bound_preserves_preclamp_components",
+    "policy": { "version": 1, "base_seconds": { "tier1": 180, "tier2": 120, "tier3": 60 }, "effort_seconds": { "light": -60, "medium": 0, "prefailure": 30, "failure": 60 } },
+    "tier": 3,
+    "effort": "light",
+    "personalSeconds": 0,
+    "expected": { "tier": 3, "tierFallback": false, "baseSeconds": 60, "effortSeconds": -60, "formulaSeconds": 0, "personalSeconds": 0, "recommendedSeconds": 60, "clampDeltaSeconds": 60 }
+  },
+  {
+    "name": "upper_bound_preserves_preclamp_components",
+    "policy": { "version": 1, "base_seconds": { "tier1": 600, "tier2": 120, "tier3": 90 }, "effort_seconds": { "light": -30, "medium": 0, "prefailure": 30, "failure": 180 } },
+    "tier": 1,
+    "effort": "failure",
+    "personalSeconds": 0,
+    "expected": { "tier": 1, "tierFallback": false, "baseSeconds": 600, "effortSeconds": 180, "formulaSeconds": 780, "personalSeconds": 0, "recommendedSeconds": 600, "clampDeltaSeconds": -180 }
+  }
+]
