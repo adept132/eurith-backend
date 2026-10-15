@@ -21,6 +21,7 @@ from api.routers.workout_routines import router as workout_routines_router
 from api.routers.workout_import import router as workout_import_router
 from api.routers.plan_replacement import router as plan_replacement_router
 from api.routers.progress import router as progress_router
+from api.routers.analytics import router as analytics_router
 from api.routers.profile import router as profile_router
 from api.routers.workout_supersets import router as workout_supersets_router
 from api.routers.mesocycles import router as mesocycles_router
@@ -123,6 +124,7 @@ app.include_router(mesocycles_router)
 app.include_router(microcycles_router)
 app.include_router(plans_router)
 app.include_router(progress_router)
+app.include_router(analytics_router)
 app.include_router(exercises_router)
 app.include_router(exercise_aliases_router)
 app.include_router(profile_router)

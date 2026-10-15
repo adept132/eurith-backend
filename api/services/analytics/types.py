@@ -54,6 +54,7 @@ class AnalyticsQuery:
     block_id: int | None = None
     gym_id: str | None = None
     preview_workout_id: int | None = None
+    require_active_preview: bool = False
 
 @dataclass(frozen=True)
 class Coverage:

@@ -57,11 +57,13 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
         raise ValueError('block_not_found')
     preview = None
     if query.preview_workout_id is not None:
-        preview = (await _rows(db, select(WorkoutSession.id, WorkoutSession.started_at).where(
+        preview = (await _rows(db, select(WorkoutSession.id, WorkoutSession.started_at, WorkoutSession.status).where(
             WorkoutSession.id == query.preview_workout_id, WorkoutSession.app_user_id == user_id)))
         if not preview or preview[0]['started_at'] is None:
             raise ValueError('preview_workout_not_found')
         preview = preview[0]
+        if query.require_active_preview and preview['status'] != 'active':
+            raise ValueError('preview_workout_not_active')
     workouts = await _rows(db, select(WorkoutSession.__table__).where(
         WorkoutSession.app_user_id == user_id, WorkoutSession.status == 'finished',
         WorkoutSession.finished_at.is_not(None)).order_by(WorkoutSession.finished_at, WorkoutSession.id))
@@ -131,10 +133,15 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
     records = [f for f in facts if f.workout_id != query.preview_workout_id
                and f.finished_at < cutoff]
     measurements = []
-    measurement_start = (period.start if period else block_map[query.block_id]['start_date']) - timedelta(days=7)
-    measurement_end = (period.end if period else block_map[query.block_id]['start_date']) + timedelta(days=7)
-    measurement_start_at = datetime.combine(measurement_start, time.min, zone)
-    measurement_end_at = datetime.combine(measurement_end + timedelta(days=1), time.min, zone)
+    try:
+        measurement_start = (period.start if period else block_map[query.block_id]['start_date']) - timedelta(days=7)
+        measurement_end = (period.end if period else block_map[query.block_id]['start_date']) + timedelta(days=7)
+        # Validate UTC representability too: year-one local midnight in a
+        # positive-offset zone otherwise fails inside the database driver.
+        measurement_start_at = datetime.combine(measurement_start, time.min, zone).astimezone(timezone.utc)
+        measurement_end_at = datetime.combine(measurement_end + timedelta(days=1), time.min, zone).astimezone(timezone.utc)
+    except OverflowError as exc:
+        raise ValueError('invalid_period_bounds') from exc
     for model, source in ((UserAnthropometry, 'anthropometry'), (BodyMeasurement, 'body_measurement')):
         for row in await _rows(db, select(model.__table__).where(model.app_user_id == user_id,
                 or_(model.measured_on.between(measurement_start, measurement_end),

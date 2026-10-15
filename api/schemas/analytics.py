@@ -1,7 +1,8 @@
 """Typed, unrounded analytics resources. Readiness is supplied by the route fence."""
 from datetime import date, datetime
 from typing import Any, Literal
-from pydantic import BaseModel, ConfigDict, Field
+from uuid import UUID
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from api.services.analytics.types import Coverage, Metric, StrengthChange, EffortSummary, ResolvedPeriod
 
 
@@ -292,3 +293,61 @@ class BlockComparison(AnalyticsEnvelope):
     excluded: list[Exclusion]
     differences: ComparisonDifferences
     description: str
+
+class AnalyticsUnavailable(DTO):
+    """Unresolved resource: deliberately contains no potentially stale metrics."""
+    rules_version: Literal['p1-08-v1'] = 'p1-08-v1'
+    formula_id: Literal['lombardi-v1'] = 'lombardi-v1'
+    data_revision: int
+    computed_at: datetime
+    state: Literal['rebuilding', 'disabled']
+    scope: None = None
+
+
+class AnalyticsCapabilities(DTO):
+    write_enabled: bool
+    context_schema_version: Literal[1] = 1
+    rules_version: Literal['p1-08-v1'] = 'p1-08-v1'
+    state: Literal['ready', 'rebuilding', 'disabled']
+    data_revision: int
+
+
+
+class GymQuery(DTO):
+    gym_id: UUID | Literal['unknown'] | None = None
+
+    @property
+    def gym_filter(self) -> str | None:
+        return str(self.gym_id) if self.gym_id is not None else None
+
+
+class PeriodQuery(GymQuery):
+    period: Literal['7d', '30d', '90d', '365d', 'all', 'custom', 'block'] = '90d'
+    start: date | None = None
+    end: date | None = None
+    block_id: int | None = Field(None, gt=0)
+    preview_workout_id: int | None = Field(None, gt=0)
+
+    @model_validator(mode='after')
+    def valid_scope(self):
+        from api.services.analytics.periods import validate_measurement_bounds
+        if self.period == 'custom':
+            if self.start is None or self.end is None:
+                raise ValueError('invalid_period_bounds')
+            validate_measurement_bounds(self.start, self.end)
+        elif self.start is not None or self.end is not None:
+            raise ValueError('conflicting_period_parameters')
+        if (self.period == 'block') != (self.block_id is not None):
+            raise ValueError('conflicting_period_parameters')
+        return self
+
+    def to_query(self):
+        from api.services.analytics.types import AnalyticsQuery
+        return AnalyticsQuery(period=self.period.removesuffix('d'), start=self.start, end=self.end,
+                              block_id=self.block_id, gym_id=self.gym_filter,
+                              preview_workout_id=self.preview_workout_id, require_active_preview=True)
+
+
+class CompareQuery(GymQuery):
+    block_a_id: int = Field(gt=0)
+    block_b_id: int = Field(gt=0)

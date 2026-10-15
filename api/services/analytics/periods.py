@@ -4,6 +4,12 @@ from zoneinfo import ZoneInfo
 from .types import AnalyticsQuery, ResolvedPeriod
 
 
+def validate_measurement_bounds(start: date, end: date) -> None:
+    # Both +/-7 day windows and the exclusive upper midnight must fit.
+    if start > end or start < date.min + timedelta(days=7) or end > date.max - timedelta(days=8):
+        raise ValueError('invalid_period_bounds')
+
+
 def resolve_period(query: AnalyticsQuery, *, timezone: str, today: date,
                    block: dict | None, history_start: date | None = None) -> ResolvedPeriod:
     zone = ZoneInfo(timezone)
@@ -26,6 +32,7 @@ def resolve_period(query: AnalyticsQuery, *, timezone: str, today: date,
         raise ValueError('invalid_period')
     if start is None or end is None or start > end or end == date.max:
         raise ValueError('invalid_period_bounds')
+    validate_measurement_bounds(start, end)
     return ResolvedPeriod(start=start, end=end, timezone=timezone,
         start_at=datetime.combine(start, time.min, zone),
         end_exclusive=datetime.combine(end + timedelta(days=1), time.min, zone), block_id=block_id)
