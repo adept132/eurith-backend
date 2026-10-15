@@ -7,7 +7,7 @@ Sidecars retain owner-wide history for calendar chains and period comparisons.
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, literal, null, union_all
 from api.services.models import (AppUserProfile, AnalyticsState, WorkoutSession,
     WorkoutSessionExercise, WorkoutSessionSet, TrainingBlock, UserCalendarDay,
     UserAnthropometry, BodyMeasurement, Exercise)
@@ -44,26 +44,40 @@ def _deload(workout, blocks, days):
 async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
                      exercise_ids: set[int] | None = None,
                      allow_unresolved_period: bool = False) -> AnalyticsFacts:
-    # Scalar table projections deliberately avoid relationship loaders and writes.
-    zone_name = await db.scalar(select(AppUserProfile.timezone).where(AppUserProfile.app_user_id == user_id)) or 'UTC'
+    # One owner-anchored metadata read retains native date/UUID types and
+    # still returns a row when the owner has no blocks or preview. Scalar
+    # subqueries avoid multiplying blocks by profile/state rows.
+    owner = select(literal(user_id).label('id')).subquery()
+    profile_zone = select(AppUserProfile.timezone).where(
+        AppUserProfile.app_user_id == user_id).scalar_subquery()
+    source_revision = select(AnalyticsState.source_revision).where(
+        AnalyticsState.app_user_id == user_id,
+        AnalyticsState.rules_version == RULES_VERSION).scalar_subquery()
+    metadata = await _rows(db, select(TrainingBlock.__table__,
+        profile_zone.label('_timezone'), source_revision.label('_revision'),
+        WorkoutSession.id.label('_preview_id'), WorkoutSession.started_at.label('_preview_start'),
+        WorkoutSession.status.label('_preview_status')).select_from(owner.outerjoin(
+            TrainingBlock, TrainingBlock.app_user_id == owner.c.id).outerjoin(
+            WorkoutSession, and_(WorkoutSession.app_user_id == owner.c.id,
+                                 WorkoutSession.id == query.preview_workout_id))))
+    header = metadata[0]
+    zone_name = header['_timezone'] or 'UTC'
     zone = ZoneInfo(zone_name)
     now = datetime.now(timezone.utc)
     today = now.astimezone(zone).date()
-    revision = await db.scalar(select(AnalyticsState.source_revision).where(
-        AnalyticsState.app_user_id == user_id, AnalyticsState.rules_version == RULES_VERSION)) or 0
-    blocks = await _rows(db, select(TrainingBlock.__table__).where(TrainingBlock.app_user_id == user_id))
+    revision = header['_revision'] or 0
+    blocks = [{column.name: row[column.name] for column in TrainingBlock.__table__.columns}
+              for row in metadata if row['id'] is not None]
     block_map = {b['id']:b for b in blocks}
     if query.block_id is not None and query.block_id not in block_map:
         raise ValueError('block_not_found')
     preview = None
     if query.preview_workout_id is not None:
-        preview = (await _rows(db, select(WorkoutSession.id, WorkoutSession.started_at, WorkoutSession.status).where(
-            WorkoutSession.id == query.preview_workout_id, WorkoutSession.app_user_id == user_id)))
-        if not preview or preview[0]['started_at'] is None:
+        if header['_preview_id'] is None or header['_preview_start'] is None:
             raise ValueError('preview_workout_not_found')
-        preview = preview[0]
-        if query.require_active_preview and preview['status'] != 'active':
+        if query.require_active_preview and header['_preview_status'] != 'active':
             raise ValueError('preview_workout_not_active')
+        preview = dict(id=header['_preview_id'], started_at=header['_preview_start'])
     workouts = await _rows(db, select(WorkoutSession.__table__).where(
         WorkoutSession.app_user_id == user_id, WorkoutSession.status == 'finished',
         WorkoutSession.finished_at.is_not(None)).order_by(WorkoutSession.finished_at, WorkoutSession.id))
@@ -142,21 +156,32 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
         measurement_end_at = datetime.combine(measurement_end + timedelta(days=1), time.min, zone).astimezone(timezone.utc)
     except OverflowError as exc:
         raise ValueError('invalid_period_bounds') from exc
-    for model, source in ((UserAnthropometry, 'anthropometry'), (BodyMeasurement, 'body_measurement')):
-        for row in await _rows(db, select(model.__table__).where(model.app_user_id == user_id,
+    # UNION ALL batches independent measurement sources without a join that
+    # could multiply rows. Each source keeps its original column shape below;
+    # notably body measurements must not acquire submitted_fields semantics.
+    measurement_models = {'anthropometry': UserAnthropometry, 'body_measurement': BodyMeasurement}
+    column_names = sorted({c.name for model in measurement_models.values() for c in model.__table__.columns})
+    selections = []
+    for source, model in measurement_models.items():
+        selections.append(select(literal(source).label('_source'), *(
+            (model.__table__.c[name] if name in model.__table__.c else null()).label(name)
+            for name in column_names)).where(model.app_user_id == user_id,
                 or_(model.measured_on.between(measurement_start, measurement_end),
                     and_(model.measured_on.is_(None), model.recorded_at >= measurement_start_at,
-                         model.recorded_at < measurement_end_at)))):
-            day = row['measured_on'] or row['recorded_at'].astimezone(zone).date()
-            common = dict(row, source=source, observation_date=day,
-                          date_source='measured_on' if row['measured_on'] else 'recorded_at_local',
-                          date_estimated=row['measured_on'] is None, estimated=False, value_estimated=False)
-            if source == 'body_measurement':
-                measurements.append(dict(common, value=Decimal(str(row['value']))))
-            else:
-                for key in ('weight', 'height', 'body_fat'):
-                    if key in (row['submitted_fields'] or []) and row[key] is not None:
-                        measurements.append(dict(common, metric_key=key, value=Decimal(str(row[key]))))
+                         model.recorded_at < measurement_end_at))))
+    for combined in await _rows(db, union_all(*selections)):
+        source = combined['_source']
+        row = {c.name: combined[c.name] for c in measurement_models[source].__table__.columns}
+        day = row['measured_on'] or row['recorded_at'].astimezone(zone).date()
+        common = dict(row, source=source, observation_date=day,
+                      date_source='measured_on' if row['measured_on'] else 'recorded_at_local',
+                      date_estimated=row['measured_on'] is None, estimated=False, value_estimated=False)
+        if source == 'body_measurement':
+            measurements.append(dict(common, value=Decimal(str(row['value']))))
+        else:
+            for key in ('weight', 'height', 'body_fat'):
+                if key in (row['submitted_fields'] or []) and row[key] is not None:
+                    measurements.append(dict(common, metric_key=key, value=Decimal(str(row[key]))))
     catalog = await _rows(db, select(Exercise.id.label('exercise_id'), Exercise.main_muscle_group,
         Exercise.secondary_muscle_groups).where(or_(Exercise.app_user_id.is_(None), Exercise.app_user_id == user_id)))
     for row in catalog:

@@ -129,13 +129,13 @@ async def test_query_budgets(p108_seed):
     event.listen(db.bind.sync_engine,'before_cursor_execute',track)
     try:
         await compare_blocks(db,uid,blocks[0].id,blocks[1].id,None)
-        assert len(statements)<=18
+        assert len(statements)==12
         statements.clear()
         await exercise_analytics(db,uid,ex[1].id,AnalyticsQuery(period='block',block_id=blocks[0].id))
-        assert len(statements)==9
+        assert len(statements)==6
         statements.clear()
         await exercise_analytics(db,uid,ex[1].id,AnalyticsQuery(period='block',block_id=blocks[0].id,preview_workout_id=preview.id))
-        assert len(statements)==10
+        assert len(statements)==6
     finally:
         event.remove(db.bind.sync_engine,'before_cursor_execute',track)
 
