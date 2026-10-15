@@ -12,7 +12,9 @@ from api.services.workout_tombstones import record_child_deletion, child_was_del
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload, raiseload
+from api.services.analytics.writes import apply_field, apply_set_context, apply_session_context, json_value, fingerprint
+from api.services.analytics.state import mark_dirty
 
 from api.schemas.workout_history import (
     WorkoutHistoryDraft,
@@ -79,15 +81,21 @@ class WorkoutHistoryIdempotencyConflict(WorkoutHistoryError):
         super().__init__(server_draft.client_uuid)
 
 
-_OPTIONAL_SET_METADATA = ("warmup_snapshot", "load_mode", "gym_profile_id", "setup_id", "load_snapshot")
+_OPTIONAL_SET_METADATA = ("warmup_snapshot", "load_mode", "gym_profile_id", "setup_id", "load_snapshot",
+    "analytics_load_snapshot", "anomaly_review", "is_max_reps", "is_anomalous",
+    "shown_target_snapshot", "superset_round")
+_OPTIONAL_EXERCISE_METADATA = ("warmup_group", "analytics_load_defaults")
 
 
 def _history_request_fingerprint(draft: WorkoutHistoryDraft) -> str:
     data = draft.model_dump(mode="json")
+    if 'analytics_snapshot' not in draft.model_fields_set:
+        data.pop('analytics_snapshot', None)
     # Preserve hashes made by older clients/servers which knew no snapshot keys.
     for source, target in zip(draft.exercises, data["exercises"]):
-        if "warmup_group" not in source.model_fields_set:
-            target.pop("warmup_group", None)
+        for field in _OPTIONAL_EXERCISE_METADATA:
+            if field not in source.model_fields_set:
+                target.pop(field, None)
         for row, target_row in zip(source.sets, target["sets"]):
             for field in _OPTIONAL_SET_METADATA:
                 if field not in row.model_fields_set:
@@ -130,6 +138,8 @@ def _history_set_state(item: WorkoutHistorySetDraft) -> tuple[object, ...]:
         item.is_completed,
         snapshot_json(item.warmup_snapshot),
         item.load_mode, item.gym_profile_id, item.setup_id, item.load_snapshot,
+        json_value(item.analytics_load_snapshot), json_value(item.anomaly_review),
+        item.is_max_reps, item.is_anomalous, item.shown_target_snapshot, item.superset_round,
     )
 
 
@@ -141,6 +151,7 @@ def _history_exercise_state(item: WorkoutHistoryExerciseDraft) -> tuple[object, 
         item.superset_group,
         item.notes,
         snapshot_json(item.warmup_group),
+        json_value(item.analytics_load_defaults),
         tuple(
             _history_set_state(workout_set)
             for workout_set in sorted(
@@ -158,6 +169,7 @@ def _history_mutable_state(draft: WorkoutHistoryDraft) -> tuple[object, ...]:
         draft.finished_at,
         draft.notes,
         draft.session_rpe,
+        json_value(draft.analytics_snapshot),
         tuple(
             _history_exercise_state(exercise)
             for exercise in sorted(
@@ -168,29 +180,36 @@ def _history_mutable_state(draft: WorkoutHistoryDraft) -> tuple[object, ...]:
     )
 
 
-def _is_exact_history_correction_replay(
+def _effective_history_draft(
     workout: WorkoutSession,
     draft: WorkoutHistoryDraft,
-) -> bool:
+) -> WorkoutHistoryDraft:
     effective = draft.model_copy(deep=True)
     saved = draft_from_workout(workout)
+    if 'analytics_snapshot' not in effective.model_fields_set:
+        effective.analytics_snapshot = saved.analytics_snapshot
     saved_exercises = {item.client_uuid: item for item in saved.exercises}
     for item in effective.exercises:
         prior = saved_exercises.get(item.client_uuid)
         if prior is None:
             continue
-        if "warmup_group" not in item.model_fields_set:
-            item.warmup_group = prior.warmup_group
+        for field in _OPTIONAL_EXERCISE_METADATA:
+            if field not in item.model_fields_set:
+                setattr(item, field, getattr(prior, field))
         prior_rows = {row.client_uuid: row for row in prior.sets}
         for row in item.sets:
             if row.client_uuid in prior_rows:
                 for field in _OPTIONAL_SET_METADATA:
                     if field not in row.model_fields_set:
                         setattr(row, field, getattr(prior_rows[row.client_uuid], field))
+    return effective
+
+
+def _is_exact_history_correction_replay(workout, draft) -> bool:
     return (
         workout.revision == draft.base_revision + 1
         and _history_mutable_state(draft_from_workout(workout))
-        == _history_mutable_state(effective)
+        == _history_mutable_state(_effective_history_draft(workout, draft))
     )
 
 
@@ -245,11 +264,28 @@ async def _validate_exercises(
     return by_id
 
 
+async def get_history_draft(db: AsyncSession, user_id: int, workout_id: int):
+    # One SQL statement gives revision and every child the same MVCC snapshot.
+    statement = select(WorkoutSession).where(
+        WorkoutSession.id == workout_id, WorkoutSession.app_user_id == user_id,
+    ).options(raiseload('*'), joinedload(WorkoutSession.exercises).options(
+        joinedload(WorkoutSessionExercise.exercise), joinedload(WorkoutSessionExercise.sets),
+    )).execution_options(populate_existing=True)
+    workout = (await db.execute(statement)).unique().scalar_one_or_none()
+    if workout is None:
+        raise WorkoutHistoryNotFound
+    if workout.status != 'finished':
+        raise WorkoutHistoryNotFinished
+    return draft_from_workout(workout)
+
+
 def _apply_set_fields(
     target: WorkoutSessionSet,
     source,
     stats,
 ) -> None:
+    numeric_changed = (target.id is None or target.weight != source.weight
+        or target.reps != source.reps or target.set_type != source.set_type)
     target.client_uuid = source.client_uuid
     target.set_number = source.set_number
     target.set_type = source.set_type
@@ -263,13 +299,19 @@ def _apply_set_fields(
     for field in ("load_mode", "gym_profile_id", "setup_id", "load_snapshot"):
         if field in source.model_fields_set:
             setattr(target, field, getattr(source, field))
+    for field in ('is_max_reps', 'shown_target_snapshot', 'superset_round'):
+        if field in source.model_fields_set:
+            setattr(target, field, json_value(getattr(source, field)))
     verdict = check_set(
         float(source.weight) if source.weight is not None else None,
         source.reps,
         source.set_type,
         stats,
     )
-    target.is_anomalous = resolve_is_anomalous(verdict, confirmed=False)
+    if numeric_changed:
+        target.is_anomalous = resolve_is_anomalous(verdict, confirmed=False)
+    elif 'is_anomalous' in source.model_fields_set:
+        target.is_anomalous = source.is_anomalous
 
 
 def _apply_set_parent_links(
@@ -389,6 +431,7 @@ async def _replace_exercises(
 
         if "warmup_group" in source_exercise.model_fields_set:
             target_exercise.warmup_group = snapshot_json(source_exercise.warmup_group)
+        apply_field(target_exercise, source_exercise, 'analytics_load_defaults')
         existing_sets = {
             item.client_uuid or f"server-set-{item.id}": item
             for item in target_exercise.sets
@@ -418,6 +461,7 @@ async def _replace_exercises(
                 db.add(target_set)
             elif target_set.client_uuid is None:
                 target_set.client_uuid = source_set.client_uuid
+            apply_set_context(target_set, source_set, target_exercise, is_new=target_set.id is None)
             _apply_set_fields(target_set, source_set, stats)
             if "warmup_snapshot" in source_set.model_fields_set:
                 try:
@@ -507,6 +551,8 @@ async def create_history_workout(
         )
         db.add(workout)
         await db.flush()
+        # Manual/screenshot historical creation never reconstructs absent mass.
+        await apply_session_context(db, workout, draft)
         await _replace_exercises(db, workout, draft, exercise_by_id)
         _enqueue_recalculation(
             db,
@@ -514,6 +560,7 @@ async def create_history_workout(
             workout.revision,
             {item.exercise_id for item in draft.exercises},
         )
+        await mark_dirty(db, user_id)
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -550,6 +597,11 @@ async def replace_history_workout(
         if workout.entry_mode != draft.entry_mode:
             raise WorkoutHistoryImmutableField("entry_mode")
 
+        if _history_mutable_state(draft_from_workout(workout)) == _history_mutable_state(
+                _effective_history_draft(workout, draft)):
+            return workout
+
+        before = await fingerprint(db, workout.id)
         exercise_by_id = await _validate_exercises(db, user_id, draft)
         affected_exercise_ids = {
             item.exercise_id for item in workout.exercises
@@ -561,12 +613,22 @@ async def replace_history_workout(
         workout.session_rpe_at = (
             draft.finished_at if draft.session_rpe is not None else None
         )
+        await apply_session_context(db, workout, draft)
         await _replace_exercises(db, workout, draft, exercise_by_id)
+        # Tombstones can suppress requested children. Invalidate accepted facts,
+        # not a request which ended up making no effective change.
+        if before == await fingerprint(db, workout.id):
+            # Discard temporary reordering/timestamp updates and reload eager
+            # response attributes; flushed server defaults can be expired.
+            await db.rollback()
+            return await _reload_workout(db, user_id, workout_id)
         workout.revision += 1
         workout.edited_at = datetime.now(timezone.utc)
         _enqueue_recalculation(
             db, workout.id, workout.revision, affected_exercise_ids
         )
+        # Global source invalidation covers both original and corrected intervals.
+        await mark_dirty(db, user_id)
         await db.commit()
     except Exception:
         await db.rollback()
@@ -601,6 +663,9 @@ def _draft_sets_from_exercise(
             "gym_profile_id": workout_set.gym_profile_id,
             "setup_id": workout_set.setup_id,
             "load_snapshot": workout_set.load_snapshot,
+            **{field: getattr(workout_set, field) for field in (
+                'analytics_load_snapshot', 'anomaly_review', 'is_max_reps', 'is_anomalous',
+                'shown_target_snapshot', 'superset_round')},
         }
         for workout_set in exercise.sets
     ]
@@ -615,6 +680,7 @@ def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryServerSnapshot:
         finished_at=workout.finished_at,
         notes=workout.notes,
         session_rpe=workout.session_rpe,
+        analytics_snapshot=workout.analytics_snapshot,
         exercises=[
             {
                 "client_uuid": item.client_uuid or f"server-exercise-{item.id}",
@@ -625,6 +691,7 @@ def draft_from_workout(workout: WorkoutSession) -> WorkoutHistoryServerSnapshot:
                 "notes": item.notes,
                 "sets": _draft_sets_from_exercise(item),
                 "warmup_group": item.warmup_group,
+                "analytics_load_defaults": item.analytics_load_defaults,
             }
             for item in workout.exercises
         ],

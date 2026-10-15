@@ -6,6 +6,7 @@ from uuid import UUID
 from typing import Annotated, Literal
 
 from api.schemas.warmups import WarmupGroupSnapshot, WarmupRowSnapshot
+from api.schemas.analytics_context import WorkoutAnalyticsSnapshot, SetLoadSnapshot, AnomalyReview
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from api.schemas.workouts import (
@@ -47,6 +48,12 @@ class WorkoutHistorySetDraft(StrictHistoryModel):
     gym_profile_id: UUID | None = None
     setup_id: UUID | None = None
     load_snapshot: dict | None = None
+    analytics_load_snapshot: SetLoadSnapshot | None = None
+    anomaly_review: AnomalyReview | None = None
+    is_max_reps: bool = False
+    is_anomalous: bool = False
+    shown_target_snapshot: dict | None = None
+    superset_round: int | None = None
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)
 
@@ -58,6 +65,7 @@ class WorkoutHistoryExerciseDraft(StrictHistoryModel):
     superset_group: str | None = Field(default=None, max_length=64)
     notes: str | None = None
     warmup_group: WarmupGroupSnapshot | None = None
+    analytics_load_defaults: SetLoadSnapshot | None = None
     sets: list[WorkoutHistorySetDraft] = Field(default_factory=list)
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)
@@ -95,13 +103,14 @@ class WorkoutHistoryDraft(StrictHistoryModel):
     finished_at: datetime
     notes: str | None = None
     session_rpe: float | None = Field(default=None, ge=0, le=10)
+    analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     exercises: list[WorkoutHistoryExerciseDraft] = Field(default_factory=list)
 
     _normalize_notes = field_validator("notes", mode="before")(_blank_to_none)
 
     @model_validator(mode="after")
     def _validate_snapshot(self) -> "WorkoutHistoryDraft":
-        if self.finished_at <= self.started_at:
+        if self.finished_at is not None and self.finished_at <= self.started_at:
             raise ValueError("finished_at must be after started_at")
         uuids = [item.client_uuid for item in self.exercises]
         order_indexes = [item.order_index for item in self.exercises]
@@ -124,6 +133,9 @@ class WorkoutHistoryServerExerciseSnapshot(WorkoutHistoryExerciseDraft):
 
 
 class WorkoutHistoryServerSnapshot(WorkoutHistoryDraft):
+    # Imported legacy rows may have no duration. Read unknown without inventing it;
+    # write drafts above still require a complete valid interval.
+    finished_at: datetime | None = None
     exercises: list[WorkoutHistoryServerExerciseSnapshot] = Field(default_factory=list)
 
 

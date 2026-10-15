@@ -14,6 +14,9 @@
 import csv
 import hashlib
 import io
+import json
+from pydantic import ValidationError
+from api.schemas.analytics_context import WorkoutAnalyticsSnapshot, SetLoadSnapshot, AnomalyReview
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -62,6 +65,8 @@ class ParsedSet:
     is_completed: bool = True
     parent_set_order: Optional[int] = None
     superset_round: Optional[int] = None
+    analytics_load_snapshot: Optional[dict] = None
+    anomaly_review: Optional[dict] = None
 
 
 @dataclass
@@ -70,6 +75,7 @@ class ParsedExercise:
     exercise_id: Optional[int] = None
     superset_group: Optional[str] = None
     sets: List[ParsedSet] = field(default_factory=list)
+    analytics_load_defaults: Optional[dict] = None
 
 
 @dataclass
@@ -80,6 +86,7 @@ class ParsedWorkout:
     duration_seconds: Optional[int] = None
     notes: Optional[str] = None
     exercises: List[ParsedExercise] = field(default_factory=list)
+    analytics_snapshot: Optional[dict] = None
 
     @property
     def total_sets(self) -> int:
@@ -154,6 +161,16 @@ def _workout_key(date_iso: str, name: str) -> str:
     return f"strong:{digest}"
 
 
+def _snapshot(raw, schema, column):
+    if not _clean(raw):
+        return None
+    try:
+        value = json.loads(raw)
+        return None if value is None else schema.model_validate(value).model_dump(mode='json')
+    except (ValueError, TypeError, ValidationError) as exc:
+        raise CsvParseError(f'Invalid {column}') from exc
+
+
 def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
     """Разбирает CSV в список тренировок.
 
@@ -191,6 +208,8 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
     workouts: Dict[tuple, ParsedWorkout] = {}
     # (ключ тренировки, имя упражнения) -> упражнение
     exercises: Dict[tuple, ParsedExercise] = {}
+    workout_metadata = {}
+    exercise_metadata = {}
 
     for line_number, row in enumerate(reader, start=2):  # 1 — это шапка
         date_raw = _clean(col(row, COL_DATE))
@@ -243,23 +262,47 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
             result.file_unit = row_unit
 
         workout_name = _clean(col(row, COL_WORKOUT_NAME)) or DEFAULT_WORKOUT_NAME
-        wkey = (date_raw, workout_name)
+        source_key = _clean(col(row, 'workout_source_key'))
+        instance_key = _clean(col(row, 'exercise_instance_source_key'))
+        wkey = ('source', source_key) if source_key else ('legacy', date_raw, workout_name)
+        session_context = _snapshot(col(row, 'analytics_snapshot_json'), WorkoutAnalyticsSnapshot, 'analytics_snapshot_json')
+        defaults = _snapshot(col(row, 'analytics_load_defaults_json'), SetLoadSnapshot, 'analytics_load_defaults_json')
+        load = _snapshot(col(row, 'analytics_load_snapshot_json'), SetLoadSnapshot, 'analytics_load_snapshot_json')
+        review = _snapshot(col(row, 'anomaly_review_json'), AnomalyReview, 'anomaly_review_json')
+        # Repeated object columns must agree, including explicit unknown vs known.
+        metadata = (started_at, workout_name, parse_duration(col(row, COL_DURATION)),
+                    _clean(col(row, COL_WORKOUT_NOTES)) or None, session_context)
+        if not source_key:
+            # Legacy/Strong may only populate notes/duration on the first row.
+            metadata = (session_context,)
+        if wkey in workout_metadata and workout_metadata[wkey] != metadata:
+            raise CsvParseError('Contradictory workout context')
+        workout_metadata[wkey] = metadata
 
         if wkey not in workouts:
             workouts[wkey] = ParsedWorkout(
                 started_at=started_at,
                 name=workout_name,
-                import_key=_workout_key(started_at.isoformat(), workout_name),
+                import_key=('eurith:' + hashlib.sha256(source_key.encode()).hexdigest()) if source_key else _workout_key(started_at.isoformat(), workout_name),
                 duration_seconds=parse_duration(col(row, COL_DURATION)),
                 notes=_clean(col(row, COL_WORKOUT_NOTES)) or None,
+                analytics_snapshot=session_context,
             )
 
-        ekey = (wkey, name_raw)
+        ekey = (wkey, ('source', instance_key) if instance_key else ('legacy', name_raw))
+        metadata = (name_raw, _to_int(col(row, COL_EXERCISE_ID)),
+                    _clean(col(row, COL_SUPERSET_GROUP)) or None, defaults)
+        if not instance_key:
+            metadata = (defaults,)
+        if ekey in exercise_metadata and exercise_metadata[ekey] != metadata:
+            raise CsvParseError('Contradictory exercise context')
+        exercise_metadata[ekey] = metadata
         if ekey not in exercises:
             exercise = ParsedExercise(
                 name=name_raw,
                 exercise_id=_to_int(col(row, COL_EXERCISE_ID)),
                 superset_group=_clean(col(row, COL_SUPERSET_GROUP)) or None,
+                analytics_load_defaults=defaults,
             )
             exercises[ekey] = exercise
             workouts[wkey].exercises.append(exercise)
@@ -284,6 +327,8 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
                 is_completed=_to_bool(col(row, COL_COMPLETED), default=True),
                 parent_set_order=_to_int(col(row, COL_PARENT_SET_ORDER)),
                 superset_round=_to_int(col(row, COL_SUPERSET_ROUND)),
+                analytics_load_snapshot=load,
+                anomaly_review=review,
             )
         )
 

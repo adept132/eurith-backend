@@ -6,6 +6,7 @@ from api.schemas.workout_history import (
     WorkoutHistoryDraft,
     WorkoutHistoryListResponse,
     WorkoutHistorySaveResponse,
+    WorkoutHistoryServerSnapshot,
 )
 from api.services.app_user_service import get_current_app_user
 from api.services.workout_history import (
@@ -18,6 +19,7 @@ from api.services.workout_history import (
     create_history_workout,
     list_history_workouts,
     replace_history_workout,
+    get_history_draft,
 )
 
 
@@ -72,6 +74,18 @@ async def get_workout_history(
     return WorkoutHistoryListResponse(
         workouts=await list_history_workouts(db, current_app_user.id)
     )
+
+
+@router.get('/workouts/history/{workout_id}/draft', response_model=WorkoutHistoryServerSnapshot)
+async def read_workout_history_draft(
+    workout_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_app_user=Depends(get_current_app_user),
+):
+    try:
+        return await get_history_draft(db, current_app_user.id, workout_id)
+    except Exception as exc:
+        raise _translate_history_error(exc) from exc
 
 
 @router.post(

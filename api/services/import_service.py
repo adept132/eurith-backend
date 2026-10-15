@@ -5,6 +5,11 @@
 """
 
 from dataclasses import dataclass
+from copy import deepcopy
+from fastapi import HTTPException
+from api.schemas.analytics_context import WorkoutAnalyticsSnapshot, ImportProvenance
+from api.services.analytics.config import analytics_enabled
+from api.services.analytics.snapshots import capture_workout_snapshot
 from datetime import timedelta
 from typing import Dict, List, Mapping, Optional, Tuple
 
@@ -397,6 +402,26 @@ async def save_aliases(
     ]
 
 
+def imported_snapshot(value: dict | None) -> dict | None:
+    """Keep descriptive origin, never resolve imported identifiers as local authority."""
+    if value is None:
+        return None
+    snapshot = WorkoutAnalyticsSnapshot.model_validate(value)
+    mass = snapshot.body_mass
+    if mass is not None:
+        provenance = mass.import_provenance or ImportProvenance(
+            original_source=mass.source,
+            original_measurement_id=str(mass.measurement_id) if mass.measurement_id is not None else None,
+            original_measurement_client_uuid=mass.measurement_client_uuid,
+            original_captured_at=mass.captured_at, import_format='eurith_csv_v1',
+        )
+        snapshot = snapshot.model_copy(update={'body_mass': mass.model_copy(update={
+            'source': 'imported', 'measurement_id': None, 'measurement_client_uuid': None,
+            'import_provenance': provenance,
+        })})
+    return snapshot.model_dump(mode='json')
+
+
 async def import_workouts(
     session: AsyncSession,
     app_user_id: int,
@@ -424,6 +449,11 @@ async def import_workouts(
             duplicates += 1
             continue
 
+        if not analytics_enabled() and (w.analytics_snapshot is not None or any(
+            e.analytics_load_defaults is not None or any(s.analytics_load_snapshot is not None
+                or s.anomaly_review is not None for s in e.sets) for e in w.exercises)):
+            raise HTTPException(409, {'error': 'analytics_disabled'})
+
         started_at = wall_clock_to_utc(w.started_at, tz_name)
         finished_at = None
         if w.duration_seconds:
@@ -438,9 +468,13 @@ async def import_workouts(
             notes=w.notes,
             import_source=IMPORT_SOURCE_STRONG,
             import_key=w.import_key,
+            analytics_snapshot=imported_snapshot(w.analytics_snapshot),
         )
         session.add(ws)
         await session.flush()
+        if ws.analytics_snapshot and ws.analytics_snapshot.get('body_mass'):
+            await capture_workout_snapshot(session, ws,
+                explicit_mass=WorkoutAnalyticsSnapshot.model_validate(ws.analytics_snapshot).body_mass)
 
         order_index = 0
         wrote_any = False
@@ -457,6 +491,7 @@ async def import_workouts(
                 exercise_id=resolved_id,
                 order_index=order_index,
                 superset_group=parsed_ex.superset_group,
+                analytics_load_defaults=deepcopy(parsed_ex.analytics_load_defaults),
             )
             session.add(ws_ex)
             await session.flush()
@@ -480,6 +515,8 @@ async def import_workouts(
                     if ps.parent_set_order
                     else None,
                     superset_round=ps.superset_round,
+                    analytics_load_snapshot=deepcopy(ps.analytics_load_snapshot),
+                    anomaly_review=deepcopy(ps.anomaly_review),
                 )
                 session.add(new_set)
                 await session.flush()
@@ -488,6 +525,7 @@ async def import_workouts(
 
         if wrote_any:
             added += 1
+            skip_keys.add(w.import_key)
         else:
             # Ни одно упражнение не легло — пустую сессию не оставляем.
             await session.delete(ws)

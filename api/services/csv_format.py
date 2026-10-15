@@ -72,6 +72,10 @@ EURITH_COLUMNS: List[str] = [
     COL_MICRO_DAY,
 ]
 
+ANALYTICS_COLUMNS = ['analytics_snapshot_json', 'analytics_load_defaults_json',
+                     'analytics_load_snapshot_json', 'anomaly_review_json',
+                     'workout_source_key', 'exercise_instance_source_key']
+EURITH_COLUMNS += ANALYTICS_COLUMNS
 FULL_COLUMNS: List[str] = STRONG_COLUMNS + EURITH_COLUMNS
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"

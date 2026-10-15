@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 from datetime import date as date_type
 from typing import Dict, Iterator, List, Optional
 
@@ -149,6 +150,12 @@ async def collect_export_rows(
                 rows.append(
                     {
                         COL_DATE: started.strftime(DATE_FORMAT) if started else "",
+                        'workout_source_key': ws.client_uuid or f'workout-{ws.app_user_id}-{ws.id}',
+                        'exercise_instance_source_key': ws_ex.client_uuid or f'exercise-{ws_ex.id}',
+                        'analytics_snapshot_json': json.dumps(ws.analytics_snapshot) if ws.analytics_snapshot is not None else '',
+                        'analytics_load_defaults_json': json.dumps(ws_ex.analytics_load_defaults) if ws_ex.analytics_load_defaults is not None else '',
+                        'analytics_load_snapshot_json': json.dumps(s.analytics_load_snapshot) if s.analytics_load_snapshot is not None else '',
+                        'anomaly_review_json': json.dumps(s.anomaly_review) if s.anomaly_review is not None else '',
                         COL_WORKOUT_NAME: workout_name,
                         COL_DURATION: format_duration(duration_seconds),
                         COL_EXERCISE_NAME: exercise_name,

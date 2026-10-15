@@ -5,7 +5,8 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, text as sql_text
+from api.services.analytics.state import mark_dirty
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_db
@@ -202,6 +203,9 @@ async def import_commit(
     parsed = _parse_or_400(text, payload.unit)
 
     resolved_unit = parsed.file_unit or normalize_unit(payload.unit) or UNIT_KG
+    # Serialize this owner's imports before deduplication; helpers never commit.
+    await db.execute(sql_text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
+                     {'key': f'workout-import:{current_app_user.id}'})
 
     mapping_dict: Dict[str, int] = payload.mappings or {}
 
@@ -226,6 +230,8 @@ async def import_commit(
     added, duplicates, unresolved = await import_workouts(
         db, current_app_user.id, parsed.workouts, resolver, skip_keys, tz_name
     )
+    if added:
+        await mark_dirty(db, current_app_user.id)
     await db.commit()
 
     return ImportCommitResponse(
