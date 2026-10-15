@@ -35,3 +35,21 @@ def test_tolerance_before_rounding():
     ('prefailure',1),('failure',0),('warmup',4),('warmup_effort',4),(None,None),('other',None)])
 def test_explicit_rir_only(raw,effort,rir):
     assert normalize_set(raw(effort_level=effort)).rir == rir
+
+@pytest.mark.parametrize('rep_basis', [None, 'unrecognized'])
+def test_unknown_dumbbell_rep_basis_blocks_weighted_metrics(raw, rep_basis):
+    context = dict(schema_version=1, model='dumbbell', input_basis='per_implement',
+                   implement_count=2)
+    if rep_basis is not None:
+        context['rep_basis'] = rep_basis
+    fact = raw(weight_kg=20, reps=20, effort_level='medium', load_context=context)
+    normalized = normalize_set(fact)
+    assert normalized.e1rm_weight_kg == 20
+    assert normalized.e1rm_reps is None
+    assert normalized.tonnage_kg is None
+    assert 'unknown_rep_basis' in normalized.unavailable
+    for metric in ['e1rm', 'pr', 'intensity', 'tonnage']:
+        assert not eligible(fact, metric)
+    for metric in ['work_sets', 'reps', 'rir']:
+        assert eligible(fact, metric)
+    assert normalized.rir == 2

@@ -82,6 +82,7 @@ def normalize_set(raw: RawSetFact) -> NormalizedSetFact:
                 tonnage_reps = None
                 reasons.append('unknown_side_reps')
         elif rep_basis != 'total':
+            e1rm_reps = None
             tonnage_reps = None
             reasons.append('unknown_rep_basis')
     if model == 'dumbbell' and basis == 'per_implement' and context.get('rep_basis') in {'per_side','total'}:
