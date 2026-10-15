@@ -1,6 +1,7 @@
 """Capture-time body facts. All writes belong to the caller's transaction."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from math import isfinite
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
@@ -72,6 +73,11 @@ async def append_workout_weighing(db, user_id: int, *, client_uuid: str,
                                  weight_kg: Decimal, measured_on: date) -> int:
     if not client_uuid or len(client_uuid) > 64 or not weight_kg.is_finite() or weight_kg <= 0:
         raise HTTPException(422, 'Invalid weighing intent')
+    # Journal and wire weights use float; canonicalize once before any write or
+    # replay comparison. Exact equality at that representation, never an epsilon.
+    stored_weight = float(weight_kg)
+    if not isfinite(stored_weight) or stored_weight <= 0:
+        raise HTTPException(422, 'Weighing cannot be represented as a positive finite weight')
     await lock_body_intent(db, user_id, client_uuid)
     row = (await db.execute(select(UserAnthropometry).where(
         UserAnthropometry.app_user_id == user_id,
@@ -79,14 +85,14 @@ async def append_workout_weighing(db, user_id: int, *, client_uuid: str,
     ))).scalar_one_or_none()
     if row is not None:
         if (row.submitted_fields != ['weight'] or row.weight is None
-                or row.measured_on != measured_on or Decimal(str(row.weight)) != weight_kg):
+                or row.measured_on != measured_on or row.weight != stored_weight):
             raise HTTPException(409, 'Weighing UUID already has different data')
         return row.id
     collision = await db.scalar(select(BodyMeasurement.id).where(
         BodyMeasurement.app_user_id == user_id, BodyMeasurement.client_uuid == client_uuid).limit(1))
     if collision is not None:
         raise HTTPException(409, 'Weighing UUID already belongs to another body entry')
-    await append_body_entry(db, user_id, weight=float(weight_kg),
+    await append_body_entry(db, user_id, weight=stored_weight,
                             client_uuid=client_uuid, measured_on=measured_on)
     return (await db.execute(select(UserAnthropometry.id).where(
         UserAnthropometry.app_user_id == user_id,

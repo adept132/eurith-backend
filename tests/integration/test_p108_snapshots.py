@@ -131,6 +131,30 @@ async def test_mass_intent_conflicts_with_non_weight_entry(test_user, db):
     assert exc.value.status_code == 409
 
 @pytest.mark.asyncio
+async def test_fractional_mass_intent_replay_uses_storage_representation(test_user, db):
+    value = Decimal('80.123456789012345678')
+    first = await append_workout_weighing(db, test_user.id, client_uuid='fractional',
+                                        weight_kg=value, measured_on=D(10))
+    await db.commit()
+    replay = await append_workout_weighing(db, test_user.id, client_uuid='fractional',
+                                         weight_kg=value, measured_on=D(10))
+    assert replay == first
+    assert (await db.get(UserAnthropometry, first)).weight == float(value)
+    with pytest.raises(HTTPException) as exc:
+        await append_workout_weighing(db, test_user.id, client_uuid='fractional',
+                                     weight_kg=Decimal('80.12345678901236'), measured_on=D(10))
+    assert exc.value.status_code == 409
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('value', [Decimal('1e999'), Decimal('1e-999')])
+async def test_mass_intent_rejects_unrepresentable_weight(test_user, db, value):
+    with pytest.raises(HTTPException) as exc:
+        await append_workout_weighing(db, test_user.id, client_uuid='unrepresentable',
+                                     weight_kg=value, measured_on=D(10))
+    assert exc.value.status_code == 422
+    assert await db.scalar(select(UserAnthropometry.id).where(UserAnthropometry.app_user_id == test_user.id)) is None
+
+@pytest.mark.asyncio
 async def test_unknown_and_opt_in_reconstruction(test_user, db):
     db.add(UserAnthropometry(app_user_id=test_user.id, weight=90, measured_on=D(10), submitted_fields=None))
     unknown = await workout(db, test_user.id)
