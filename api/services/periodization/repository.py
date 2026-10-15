@@ -272,7 +272,7 @@ async def close_and_advance(
 
 
 async def roll_over_if_complete(
-    session: AsyncSession, app_user_id: int, today: date
+    session: AsyncSession, app_user_id: int, today: date, *, commit: bool = True
 ) -> Optional[TrainingBlock]:
     """Закрывает активный блок, чей planned_end_date уже прошёл, и тут же
     открывает следующий по АКТУАЛЬНОМУ шаблону мезоцикла пользователя (сплит
@@ -297,9 +297,8 @@ async def roll_over_if_complete(
     собирает вызывающая сторона — см. ensure_active_block и
     params.MAX_CHAIN_ROLLOVERS.
 
-    Коммитит сессию (как и ensure_active_block, см. предупреждение там) —
-    вызывающая сторона не должна накопить в этой сессии собственные
-    незакоммиченные изменения раньше этого вызова.
+    По умолчанию коммитит сессию. Вложенный владелец операции передаёт
+    commit=False и сам решает, когда публиковать изменения.
     """
     block = await get_active_block(session, app_user_id)
     if block is None:
@@ -325,15 +324,18 @@ async def roll_over_if_complete(
         next_start_date=block.planned_end_date + timedelta(days=1),
         today=today,
     )
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     # Возвращаем ЗАКРЫТЫЙ блок — он понадобится Задаче 9, чтобы по нему
     # создать карточку итогов.
     return block
 
 
 async def _catch_up_active_block(
-    session: AsyncSession, app_user_id: int, today: date
-) -> None:
+    session: AsyncSession, app_user_id: int, today: date, *, commit: bool = True
+) -> bool:
     """Перекатывает активный блок в цикле, пока он не покроет today, либо
     пока не исчерпан params.MAX_CHAIN_ROLLOVERS (P0-08, повторное ревью
     Задачи 7, Находка 1).
@@ -347,18 +349,19 @@ async def _catch_up_active_block(
     начинаем новый с сегодня, как и для самого первого блока пользователя.
     """
     rollovers = 0
-    while await roll_over_if_complete(session, app_user_id, today) is not None:
+    while await roll_over_if_complete(session, app_user_id, today, commit=commit) is not None:
         rollovers += 1
         if rollovers < params.MAX_CHAIN_ROLLOVERS:
             continue
         current = await get_active_block(session, app_user_id)
         if current is not None and today > current.planned_end_date:
-            await _close_for_layoff(session, app_user_id, current, today)
+            await _close_for_layoff(session, app_user_id, current, today, commit=commit)
         break
+    return rollovers > 0
 
 
 async def _close_for_layoff(
-    session: AsyncSession, app_user_id: int, block: TrainingBlock, today: date
+    session: AsyncSession, app_user_id: int, block: TrainingBlock, today: date, *, commit: bool = True
 ) -> TrainingBlock:
     """Закрывает блок, который params.MAX_CHAIN_ROLLOVERS перекатов того же
     шаблона так и не дотянули до today, и открывает новый со start_date =
@@ -379,27 +382,40 @@ async def _close_for_layoff(
         next_start_date=today,
         today=today,
     )
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return next_block
 
 
 async def ensure_active_block(
-    session: AsyncSession, app_user_id: int, today: date
+    session: AsyncSession, app_user_id: int, today: date, *, commit: bool = True
 ) -> Optional[TrainingBlock]:
-    """Активный блок, создавая первый при необходимости.
+    """Ensure a block; nested callers retain ownership of commit and rollback.
 
-    Прошлое не реконструируем: где проходили границы блоков раньше, достоверно
-    вывести нельзя (формулы генератора и превью расходятся). Поэтому первый
-    блок существующего пользователя начинается сегодня — разовый эффект
-    перехода, зафиксированный в спеке §8.
-
-    ВНИМАНИЕ: функция коммитит текущую транзакцию сессии (см. session.commit()
-    ниже — как и SchedulingEngine.launch_and_unroll_plan, ensure_horizon, эта
-    функция коммитит внутри себя, не только флашит). Вызывать её нужно ДО
-    того, как вызывающий код начал накапливать собственные незакоммиченные
-    изменения в этой сессии — иначе они уедут в БД вместе с блоком, задним
-    числом и незапланированно.
+    A savepoint confines creation/rollover race recovery to this helper. Pending
+    outer writes are flushed before it and are neither committed nor rolled back.
+    Standalone callers retain the historical durable default.
     """
+    await session.flush()  # Outer failures are not lifecycle races.
+    try:
+        async with session.begin_nested():
+            block, changed = await _ensure_active_block(session, app_user_id, today)
+    except IntegrityError:
+        block = await get_active_block(session, app_user_id)
+        if block is None:
+            raise
+        changed = False
+    if commit and changed:
+        await session.commit()
+    return block
+
+
+async def _ensure_active_block(
+    session: AsyncSession, app_user_id: int, today: date
+) -> tuple[Optional[TrainingBlock], bool]:
+    """Savepoint-contained implementation; never commits or rolls back."""
     # P0-08, ревью Задачи 7, Находка 1: сначала закрываем истёкший блок и
     # открываем следующий по актуальному шаблону — иначе get_active_block ниже
     # нашёл бы блок, чей planned_end_date уже в прошлом, и все потребители
@@ -423,20 +439,11 @@ async def ensure_active_block(
     # на той же гонке, что и ветка создания первого блока: проигравший
     # получает IntegrityError на uq_training_blocks_user_index. Обрабатываем
     # по тому же контракту.
-    try:
-        await _catch_up_active_block(session, app_user_id, today)
-    except IntegrityError:
-        await session.rollback()
-        existing = await get_active_block(session, app_user_id)
-        if existing is None:
-            # Блока по-прежнему нет — IntegrityError был не про эту гонку,
-            # а про что-то другое. Глотать причину в этом случае нельзя.
-            raise
-        return existing
+    changed = await _catch_up_active_block(session, app_user_id, today, commit=False)
 
     existing = await get_active_block(session, app_user_id)
     if existing is not None:
-        return existing
+        return existing, changed
 
     user_meso = (
         await session.execute(
@@ -456,13 +463,13 @@ async def ensure_active_block(
     ).scalars().first()
 
     if user_meso is None or user_micro is None:
-        return None
+        return None, changed
 
     snapshot = await _snapshot_phases_from_template(
         session, user_meso, user_micro.length_days
     )
     if not snapshot:
-        return None
+        return None, changed
 
     active_split = (
         await session.execute(
@@ -499,37 +506,18 @@ async def ensure_active_block(
         **(await build_state_snapshot(session, app_user_id, exercise_ids)),
         "_chronic_level": await _current_chronic_level(session, app_user_id, today),
     }
-    try:
-        block = await create_block(
-            session,
-            app_user_id,
-            today,
-            block_index=(last_index or 0) + 1,
-            phases=snapshot,
-            user_meso=user_meso,
-            user_micro=user_micro,
-            split_blueprint_id=active_split.blueprint_id if active_split else None,
-            entry_state=entry_state,
-        )
-    except IntegrityError:
-        # Гонка: схема "проверить — потом создать" не атомарна. Мобильный
-        # клиент на старте дёргает контекст дня и контекст периодизации
-        # одновременно — оба запроса могут увидеть "блока нет", оба посчитать
-        # один и тот же block_index, и второй INSERT падает на уникальном
-        # индексе uq_training_blocks_user_index. Это не баг индекса — это его
-        # работа, гарантия целостности. Но ensure_* обязана ВЕРНУТЬ блок, а
-        # не упасть, когда его только что создал соседний запрос: откатываем
-        # свою неудачную вставку и забираем то, что вставил конкурент.
-        await session.rollback()
-        block = await get_active_block(session, app_user_id)
-        if block is None:
-            # Блока по-прежнему нет — IntegrityError был не про эту гонку
-            # (иначе get_active_block нашёл бы конкурентский блок), а про
-            # что-то другое. Глотать причину в этом случае нельзя.
-            raise
-        return block
-    await session.commit()
-    return block
+    block = await create_block(
+        session,
+        app_user_id,
+        today,
+        block_index=(last_index or 0) + 1,
+        phases=snapshot,
+        user_meso=user_meso,
+        user_micro=user_micro,
+        split_blueprint_id=active_split.blueprint_id if active_split else None,
+        entry_state=entry_state,
+    )
+    return block, True
 
 
 async def recent_exercise_ids(

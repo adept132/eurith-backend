@@ -127,199 +127,49 @@ async def test_block_state_reads_the_snapshot_back(db, test_user: AppUser):
 
 @pytest.mark.asyncio
 async def test_ensure_recovers_when_block_appears_concurrently(db, test_user: AppUser):
-    """Гонка "проверить — потом создать": мобильный клиент на старте дёргает
-    контекст дня и контекст периодизации одновременно, оба запроса видят
-    "блока нет", оба считают один и тот же block_index — второй INSERT падает
-    на уникальном индексе uq_training_blocks_user_index. ensure_active_block
-    обязана не упасть, а вернуть блок, который успел вставить конкурент.
-
-    Настоящую гонку (два реальных параллельных запроса) в тесте не
-    воспроизвести — нет гарантии нужного чередования их шагов. Имитируем её:
-
-    - get_active_block патчим ровно так, как просит ревью: первый вызов
-      (самая первая проверка "есть ли уже активный блок" в начале
-      ensure_active_block) честно отвечает None — ровно то, что увидел бы
-      настоящий конкурентный запрос ДО того, как сосед закоммитил свою
-      вставку; второй вызов — это уже recovery-путь после пойманного
-      IntegrityError, и он делегирует в НАСТОЯЩУЮ (неподмененную) реализацию,
-      которая обязана найти блок соседа по-настоящему.
-    - одного мока get_active_block недостаточно, чтобы получить настоящий
-      IntegrityError: block_index в ensure_active_block всегда считается как
-      "текущий максимум + 1" по свежему SELECT, поэтому честный запрос сам по
-      себе никогда не выберет уже занятый индекс. Чтобы отразить момент
-      гонки, когда сосед вставляет и коммитит свой блок ровно в зазоре между
-      нашим чтением last_index и нашей собственной вставкой, патчим
-      create_block: он сначала по-настоящему вставляет и коммитит "блок
-      соседа" с тем индексом, который ensure_active_block уже решила занять,
-      а затем выполняет настоящую попытку ensure_active_block вставить блок с
-      тем же индексом — она и падает на уникальном индексе, как в реальной
-      гонке.
-    """
+    """A separate connection wins creation; a real duplicate INSERT loses locally."""
+    from app.database import SessionLocal
     await _seed_periodization(db, test_user.id)
+    real_create = periodization_repository.create_block
 
-    real_get_active_block = periodization_repository.get_active_block
-    real_create_block = periodization_repository.create_block
-    get_active_block_calls = {"n": 0}
+    async def racing_create(session, app_user_id, start_date, **kwargs):
+        async with SessionLocal() as competitor:
+            await real_create(competitor, app_user_id, start_date, **kwargs)
+            await competitor.commit()
+        return await real_create(session, app_user_id, start_date, **kwargs)
 
-    async def _fake_get_active_block(session, app_user_id):
-        get_active_block_calls["n"] += 1
-        if get_active_block_calls["n"] == 1:
-            return None
-        return await real_get_active_block(session, app_user_id)
-
-    async def _fake_create_block(
-        session,
-        app_user_id,
-        start_date,
-        *,
-        block_index,
-        phases,
-        user_meso,
-        user_micro,
-        split_blueprint_id=None,
-        entry_state=None,
-    ):
-        # "Сосед" вставляет и коммитит свой блок первым — с тем же индексом,
-        # который наш код уже решил занять.
-        await real_create_block(
-            session,
-            app_user_id,
-            start_date,
-            block_index=block_index,
-            phases=phases,
-            user_meso=user_meso,
-            user_micro=user_micro,
-        )
-        await session.commit()
-        # Настоящая попытка ensure_active_block вставить блок с тем же
-        # индексом — обязана упасть на уникальном индексе.
-        return await real_create_block(
-            session,
-            app_user_id,
-            start_date,
-            block_index=block_index,
-            phases=phases,
-            user_meso=user_meso,
-            user_micro=user_micro,
-            split_blueprint_id=split_blueprint_id,
-            entry_state=entry_state,
-        )
-
-    with patch(
-        "api.services.periodization.repository.get_active_block",
-        side_effect=_fake_get_active_block,
-    ), patch(
-        "api.services.periodization.repository.create_block",
-        side_effect=_fake_create_block,
-    ):
+    with patch('api.services.periodization.repository.create_block', side_effect=racing_create):
         block = await ensure_active_block(db, test_user.id, TODAY)
-
-    assert block is not None, "ensure_active_block не должна падать на гонке"
-    assert block.block_index == 1
-
-    blocks = (
-        await db.execute(
-            select(TrainingBlock).where(TrainingBlock.app_user_id == test_user.id)
-        )
-    ).scalars().all()
-    assert len(blocks) == 1, "второй блок в БД появиться не должен"
-    assert blocks[0].id == block.id
-
-
-# --- P0-08, повторное ревью Задачи 7: гонка в переходе между блоками -------
+    assert block is not None and block.block_index == 1
+    blocks = list((await db.execute(select(TrainingBlock).where(
+        TrainingBlock.app_user_id == test_user.id))).scalars())
+    assert [b.id for b in blocks] == [block.id]
 
 
 @pytest.mark.asyncio
 async def test_ensure_recovers_when_rollover_races_concurrently(db, test_user: AppUser):
-    """Находка 2: roll_over_if_complete закрывает старый блок и вставляет
-    следующий не атомарно — раньше вызов был снаружи try/except в
-    ensure_active_block, поэтому проигравший в гонке падал с необработанным
-    IntegrityError вместо 500. Сценарий тот же, что и у
-    test_ensure_recovers_when_block_appears_concurrently, но для ПЕРЕХОДА
-    между блоками, а не для создания первого блока: мобильный клиент на
-    старте дёргает контекст дня и контекст периодизации одновременно, оба
-    видят один и тот же истёкший активный блок и оба пытаются перекатить
-    его дальше — второй INSERT падает на uq_training_blocks_user_index.
-
-    Настоящую гонку не воспроизвести — имитируем её через create_block, как
-    и в тесте гонки первого блока: "сосед" вставляет и коммитит следующий
-    блок цепочки первым (с тем индексом, который наш roll_over_if_complete
-    уже решил занять), а затем настоящая попытка вставить блок с тем же
-    индексом падает на уникальном индексе.
-    """
+    """The competing rollover commits before this connection tries the same index."""
+    from app.database import SessionLocal
     await _seed_periodization(db, test_user.id)
-    block_length = 21  # 3 фазы по 7 дней (длина микроцикла) из _seed_periodization
-    old_start = TODAY - timedelta(days=block_length + 1)
-    old_block = await ensure_active_block(db, test_user.id, old_start)
-    old_block_id = old_block.id
-    old_index = old_block.block_index
-    assert TODAY > old_block.planned_end_date, "сценарий должен требовать переката"
+    old = await ensure_active_block(db, test_user.id, TODAY - timedelta(days=22))
+    old_id, old_index = old.id, old.block_index
+    real_close = periodization_repository.close_and_advance
 
-    real_create_block = periodization_repository.create_block
-    call_state = {"raced": False}
+    async def racing_close(session, app_user_id, block, **kwargs):
+        async with SessionLocal() as competitor:
+            other = await competitor.get(TrainingBlock, old_id)
+            await real_close(competitor, app_user_id, other, **kwargs)
+            await competitor.commit()
+        return await real_close(session, app_user_id, block, **kwargs)
 
-    async def _fake_create_block(
-        session,
-        app_user_id,
-        start_date,
-        *,
-        block_index,
-        phases,
-        user_meso,
-        user_micro,
-        split_blueprint_id=None,
-        entry_state=None,
-    ):
-        if not call_state["raced"]:
-            call_state["raced"] = True
-            # "Сосед" вставляет и коммитит следующий блок цепочки первым —
-            # с тем же индексом, который наш переход уже решил занять.
-            await real_create_block(
-                session,
-                app_user_id,
-                start_date,
-                block_index=block_index,
-                phases=phases,
-                user_meso=user_meso,
-                user_micro=user_micro,
-                split_blueprint_id=split_blueprint_id,
-                entry_state=entry_state,
-            )
-            await session.commit()
-        # Настоящая попытка нашего перехода — обязана упасть на уникальном
-        # индексе, как в реальной гонке.
-        return await real_create_block(
-            session,
-            app_user_id,
-            start_date,
-            block_index=block_index,
-            phases=phases,
-            user_meso=user_meso,
-            user_micro=user_micro,
-            split_blueprint_id=split_blueprint_id,
-            entry_state=entry_state,
-        )
-
-    with patch(
-        "api.services.periodization.repository.create_block",
-        side_effect=_fake_create_block,
-    ):
+    with patch('api.services.periodization.repository.close_and_advance', side_effect=racing_close):
         block = await ensure_active_block(db, test_user.id, TODAY)
-
-    assert block is not None, "ensure_active_block не должна падать на гонке в переходе"
-    assert block.block_index == old_index + 1
-    assert block.status == "active"
-
-    blocks = (
-        await db.execute(
-            select(TrainingBlock)
-            .where(TrainingBlock.app_user_id == test_user.id)
-            .order_by(TrainingBlock.block_index)
-        )
-    ).scalars().all()
-    assert len(blocks) == 2, "лишнего (третьего) блока в БД появиться не должно"
-    assert blocks[0].id == old_block_id
-    assert blocks[0].status == "closed"
+    assert block is not None and block.block_index == old_index + 1
+    assert block.status == 'active'
+    blocks = list((await db.execute(select(TrainingBlock).where(
+        TrainingBlock.app_user_id == test_user.id).order_by(TrainingBlock.block_index))).scalars())
+    assert len(blocks) == 2
+    assert blocks[0].id == old_id and blocks[0].status == 'closed'
     assert blocks[1].id == block.id
 
 

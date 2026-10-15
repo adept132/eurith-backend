@@ -376,7 +376,7 @@ class SchedulingEngine:
         # сегодня. Диапазон генерации дней ниже (from_date=start_date,
         # until_date=block.planned_end_date) по-прежнему определяется
         # клиентским start_date — меняется только вход в решение о переходе.
-        block = await ensure_active_block(session, app_user_id, date.today())
+        block = await ensure_active_block(session, app_user_id, date.today(), commit=commit)
         if block is not None:
             await SchedulingEngine.generate_block_days(
                 session, app_user_id, block,

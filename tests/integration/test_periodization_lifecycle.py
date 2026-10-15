@@ -236,13 +236,19 @@ async def test_context_endpoint_actually_wires_close_stale_block(client, db, tes
 
 @pytest.mark.asyncio
 async def test_split_change_closes_active_block_and_starts_next_at_new_split_date(
-    client, db, test_user: AppUser
+    client, db, monkeypatch, test_user: AppUser
 ):
     """Поправки 3+4 брифа Задачи 14: смена сплита обязана закрыть активный
     блок ДО того, как launch_and_unroll_plan развернёт расписание (иначе
     ensure_active_block внутри него найдёт СТАРЫЙ блок), а следующий блок
     обязан стартовать с даты НОВОГО сплита — она может быть в будущем
     (пользователь планирует запуск наперёд), а не с сегодня."""
+    class OperationDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 8, 1)
+    monkeypatch.setattr('api.services.scheduling_engine.date', OperationDate)
+    monkeypatch.setattr('api.services.volume.repository.utc_today', OperationDate.today)
     block = await _seed(db, test_user.id, date(2026, 8, 1))
     blueprint = await _seed_split_blueprint(db, test_user.id)
     future_start = date(2026, 8, 20)

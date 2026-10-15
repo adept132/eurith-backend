@@ -1401,6 +1401,28 @@ async def undo_goal_decision(
         identity = row.get("obligation_uuid")
         day = next((d for d in candidates if identity and str(d.obligation_uuid) == identity), None)
         active = [d for d in candidates if not (d.obligation_snapshot or {}).get('cancellation')]
+        # A saved rest/blackout has no obligation identity. A new working
+        # carrier on that date is separate history, never a row to overwrite.
+        if not identity and (row.get('is_rest_day') or row.get('is_blackout')):
+            working = [d for d in active if not d.is_rest_day and not d.is_blackout]
+            protected = False
+            for replacement in working:
+                linked = (await session.execute(select(WorkoutSession.id).where(
+                    WorkoutSession.calendar_day_id == replacement.id))).first()
+                if (target <= date.today() or replacement.status != 'planned' or
+                        replacement.actual_workout_session_id is not None or
+                        replacement.volume_adjustments or linked):
+                    protected = True
+                    break
+            if protected:
+                continue
+            from api.services.scheduling_engine import cancel_obligation
+            for replacement in working:
+                if replacement.obligation_uuid:
+                    cancel_obligation(replacement, operation='goal_undo', today=date.today())
+                else:
+                    await session.delete(replacement)
+            active = [d for d in active if d not in working]
         if day is None:
             day = active[0] if active else UserCalendarDay(app_user_id=app_user_id, target_date=target)
             session.add(day)

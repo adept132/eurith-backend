@@ -337,3 +337,156 @@ async def test_attachment_preserves_legacy_fact_and_records_explicit_vs_inferred
     assert summary['planned_days'] == 2 and summary['completed_days'] == 1
     assert summary['unresolved_completion_count'] == 1 and summary['percent'] is None
     await db.commit()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('backdated', [False, True])
+async def test_launch_block_creation_and_catchup_are_outer_atomic(test_user, db, monkeypatch, backdated):
+    from datetime import date
+    from types import SimpleNamespace
+    from api.routers.splits import launch_split
+    from api.services.models import UserSplit, TrainingBlock
+    from api.services.scheduling_engine import ensure_obligation_identity
+    from app.database import SessionLocal
+    from fastapi import HTTPException
+    class Clock(date):
+        @classmethod
+        def today(cls):
+            return TODAY + timedelta(days=100)
+    monkeypatch.setattr('api.services.scheduling_engine.date', Clock)
+    monkeypatch.setattr('api.services.volume.repository.utc_today', Clock.today)
+    await _seed(db, test_user.id)
+    if backdated:
+        await ensure_active_block(db, test_user.id, TODAY)
+    split = (await db.execute(select(UserSplit).where(UserSplit.app_user_id == test_user.id))).scalar_one()
+    old_id, blueprint_id = split.id, split.blueprint_id
+    day = UserCalendarDay(app_user_id=test_user.id, target_date=Clock.today()+timedelta(days=1),
+        status='planned', is_rest_day=False, is_blackout=False)
+    ensure_obligation_identity(day)
+    db.add(day)
+    await db.commit()
+    old_uuid = day.obligation_uuid
+    commits = []
+    original_commit = db.commit
+    async def counted_commit():
+        commits.append(True)
+        await original_commit()
+    monkeypatch.setattr(db, 'commit', counted_commit)
+    original_generate = SchedulingEngine.generate_block_days
+    async def fail(*args, **kwargs):
+        raise RuntimeError('injected generation failure')
+    monkeypatch.setattr(SchedulingEngine, 'generate_block_days', fail)
+    request = SimpleNamespace(blueprint_id=blueprint_id, start_date=TODAY if backdated else Clock.today(), blackout_weekdays=[])
+    with pytest.raises(HTTPException):
+        await launch_split(request, db, test_user)
+    await db.rollback()
+    async with SessionLocal() as verify:
+        splits = list((await verify.execute(select(UserSplit).where(UserSplit.app_user_id == test_user.id))).scalars())
+        assert [(s.id, s.is_active) for s in splits] == [(old_id, True)]
+        days = list((await verify.execute(select(UserCalendarDay).where(UserCalendarDay.app_user_id == test_user.id))).scalars())
+        assert len(days) == 1 and days[0].obligation_uuid == old_uuid
+        assert not days[0].obligation_snapshot.get('cancellation')
+        blocks = list((await verify.execute(select(TrainingBlock).where(TrainingBlock.app_user_id == test_user.id))).scalars())
+        assert len(blocks) == int(backdated)
+        assert (await verify.execute(select(AnalyticsState).where(AnalyticsState.app_user_id == test_user.id))).scalar_one_or_none() is None
+    assert commits == []
+    monkeypatch.setattr(SchedulingEngine, 'generate_block_days', original_generate)
+    await launch_split(request, db, test_user)
+    assert len(commits) == 1
+    async with SessionLocal() as verify:
+        state = (await verify.execute(select(AnalyticsState).where(AnalyticsState.app_user_id == test_user.id))).scalar_one()
+        assert state.source_revision == 1
+        days = list((await verify.execute(select(UserCalendarDay).where(UserCalendarDay.app_user_id == test_user.id))).scalars())
+        assert next(d for d in days if d.obligation_uuid == old_uuid).obligation_snapshot['cancellation']['operation'] == 'split_launch'
+        assert len(days) > 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('protection', ['future', 'due', 'linked', 'adjusted'])
+async def test_rest_to_working_undo_retains_obligation(test_user, db, monkeypatch, protection):
+    from datetime import date
+    from api.services.models import PeriodizationProposal
+    from api.services.periodization import params
+    from api.services.periodization.service import apply_decision
+    class Clock(date):
+        current = TODAY
+        @classmethod
+        def today(cls):
+            return cls.current
+    monkeypatch.setattr('api.services.goal.service.date', Clock)
+    await _seed(db, test_user.id)
+    block = await ensure_active_block(db, test_user.id, TODAY)
+    target = TODAY + timedelta(days=1)
+    db.add(UserCalendarDay(app_user_id=test_user.id, target_date=target, block_id=block.id,
+        status='planned', is_rest_day=True, is_blackout=True))
+    proposal = PeriodizationProposal(app_user_id=test_user.id, block_id=block.id,
+        kind=params.KIND_GOAL_PLAN, reason_code='pace_behind', status=params.STATUS_PENDING,
+        payload={'levers': [{'index': 0, 'kind': 'lift_frequency'}]})
+    db.add(proposal)
+    await db.commit()
+    await apply_decision(db, test_user.id, proposal.id, params.ACTION_APPLY_GOAL,
+        today=TODAY, client_uuid='rest-apply', options={'accepted': [0]})
+    work = (await db.execute(select(UserCalendarDay).where(UserCalendarDay.app_user_id == test_user.id,
+        UserCalendarDay.target_date == target, active_calendar_clause()))).scalar_one()
+    identity, original_snapshot = work.obligation_uuid, dict(work.obligation_snapshot)
+    assert identity and not work.is_rest_day
+    state = (await db.execute(select(AnalyticsState).where(AnalyticsState.app_user_id == test_user.id))).scalar_one()
+    revision = state.source_revision
+    Clock.current = target if protection == 'due' else TODAY
+    if protection == 'linked':
+        from datetime import datetime, timezone
+        db.add(WorkoutSession(app_user_id=test_user.id, source='free', status='active',
+            calendar_day_id=work.id, started_at=datetime.combine(target, datetime.min.time(), timezone.utc)))
+    elif protection == 'adjusted':
+        work.volume_adjustments = {'user_decision': True}
+    await db.commit()
+    result = await apply_decision(db, test_user.id, proposal.id, params.ACTION_UNDO_GOAL,
+        today=Clock.current, client_uuid='rest-undo')
+    await db.refresh(state)
+    assert state.source_revision == revision + (0 if protection == 'linked' else 1)
+    assert result['status'] == ('conflict' if protection == 'linked' else 'undone')
+    await db.refresh(work)
+    assert work.obligation_uuid == identity
+    assert work.obligation_origin_date == target
+    active = list((await db.execute(select(UserCalendarDay).where(UserCalendarDay.app_user_id == test_user.id,
+        UserCalendarDay.target_date == target, active_calendar_clause()))).scalars())
+    assert len(active) == 1
+    if protection != 'future':
+        assert active[0].id == work.id and not work.is_rest_day
+        assert work.obligation_snapshot == original_snapshot
+    else:
+        assert work.obligation_snapshot['cancellation']['operation'] == 'goal_undo'
+        assert active[0].id != work.id and active[0].is_rest_day and active[0].is_blackout
+        assert active[0].obligation_uuid is None
+
+@pytest.mark.asyncio
+async def test_nested_block_race_does_not_rollback_outer_write(test_user, db, monkeypatch):
+    from api.services.models import UserSplit
+    from api.services.periodization import repository as repo
+    from app.database import SessionLocal
+    await _seed(db, test_user.id)
+    existing = await ensure_active_block(db, test_user.id, TODAY)
+    existing_index, existing_id = existing.block_index, existing.id
+    split = (await db.execute(select(UserSplit).where(UserSplit.app_user_id == test_user.id))).scalar_one()
+    split.selected_plans = {'outer_write': True}
+    real_get, real_create = repo.get_active_block, repo.create_block
+    calls = 0
+    async def stale_get(session, user_id):
+        nonlocal calls
+        calls += 1
+        return None if calls <= 2 else await real_get(session, user_id)
+    async def conflicting_create(*args, **kwargs):
+        kwargs['block_index'] = existing_index
+        return await real_create(*args, **kwargs)
+    monkeypatch.setattr(repo, 'get_active_block', stale_get)
+    monkeypatch.setattr(repo, 'create_block', conflicting_create)
+    recovered = await ensure_active_block(db, test_user.id, TODAY, commit=False)
+    assert recovered.id == existing_id
+    await db.refresh(split)
+    assert split.selected_plans == {'outer_write': True}
+    async with SessionLocal() as verify:
+        outside = (await verify.execute(select(UserSplit).where(UserSplit.id == split.id))).scalar_one()
+        assert outside.selected_plans == {}
+    await db.commit()
+    async with SessionLocal() as verify:
+        outside = (await verify.execute(select(UserSplit).where(UserSplit.id == split.id))).scalar_one()
+        assert outside.selected_plans == {'outer_write': True}
