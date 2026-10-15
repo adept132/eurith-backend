@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypedDict
 
 @dataclass(frozen=True)
 class RawSetFact:
@@ -104,6 +104,21 @@ class StrengthChange:
 class EffortSummary:
     mean_rir: Metric
     drift_rir: Metric
+
+
+class VolumeChannel(TypedDict):
+    sets: int
+    sets_per_7_days: float
+    tonnage: Metric
+    tonnage_per_7_days: Metric
+
+
+class MuscleVolumeChannel(TypedDict):
+    direct: float
+    indirect: float
+    effective: float
+    per_7_days: dict[str, float]
+
 
 @dataclass(frozen=True)
 class MuscleExerciseContribution:
