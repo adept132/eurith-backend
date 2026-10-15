@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import pytest
 from api.services.analytics.load import lombardi, normalize_set
@@ -95,12 +96,15 @@ def test_numeric_context_canonicalization(raw):
         load_context={**context,'base_weight_kg':20.0})).comparison_key
 
 
-def test_future_body_mass_is_rejected(raw):
+def test_validated_body_mass_date_uses_capture_timezone(raw):
     n=normalize_set(raw(load_context=dict(schema_version=1,model='bodyweight',
         input_basis='body_components',added_load_kg=0,assistance_kg=0),
+        started_at=datetime(2026,10,1,23,30,tzinfo=timezone.utc),
         session_context={'body_mass':{'weight_kg':80,'measured_on':'2026-10-02'}}))
-    assert n.e1rm_weight_kg is None
-    assert 'future_body_mass' in n.unavailable
+    # In Moscow this workout starts on October 2; capture validated its local date.
+    assert n.e1rm_weight_kg == 80
+    assert n.tonnage_kg == 800
+    assert not n.unavailable
 
 
 def test_golden_formulas():

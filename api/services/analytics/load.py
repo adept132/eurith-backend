@@ -1,6 +1,5 @@
 """Normalize explicit historical load snapshots without inventing missing facts."""
 from dataclasses import fields
-from datetime import date
 import json
 import math
 from .policy import EFFORT_TO_RIR, finite_number, positive_reps
@@ -36,15 +35,8 @@ def normalize_set(raw: RawSetFact) -> NormalizedSetFact:
         body = finite_number(mass.get('weight_kg'))
         added = finite_number(context.get('added_load_kg'))
         assistance = finite_number(context.get('assistance_kg'))
-        measured_on = mass.get('measured_on')
-        try:
-            measured_date = date.fromisoformat(measured_on) if isinstance(measured_on,str) else measured_on
-            future_mass = measured_date is not None and measured_date > raw.started_at.date()
-        except (ValueError, TypeError):
-            future_mass = True
-        if future_mass:
-            reasons.append('future_body_mass')
-        elif body is None or body <= 0:
+        # Capture validates measurement dates in the profile timezone.
+        if body is None or body <= 0:
             reasons.append('unknown_body_mass')
         elif added is None or assistance is None:
             reasons.append('unknown_body_components')
