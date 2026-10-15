@@ -578,7 +578,7 @@ async def start_workout(
         # с вставленной разгрузкой.
         from api.services.periodization.repository import ensure_active_block
 
-        active_block = await ensure_active_block(session, app_user.id, date.today())
+        active_block = await ensure_active_block(session, app_user.id, date.today(), commit=False)
         training_block_id = active_block.id if active_block else None
 
         # P0-08, Задача 13, ревью, Critical 1: если блок есть, фаза свободной

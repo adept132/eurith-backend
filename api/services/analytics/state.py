@@ -5,6 +5,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.models import AnalyticsState
 from .policy import RULES_VERSION
+from .config import analytics_enabled
+
+
+async def readiness(db: AsyncSession, user_id: int, *, expected_revision: int | None = None) -> dict:
+    """Read-only gate shared by routes and report/background materializers.
+
+    Check once before loading facts, then again with their source_revision after
+    assembly. Only expose calculations if the final state is ready; this also
+    protects batched READ COMMITTED loads from intervening source changes.
+    For compositions, require every nested DTO revision to equal the supplied
+    expected_revision before calling this gate (including both compared blocks).
+    """
+    row = (await db.execute(select(AnalyticsState.source_revision,
+        AnalyticsState.active_revision, AnalyticsState.active_generation,
+        AnalyticsState.status).where(AnalyticsState.app_user_id == user_id,
+        AnalyticsState.rules_version == RULES_VERSION))).one_or_none()
+    revision = row.source_revision if row else 0
+    ready = (row is not None and row.status == 'ready' and row.active_generation is not None
+             and row.active_revision == revision
+             and (expected_revision is None or expected_revision == revision))
+    return dict(state='disabled' if not analytics_enabled() else 'ready' if ready else 'rebuilding',
+                data_revision=revision, active_revision=row.active_revision if row else None,
+                rules_version=RULES_VERSION)
 
 
 async def mark_dirty(db: AsyncSession, user_id: int) -> int:

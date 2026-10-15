@@ -92,7 +92,7 @@ async def _free_session_context(
     # the materialized block snapshot wins over AppUserMesocycle.current_phase.
     from api.services.periodization.repository import ensure_active_block
 
-    active_block = await ensure_active_block(db, user_id, now.date())
+    active_block = await ensure_active_block(db, user_id, now.date(), commit=False)
     training_block_id = active_block.id if active_block else None
     if active_block is not None:
         from api.services.periodization.service import block_coordinate

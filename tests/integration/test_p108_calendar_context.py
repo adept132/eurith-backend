@@ -357,6 +357,8 @@ async def test_launch_block_creation_and_catchup_are_outer_atomic(test_user, db,
     await _seed(db, test_user.id)
     if backdated:
         await ensure_active_block(db, test_user.id, TODAY)
+    prior_revision = await db.scalar(select(AnalyticsState.source_revision).where(
+        AnalyticsState.app_user_id == test_user.id)) or 0
     split = (await db.execute(select(UserSplit).where(UserSplit.app_user_id == test_user.id))).scalar_one()
     old_id, blueprint_id = split.id, split.blueprint_id
     day = UserCalendarDay(app_user_id=test_user.id, target_date=Clock.today()+timedelta(days=1),
@@ -387,14 +389,15 @@ async def test_launch_block_creation_and_catchup_are_outer_atomic(test_user, db,
         assert not days[0].obligation_snapshot.get('cancellation')
         blocks = list((await verify.execute(select(TrainingBlock).where(TrainingBlock.app_user_id == test_user.id))).scalars())
         assert len(blocks) == int(backdated)
-        assert (await verify.execute(select(AnalyticsState).where(AnalyticsState.app_user_id == test_user.id))).scalar_one_or_none() is None
+        assert (await verify.scalar(select(AnalyticsState.source_revision).where(
+            AnalyticsState.app_user_id == test_user.id)) or 0) == prior_revision
     assert commits == []
     monkeypatch.setattr(SchedulingEngine, 'generate_block_days', original_generate)
     await launch_split(request, db, test_user)
     assert len(commits) == 1
     async with SessionLocal() as verify:
         state = (await verify.execute(select(AnalyticsState).where(AnalyticsState.app_user_id == test_user.id))).scalar_one()
-        assert state.source_revision == 1
+        assert state.source_revision == prior_revision + 1
         days = list((await verify.execute(select(UserCalendarDay).where(UserCalendarDay.app_user_id == test_user.id))).scalars())
         assert next(d for d in days if d.obligation_uuid == old_uuid).obligation_snapshot['cancellation']['operation'] == 'split_launch'
         assert len(days) > 1

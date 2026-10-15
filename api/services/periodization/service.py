@@ -267,7 +267,7 @@ async def _materialize(
 
 
 async def close_stale_block(
-    session: AsyncSession, app_user_id: int, today: Optional[date] = None
+    session: AsyncSession, app_user_id: int, today: Optional[date] = None, *, commit: bool = True
 ) -> Optional[TrainingBlock]:
     """Закрыть блок, который кончился давно и не получил ни одной сессии
     (P0-08, Задача 14).
@@ -345,7 +345,11 @@ async def close_stale_block(
         next_start_date=moment,
         today=moment,
     )
-    await session.commit()
+    if commit:
+        await mark_dirty(session, app_user_id)
+        await session.commit()
+    else:
+        await session.flush()
     return closed
 
 
@@ -483,13 +487,18 @@ async def refresh_proposals(
     """
     moment = today or date.today()
 
-    stale_closed_block = await close_stale_block(session, app_user_id, moment)
+    previous = await get_active_block(session, app_user_id)
+    previous_id = previous.id if previous else None
+    stale_closed_block = await close_stale_block(session, app_user_id, moment, commit=False)
 
-    closed_block = await roll_over_if_complete(session, app_user_id, moment)
+    closed_block = await roll_over_if_complete(session, app_user_id, moment, commit=False)
 
-    block = await ensure_active_block(session, app_user_id, moment)
+    block = await ensure_active_block(session, app_user_id, moment, commit=False)
     if block is None:
         return []
+    if block.id != previous_id:
+        await mark_dirty(session, app_user_id)
+        await session.commit()
 
     created: list[PeriodizationProposal] = []
 

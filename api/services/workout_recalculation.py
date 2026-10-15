@@ -288,6 +288,11 @@ async def workout_recalculation_worker(
         except Exception as exc:  # noqa: BLE001 - one sweep must not kill the worker
             print(f"[workout-recalculation] worker iteration failed: {exc}")
         try:
+            from api.services.analytics.rebuild import run_pending_analytics_rebuilds
+            await run_pending_analytics_rebuilds()
+        except Exception as exc:
+            print(f"[analytics-rebuild] worker iteration failed: {type(exc).__name__}")
+        try:
             await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
         except asyncio.TimeoutError:
             pass

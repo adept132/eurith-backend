@@ -351,7 +351,11 @@ async def update_profile_onboarding(
             app_user_id=current_user.id,
             weight=new_weight,
             height=new_height,
+            submitted_fields=[key for key in ('weight', 'height')
+                              if key in payload.model_fields_set and getattr(payload, key) is not None],
         ))
+        from api.services.analytics.state import mark_dirty
+        await mark_dirty(db, current_user.id)
 
     # Активируем PRO Mode для продвинутых
     if profile.experience_level == "advanced":

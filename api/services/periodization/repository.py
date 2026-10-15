@@ -325,6 +325,8 @@ async def roll_over_if_complete(
         today=today,
     )
     if commit:
+        from api.services.analytics.state import mark_dirty
+        await mark_dirty(session, app_user_id)
         await session.commit()
     else:
         await session.flush()
@@ -383,6 +385,8 @@ async def _close_for_layoff(
         today=today,
     )
     if commit:
+        from api.services.analytics.state import mark_dirty
+        await mark_dirty(session, app_user_id)
         await session.commit()
     else:
         await session.flush()
@@ -408,6 +412,8 @@ async def ensure_active_block(
             raise
         changed = False
     if commit and changed:
+        from api.services.analytics.state import mark_dirty
+        await mark_dirty(session, app_user_id)
         await session.commit()
     return block
 

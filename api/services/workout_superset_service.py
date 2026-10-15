@@ -12,6 +12,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.services.models import WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet
+from api.services.analytics.state import mark_dirty
+
+
+async def _structure(session, owner):
+    await session.flush()
+    return (await session.execute(select(WorkoutSessionExercise.id,
+        WorkoutSessionExercise.order_index, WorkoutSessionExercise.superset_group)
+        .join(WorkoutSession).where(WorkoutSession.app_user_id == owner)
+        .order_by(WorkoutSessionExercise.id))).all()
+
+
+async def _finish_structure(session, owner, before):
+    if before != await _structure(session, owner):
+        await mark_dirty(session, owner)
+    await session.commit()
+
 
 def ensure_unique_exercise_ids_for_new_superset(
     session_exercises: list[WorkoutSessionExercise],
@@ -278,6 +294,7 @@ class WorkoutSupersetService:
             source_session_exercise_id: int,
             target_session_exercise_ids: list[int],
     ) -> str:
+        before = await _structure(session, app_user_id)
         if not target_session_exercise_ids:
             raise HTTPException(
                 status_code=400,
@@ -336,7 +353,7 @@ class WorkoutSupersetService:
         for idx, exercise in enumerate(selected_sorted):
             exercise.order_index = start_order + idx
 
-        await session.commit()
+        await _finish_structure(session, app_user_id, before)
         return superset_group
 
     @staticmethod
@@ -346,6 +363,7 @@ class WorkoutSupersetService:
         superset_group: str,
         session_exercise_id: int,
     ) -> None:
+        before = await _structure(session, app_user_id)
         stmt = (
             select(WorkoutSessionExercise)
             .join(
@@ -376,10 +394,13 @@ class WorkoutSupersetService:
                 detail="Exercise belongs to another workout",
             )
 
+        if str(candidate.superset_group or "") == superset_group:
+            return
+
         candidate.superset_group = superset_group
         candidate.order_index = max(ex.order_index for ex in group_exercises) + 1
 
-        await session.commit()
+        await _finish_structure(session, app_user_id, before)
 
     @staticmethod
     async def add_new_exercise_to_superset(
@@ -389,6 +410,7 @@ class WorkoutSupersetService:
             exercise_id: int,
             target_sets: int | None = None,
     ):
+        before = await _structure(session, app_user_id)
         member_result = await session.execute(
             select(WorkoutSessionExercise)
             .join(
@@ -434,7 +456,7 @@ class WorkoutSupersetService:
         )
 
         session.add(new_session_exercise)
-        await session.commit()
+        await _finish_structure(session, app_user_id, before)
         await session.refresh(new_session_exercise)
 
         return new_session_exercise
@@ -446,6 +468,7 @@ class WorkoutSupersetService:
         superset_group: str,
         session_exercise_id: int,
     ) -> None:
+        before = await _structure(session, app_user_id)
         stmt = (
             select(WorkoutSessionExercise)
             .join(
@@ -476,7 +499,7 @@ class WorkoutSupersetService:
         if len(remaining) == 1:
             remaining[0].superset_group = None
 
-        await session.commit()
+        await _finish_structure(session, app_user_id, before)
 
     @staticmethod
     async def get_superset_flow(
@@ -566,7 +589,9 @@ class WorkoutSupersetService:
         session: AsyncSession,
         workout_id: int,
         app_user_id: int,
+        *, commit: bool = True,
     ) -> None:
+        before = await _structure(session, app_user_id)
         session_exercises = await WorkoutSupersetService.get_workout_session_exercises(
             session=session,
             workout_id=workout_id,
@@ -585,7 +610,10 @@ class WorkoutSupersetService:
                 changed = True
 
         if changed:
-            await session.commit()
+            if commit:
+                await _finish_structure(session, app_user_id, before)
+            else:
+                await session.flush()
 
     @staticmethod
     async def delete_superset(
@@ -593,6 +621,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         superset_group: str,
     ) -> None:
+        before = await _structure(session, app_user_id)
         stmt = (
             select(WorkoutSessionExercise)
             .join(
@@ -614,7 +643,7 @@ class WorkoutSupersetService:
         for exercise in exercises:
             exercise.superset_group = None
 
-        await session.commit()
+        await _finish_structure(session, app_user_id, before)
 
     @staticmethod
     async def get_workout_session_exercises_map(
@@ -634,7 +663,9 @@ class WorkoutSupersetService:
         session: AsyncSession,
         workout_id: int,
         app_user_id: int,
+        *, commit: bool = True,
     ) -> None:
+        before = await _structure(session, app_user_id)
         session_exercises = await WorkoutSupersetService.get_workout_session_exercises(
             session=session,
             workout_id=workout_id,
@@ -654,7 +685,10 @@ class WorkoutSupersetService:
                 changed = True
 
         if changed:
-            await session.commit()
+            if commit:
+                await _finish_structure(session, app_user_id, before)
+            else:
+                await session.flush()
 
     @staticmethod
     async def reorder_workout_structure(
@@ -663,6 +697,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         items: list[dict],
     ) -> None:
+        before = await _structure(session, app_user_id)
         exercises_map = await WorkoutSupersetService.get_workout_session_exercises_map(
             session=session,
             workout_id=workout_id,
@@ -730,13 +765,13 @@ class WorkoutSupersetService:
                 detail=f"Some workout exercises are missing in reorder payload: {untouched}",
             )
 
-        await session.commit()
 
         await WorkoutSupersetService.cleanup_superset_groups_after_reorder(
             session=session,
             workout_id=workout_id,
-            app_user_id=app_user_id,
+            app_user_id=app_user_id, commit=False,
         )
+        await _finish_structure(session, app_user_id, before)
 
     @staticmethod
     async def move_exercise_to_superset(
@@ -746,6 +781,7 @@ class WorkoutSupersetService:
         session_exercise_id: int,
         superset_group: str,
     ) -> None:
+        before = await _structure(session, app_user_id)
         exercises_map = await WorkoutSupersetService.get_workout_session_exercises_map(
             session=session,
             workout_id=workout_id,
@@ -757,13 +793,13 @@ class WorkoutSupersetService:
             raise HTTPException(status_code=404, detail="Exercise not found")
 
         exercise.superset_group = superset_group
-        await session.commit()
 
         await WorkoutSupersetService.cleanup_superset_groups_after_reorder(
             session=session,
             workout_id=workout_id,
-            app_user_id=app_user_id,
+            app_user_id=app_user_id, commit=False,
         )
+        await _finish_structure(session, app_user_id, before)
 
     @staticmethod
     async def move_exercise_out_of_superset(
@@ -772,6 +808,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         session_exercise_id: int,
     ) -> None:
+        before = await _structure(session, app_user_id)
         exercises_map = await WorkoutSupersetService.get_workout_session_exercises_map(
             session=session,
             workout_id=workout_id,
@@ -783,13 +820,13 @@ class WorkoutSupersetService:
             raise HTTPException(status_code=404, detail="Exercise not found")
 
         exercise.superset_group = None
-        await session.commit()
 
         await WorkoutSupersetService.cleanup_superset_groups_after_reorder(
             session=session,
             workout_id=workout_id,
-            app_user_id=app_user_id,
+            app_user_id=app_user_id, commit=False,
         )
+        await _finish_structure(session, app_user_id, before)
 
     async def start_superset(
             db: AsyncSession,
@@ -808,9 +845,12 @@ class WorkoutSupersetService:
         if session_exercise.superset_group:
             return session_exercise
 
+        owner = await db.scalar(select(WorkoutSession.app_user_id).where(
+            WorkoutSession.id == session_exercise.workout_session_id))
+        before = await _structure(db, owner)
         session_exercise.superset_group = str(uuid.uuid4())
 
-        await db.commit()
+        await _finish_structure(db, owner, before)
         await db.refresh(session_exercise)
 
         return session_exercise

@@ -376,13 +376,17 @@ class SchedulingEngine:
         # сегодня. Диапазон генерации дней ниже (from_date=start_date,
         # until_date=block.planned_end_date) по-прежнему определяется
         # клиентским start_date — меняется только вход в решение о переходе.
-        block = await ensure_active_block(session, app_user_id, date.today(), commit=commit)
+        from api.services.periodization.repository import get_active_block
+        previous = await get_active_block(session, app_user_id)
+        previous_id = previous.id if previous else None
+        block = await ensure_active_block(session, app_user_id, date.today(), commit=False)
         if block is not None:
-            await SchedulingEngine.generate_block_days(
+            created = await SchedulingEngine.generate_block_days(
                 session, app_user_id, block,
                 from_date=start_date,
-                until_date=block.planned_end_date, commit=commit,
+                until_date=block.planned_end_date, commit=False,
             )
+            await _finish_generation(session, app_user_id, created or block.id != previous_id, commit)
             return
 
         slots_queue = sorted(blueprint.slots, key=lambda s: s.day_order)
@@ -559,13 +563,18 @@ class SchedulingEngine:
         # кого периодизация не настроена (блок в этом случае не создаётся).
         from api.services.periodization.repository import ensure_active_block
 
-        block = await ensure_active_block(session, app_user_id, today)
+        from api.services.periodization.repository import get_active_block
+        previous = await get_active_block(session, app_user_id)
+        previous_id = previous.id if previous else None
+        block = await ensure_active_block(session, app_user_id, today, commit=False)
         if block is not None:
-            await SchedulingEngine.generate_block_days(
+            created = await SchedulingEngine.generate_block_days(
                 session, app_user_id, block,
                 from_date=max_date + timedelta(days=1),
                 until_date=min(block.planned_end_date, today + timedelta(days=horizon_days)),
+                commit=False,
             )
+            await _finish_generation(session, app_user_id, created or block.id != previous_id, True)
             return
 
         # 2. Ищем стартовую точку и настройки в активном UserSplit
