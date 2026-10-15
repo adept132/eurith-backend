@@ -53,6 +53,7 @@ class ExerciseStats:
 class AnomalyVerdict:
     level: str
     reason: Optional[str]
+    reason_code: Optional[str] = None
 
 
 def _e1rm(weight_kg: float, reps: int) -> float:
@@ -74,7 +75,7 @@ def check_set(
     r = int(reps or 0)
 
     if w > UNUSUAL_WEIGHT_KG:
-        return AnomalyVerdict(LEVEL_SUSPICIOUS, f"Вес {w:.0f} кг требует подтверждения: выше {UNUSUAL_WEIGHT_KG:.0f} кг")
+        return AnomalyVerdict(LEVEL_SUSPICIOUS, f"Вес {w:.0f} кг требует подтверждения: выше {UNUSUAL_WEIGHT_KG:.0f} кг", 'unusual_weight')
 
     if set_type in _NON_WORKING_SET_TYPES:
         return AnomalyVerdict(LEVEL_OK, None)
@@ -87,12 +88,14 @@ def check_set(
             return AnomalyVerdict(
                 LEVEL_SUSPICIOUS,
                 "Результат заметно выше твоего лучшего в этом упражнении",
+                'e1rm_jump',
             )
 
     if stats.median_weight_kg and w > stats.median_weight_kg * WEIGHT_MEDIAN_FACTOR:
         return AnomalyVerdict(
             LEVEL_SUSPICIOUS,
             "Вес заметно выше твоего обычного в этом упражнении",
+            'weight_median_jump',
         )
 
     return AnomalyVerdict(LEVEL_OK, None)

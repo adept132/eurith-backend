@@ -154,3 +154,43 @@ async def test_sync_full_review_confirmation_replay(client, db, test_user, seede
     second = await push(client, data)
     assert first['workout']['exercises'][0]['sets'][0]['anomaly_review'] == second['workout']['exercises'][0]['sets'][0]['anomaly_review']
     assert await db.scalar(select(AnalyticsState.source_revision).where(AnalyticsState.app_user_id == test_user.id)) == revision
+
+
+async def test_disabled_confirmation_revocation_and_exact_replay(client, db, test_user, seeded_history, monkeypatch):
+    monkeypatch.delenv('P108_ANALYTICS_ENABLED', raising=False)
+    data = snapshot(seeded_history.id)
+    data['exercises'][0].pop('analytics_load_defaults')
+    data['exercises'][0]['sets'][0].update(weight=750, reps=8)
+    first = await push(client, data)
+    row = first['workout']['exercises'][0]['sets'][0]
+    assert row['is_anomalous'] is True
+    assert row['anomaly_review']['reason_codes'] == ['unusual_weight']
+    sid = row['id']
+    revision = await db.scalar(select(AnalyticsState.source_revision).where(AnalyticsState.app_user_id == test_user.id))
+    await push(client, data)
+    assert await db.scalar(select(AnalyticsState.source_revision).where(AnalyticsState.app_user_id == test_user.id)) == revision
+    for confirmed in (True, False):
+        changed = await client.patch(f'/workout-session-sets/{sid}', json={'anomaly_confirmed': confirmed})
+        assert changed.status_code == 200, changed.text
+        assert changed.json()['is_anomalous'] is not confirmed
+        assert changed.json()['anomaly_review']['confirmed'] is confirmed
+        revision += 1
+        assert await db.scalar(select(AnalyticsState.source_revision).where(AnalyticsState.app_user_id == test_user.id)) == revision
+        replay = await client.patch(f'/workout-session-sets/{sid}', json={'anomaly_confirmed': confirmed})
+        assert replay.status_code == 200, replay.text
+        assert replay.json()['anomaly_review'] == changed.json()['anomaly_review']
+        assert await db.scalar(select(AnalyticsState.source_revision).where(AnalyticsState.app_user_id == test_user.id)) == revision
+
+
+async def test_disabled_confirmation_preserves_genuine_legacy_unknown(client, db, seeded_history, monkeypatch):
+    monkeypatch.delenv('P108_ANALYTICS_ENABLED', raising=False)
+    data = snapshot(seeded_history.id)
+    data['exercises'][0].pop('analytics_load_defaults')
+    first = await push(client, data)
+    sid = first['workout']['exercises'][0]['sets'][0]['id']
+    row = await db.get(WorkoutSessionSet, sid)
+    row.is_anomalous, row.anomaly_review = True, None
+    await db.commit()
+    changed = await client.patch(f'/workout-session-sets/{sid}', json={'anomaly_confirmed': True})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['is_anomalous'] is True

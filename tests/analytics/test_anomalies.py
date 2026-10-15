@@ -68,3 +68,17 @@ def test_ml_actual_numbers(field, value):
         'confidence': 0.9, 'evidence_text': 'visible number', 'evidence': [
             {'image_index': 0, 'block_id': 'box', 'box': {'x': 0., 'y': 0., 'width': 1., 'height': 1.}}]})
     assert item.value == value
+
+
+@pytest.mark.parametrize('pounds', ['1100000', '2204622.59'])
+def test_csv_pounds_capacity_applies_after_conversion(pounds):
+    from api.services.csv_import import parse_csv
+    parsed = parse_csv('Date,Exercise Name,Set Order,Weight,Reps\n2026-08-20,E,1,' + pounds + ',8\n', default_unit='lbs')
+    assert parsed.workouts[0].exercises[0].sets[0].weight_kg == round(float(pounds) * 0.45359237, 2)
+
+
+@pytest.mark.parametrize('pounds', ['2204622.62', '2300000', 'NaN', 'Infinity', '-1', 'invalid'])
+def test_csv_rejects_invalid_or_converted_overcapacity_pounds(pounds):
+    from api.services.csv_import import parse_csv, CsvParseError
+    with pytest.raises(CsvParseError, match='actual_weight_format'):
+        parse_csv('Date,Exercise Name,Set Order,Weight,Reps\n2026-08-20,E,1,' + pounds + ',8\n', default_unit='lbs')

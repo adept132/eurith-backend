@@ -13,6 +13,7 @@
 
 from api.schemas.actual_numbers import actual_reps, actual_weight
 import csv
+import math
 import hashlib
 import io
 import json
@@ -249,10 +250,8 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
 
         weight_raw = _to_float(col(row, COL_WEIGHT))
         if _clean(col(row, COL_WEIGHT)):
-            try:
-                actual_weight(_clean(col(row, COL_WEIGHT)).replace(",", "."))
-            except ValueError as error:
-                raise CsvParseError(str(error)) from error
+            if weight_raw is None or not math.isfinite(weight_raw) or weight_raw < 0:
+                raise CsvParseError('actual_weight_format: finite nonnegative source number required')
         reps = _to_int(col(row, COL_REPS), actual=True)
 
         # Кардио: есть дистанция/время, но нет веса и повторов — наша модель
@@ -272,6 +271,11 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
         unit = row_unit or default_unit
         if row_unit and result.file_unit is None:
             result.file_unit = row_unit
+        # Storage is kilograms, regardless of the source file's unit.
+        try:
+            weight_kg = float(actual_weight(unit_to_kg(weight_raw, unit))) if weight_raw is not None else None
+        except ValueError as error:
+            raise CsvParseError(str(error)) from error
 
         workout_name = _clean(col(row, COL_WORKOUT_NAME)) or DEFAULT_WORKOUT_NAME
         source_key = _clean(col(row, 'workout_source_key'))
@@ -331,7 +335,7 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
         exercises[ekey].sets.append(
             ParsedSet(
                 set_order=set_order,
-                weight_kg=float(actual_weight(unit_to_kg(weight_raw, unit))) if weight_raw is not None else None,
+                weight_kg=weight_kg,
                 reps=reps,
                 notes=_clean(col(row, COL_NOTES)) or None,
                 effort_level=effort,

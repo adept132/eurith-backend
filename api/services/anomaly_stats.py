@@ -100,26 +100,29 @@ async def review_set(db, workout, exercise, row, *, confirmed=None, previous_rev
     Confirmations retain their timestamp on exact replay.
     """
     from api.services.analytics.config import analytics_enabled
-    from api.services.anomaly_guard import check_analytics_set, check_set, resolve_is_anomalous
+    from api.services.anomaly_guard import check_analytics_set, check_set
+    from api.schemas.analytics_context import AnomalyReview
     old = row.anomaly_review if previous_review is _UNSET else previous_review
     was_anomalous = row.is_anomalous
-    if not analytics_enabled() and row.analytics_load_snapshot is None and old is None:
-        if not was_anomalous:
-            verdict = check_set(row.weight, row.reps, row.set_type, await load_exercise_stats(
-                db, workout.app_user_id, exercise.exercise_id))
-            row.is_anomalous = resolve_is_anomalous(verdict, confirmed)
-        return
-    fact = normalized_fact(workout, exercise, row)
-    records = (await db.execute(select(WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet)
-        .select_from(WorkoutSessionSet)
-        .join(WorkoutSessionExercise, WorkoutSessionExercise.id == WorkoutSessionSet.workout_session_exercise_id)
-        .join(WorkoutSession, WorkoutSession.id == WorkoutSessionExercise.workout_session_id)
-        .where(WorkoutSession.app_user_id == workout.app_user_id,
-               WorkoutSessionExercise.exercise_id == exercise.exercise_id,
-               WorkoutSession.id != workout.id, WorkoutSession.started_at < workout.started_at,
-               WorkoutSession.started_at >= workout.started_at - timedelta(days=HISTORY_DAYS),
-               WorkoutSession.status == 'finished'))).all()
-    review = check_analytics_set(fact, [normalized_fact(w, e, s) for w, e, s in records])
+    if not analytics_enabled() and row.analytics_load_snapshot is None:
+        # Keep the compatible scalar policy, but remember its derived reason.
+        # Otherwise the next confirmation cannot distinguish it from old unknowns.
+        verdict = check_set(row.weight, row.reps, row.set_type, await load_exercise_stats(
+            db, workout.app_user_id, exercise.exercise_id))
+        review = AnomalyReview(rules_version='p1-08-v1',
+            reason_codes=[verdict.reason_code] if verdict.reason_code else [], confirmed=False)
+    else:
+        fact = normalized_fact(workout, exercise, row)
+        records = (await db.execute(select(WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet)
+            .select_from(WorkoutSessionSet)
+            .join(WorkoutSessionExercise, WorkoutSessionExercise.id == WorkoutSessionSet.workout_session_exercise_id)
+            .join(WorkoutSession, WorkoutSession.id == WorkoutSessionExercise.workout_session_id)
+            .where(WorkoutSession.app_user_id == workout.app_user_id,
+                   WorkoutSessionExercise.exercise_id == exercise.exercise_id,
+                   WorkoutSession.id != workout.id, WorkoutSession.started_at < workout.started_at,
+                   WorkoutSession.started_at >= workout.started_at - timedelta(days=HISTORY_DAYS),
+                   WorkoutSession.status == 'finished'))).all()
+        review = check_analytics_set(fact, [normalized_fact(w, e, s) for w, e, s in records])
     # A very large recorded number is reviewable even if its load basis is unknown.
     if row.weight is not None and row.weight > 600 and 'unusual_weight' not in review.reason_codes:
         review.reason_codes.append('unusual_weight')
@@ -136,7 +139,6 @@ async def review_set(db, workout, exercise, row, *, confirmed=None, previous_rev
     review.confirmed = bool(supplied.get('confirmed')) if confirmed is None else confirmed
     if review.confirmed:
         review.confirmed_at = supplied.get('confirmed_at') or (old or {}).get('confirmed_at') or datetime.now(timezone.utc)
-    from api.schemas.analytics_context import AnomalyReview
     review = AnomalyReview.model_validate(review.model_dump(mode='python', warnings=False))
     row.anomaly_review = review.model_dump(mode='json')
     row.is_anomalous = (bool(was_anomalous and old and any(code not in derived for code in old.get('reason_codes', []))) or
