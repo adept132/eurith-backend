@@ -83,6 +83,51 @@ async def test_superset_noop_and_nested_cleanup_are_one_transaction(db, test_use
 
 
 @pytest.mark.asyncio
+async def test_unrelated_concurrent_superset_commit_cannot_dirty_noop(db, test_user, monkeypatch):
+    from app.database import SessionLocal
+    workout_x, rows_x, _ = await structure(db, test_user.id)
+    workout_y, rows_y, _ = await structure(db, test_user.id)
+    before = await revision(db, test_user.id)
+    original = Supersets.get_workout_session_exercises_map
+    interleaved = False
+
+    async def read_then_unrelated_commit(session, workout_id, app_user_id):
+        nonlocal interleaved
+        result = await original(session, workout_id, app_user_id)
+        if session is db and workout_id == workout_x and not interleaved:
+            interleaved = True
+            # Distinct real connection commits Y after X's initial structure read.
+            async with SessionLocal() as competing:
+                await Supersets.move_exercise_out_of_superset(
+                    competing, workout_y, app_user_id, rows_y[0].id)
+            assert await revision(db, app_user_id) == before + 1
+        return result
+
+    monkeypatch.setattr(Supersets, 'get_workout_session_exercises_map', read_then_unrelated_commit)
+    # X's third exercise is already ungrouped and X has no singleton to clean up.
+    await Supersets.move_exercise_out_of_superset(db, workout_x, test_user.id, rows_x[2].id)
+    assert interleaved
+    assert await revision(db, test_user.id) == before + 1
+    assert await db.scalar(select(WorkoutSessionExercise.superset_group).where(
+        WorkoutSessionExercise.id == rows_x[2].id)) is None
+
+
+@pytest.mark.asyncio
+async def test_locked_superset_mutation_refreshes_preloaded_target(db, test_user):
+    from app.database import SessionLocal
+    workout, rows, group = await structure(db, test_user.id)
+    before = await revision(db, test_user.id)
+    async with SessionLocal() as competing:
+        await Supersets.move_exercise_to_superset(competing, workout, test_user.id, rows[2].id, group)
+    # This session still has the old ungrouped identity; the locked mutation
+    # must operate on the now-committed target, not that cached identity.
+    await Supersets.move_exercise_out_of_superset(db, workout, test_user.id, rows[2].id)
+    assert await db.scalar(select(WorkoutSessionExercise.superset_group).where(
+        WorkoutSessionExercise.id == rows[2].id)) is None
+    assert await revision(db, test_user.id) == before + 2
+
+
+@pytest.mark.asyncio
 async def test_center_selection_only_preserves_saved_analytics_context(db, test_user, client):
     from datetime import date
     from tests.integration.test_periodization_calendar import _seed

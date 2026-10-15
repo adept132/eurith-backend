@@ -7,7 +7,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,16 +15,43 @@ from api.services.models import WorkoutSession, WorkoutSessionExercise, WorkoutS
 from api.services.analytics.state import mark_dirty
 
 
-async def _structure(session, owner):
+async def _structure_rows(session, workout_ids):
     await session.flush()
-    return (await session.execute(select(WorkoutSessionExercise.id,
-        WorkoutSessionExercise.order_index, WorkoutSessionExercise.superset_group)
-        .join(WorkoutSession).where(WorkoutSession.app_user_id == owner)
-        .order_by(WorkoutSessionExercise.id))).all()
+    # Refresh identities after acquiring the parent lock: a reused session may
+    # still cache values from before a competing transaction committed.
+    rows = (await session.scalars(select(WorkoutSessionExercise)
+        .where(WorkoutSessionExercise.workout_session_id.in_(workout_ids))
+        .order_by(WorkoutSessionExercise.id)
+        .execution_options(populate_existing=True))).all()
+    return [(row.id, row.order_index, row.superset_group) for row in rows]
+
+
+async def _structure(session, owner, *, workout_id=None, session_exercise_id=None, superset_group=None):
+    """Lock only affected owned workouts before reading their mutable structure.
+
+    Group-only endpoints can touch multiple workouts with a reused group UUID;
+    lock the resolved parents in ID order. No lifetime-history comparison.
+    """
+    statement = select(WorkoutSession.id).where(WorkoutSession.app_user_id == owner)
+    if workout_id is not None:
+        statement = statement.where(WorkoutSession.id == workout_id)
+    else:
+        selectors = []
+        if session_exercise_id is not None:
+            selectors.append(WorkoutSessionExercise.id == session_exercise_id)
+        if superset_group is not None:
+            selectors.append(WorkoutSessionExercise.superset_group == superset_group)
+        if not selectors:
+            raise ValueError('structural mutation requires a target')
+        statement = statement.where(WorkoutSession.id.in_(select(
+            WorkoutSessionExercise.workout_session_id).where(or_(*selectors))))
+    workout_ids = tuple((await session.scalars(statement.order_by(WorkoutSession.id).with_for_update())).all())
+    return workout_ids, await _structure_rows(session, workout_ids)
 
 
 async def _finish_structure(session, owner, before):
-    if before != await _structure(session, owner):
+    workout_ids, rows = before
+    if rows != await _structure_rows(session, workout_ids):
         await mark_dirty(session, owner)
     await session.commit()
 
@@ -294,7 +321,7 @@ class WorkoutSupersetService:
             source_session_exercise_id: int,
             target_session_exercise_ids: list[int],
     ) -> str:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, workout_id=workout_id)
         if not target_session_exercise_ids:
             raise HTTPException(
                 status_code=400,
@@ -363,7 +390,7 @@ class WorkoutSupersetService:
         superset_group: str,
         session_exercise_id: int,
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, session_exercise_id=session_exercise_id, superset_group=superset_group)
         stmt = (
             select(WorkoutSessionExercise)
             .join(
@@ -372,6 +399,8 @@ class WorkoutSupersetService:
             )
             .where(
                 WorkoutSession.app_user_id == app_user_id,
+                or_(WorkoutSessionExercise.id == session_exercise_id,
+                    WorkoutSessionExercise.superset_group == superset_group),
             )
             .options(selectinload(WorkoutSessionExercise.exercise))
         )
@@ -410,7 +439,7 @@ class WorkoutSupersetService:
             exercise_id: int,
             target_sets: int | None = None,
     ):
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, superset_group=superset_group)
         member_result = await session.execute(
             select(WorkoutSessionExercise)
             .join(
@@ -468,7 +497,7 @@ class WorkoutSupersetService:
         superset_group: str,
         session_exercise_id: int,
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, superset_group=superset_group)
         stmt = (
             select(WorkoutSessionExercise)
             .join(
@@ -477,6 +506,7 @@ class WorkoutSupersetService:
             )
             .where(
                 WorkoutSession.app_user_id == app_user_id,
+                WorkoutSessionExercise.superset_group == superset_group,
             )
             .options(
                 selectinload(WorkoutSessionExercise.exercise),
@@ -591,7 +621,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         *, commit: bool = True,
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, workout_id=workout_id) if commit else None
         session_exercises = await WorkoutSupersetService.get_workout_session_exercises(
             session=session,
             workout_id=workout_id,
@@ -621,7 +651,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         superset_group: str,
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, superset_group=superset_group)
         stmt = (
             select(WorkoutSessionExercise)
             .join(
@@ -665,7 +695,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         *, commit: bool = True,
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, workout_id=workout_id) if commit else None
         session_exercises = await WorkoutSupersetService.get_workout_session_exercises(
             session=session,
             workout_id=workout_id,
@@ -697,7 +727,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         items: list[dict],
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, workout_id=workout_id)
         exercises_map = await WorkoutSupersetService.get_workout_session_exercises_map(
             session=session,
             workout_id=workout_id,
@@ -781,7 +811,7 @@ class WorkoutSupersetService:
         session_exercise_id: int,
         superset_group: str,
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, workout_id=workout_id)
         exercises_map = await WorkoutSupersetService.get_workout_session_exercises_map(
             session=session,
             workout_id=workout_id,
@@ -808,7 +838,7 @@ class WorkoutSupersetService:
         app_user_id: int,
         session_exercise_id: int,
     ) -> None:
-        before = await _structure(session, app_user_id)
+        before = await _structure(session, app_user_id, workout_id=workout_id)
         exercises_map = await WorkoutSupersetService.get_workout_session_exercises_map(
             session=session,
             workout_id=workout_id,
@@ -832,6 +862,10 @@ class WorkoutSupersetService:
             db: AsyncSession,
             session_exercise_id: int,
     ) -> WorkoutSessionExercise:
+        owner = await db.scalar(select(WorkoutSession.app_user_id).join(
+            WorkoutSessionExercise, WorkoutSessionExercise.workout_session_id == WorkoutSession.id)
+            .where(WorkoutSessionExercise.id == session_exercise_id))
+        before = await _structure(db, owner, session_exercise_id=session_exercise_id)
         result = await db.execute(
             select(WorkoutSessionExercise).where(
                 WorkoutSessionExercise.id == session_exercise_id
@@ -845,9 +879,6 @@ class WorkoutSupersetService:
         if session_exercise.superset_group:
             return session_exercise
 
-        owner = await db.scalar(select(WorkoutSession.app_user_id).where(
-            WorkoutSession.id == session_exercise.workout_session_id))
-        before = await _structure(db, owner)
         session_exercise.superset_group = str(uuid.uuid4())
 
         await _finish_structure(db, owner, before)
