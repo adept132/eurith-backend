@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from api.schemas.analytics_context import BodyMassSnapshot, WorkoutAnalyticsSnapshot, SetLoadSnapshot, AnomalyReview, AnalyticsMassIntent
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional, Dict, Union, List
@@ -92,6 +93,8 @@ class AutoprogressionResponse(BaseModel):
 
 
 class WorkoutSessionSetResponse(BaseModel):
+    analytics_load_snapshot: SetLoadSnapshot | None = None
+    anomaly_review: AnomalyReview | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -131,6 +134,7 @@ class WorkoutSessionSetResponse(BaseModel):
 
 
 class WorkoutSessionExerciseResponse(BaseModel):
+    analytics_load_defaults: SetLoadSnapshot | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -171,6 +175,8 @@ class WorkoutChildTombstones(BaseModel):
 
 
 class WorkoutSessionDetailResponse(BaseModel):
+    analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
+    sync_version: int = 0
     child_tombstones: WorkoutChildTombstones = Field(default_factory=WorkoutChildTombstones)
     model_config = ConfigDict(from_attributes=True)
 
@@ -202,6 +208,7 @@ class WorkoutSessionDetailResponse(BaseModel):
 
 
 class AddWorkoutExerciseRequest(BaseModel):
+    analytics_load_defaults: SetLoadSnapshot | None = None
     warmup_group: WarmupGroupSnapshot | None = None
     exercise_id: int = Field(gt=0)
     notes: str | None = None
@@ -213,6 +220,8 @@ class AddWorkoutExerciseRequest(BaseModel):
 
 
 class AddWorkoutSetRequest(BaseModel):
+    analytics_load_snapshot: SetLoadSnapshot | None = None
+    anomaly_review: AnomalyReview | None = None
     set_type: WorkoutSetType = "normal"
     # Верхние границы — защита от переполнения Numeric(8,2), а не оценка
     # правдоподобности: ею занимается anomaly_guard.
@@ -235,6 +244,9 @@ class AddWorkoutSetRequest(BaseModel):
 
 
 class AddWorkoutSetResponse(BaseModel):
+    analytics_load_snapshot: SetLoadSnapshot | None = None
+    anomaly_review: AnomalyReview | None = None
+    client_uuid: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -260,6 +272,8 @@ class AddWorkoutSetResponse(BaseModel):
 
 
 class UpdateWorkoutSetRequest(BaseModel):
+    analytics_load_snapshot: SetLoadSnapshot | None = None
+    anomaly_review: AnomalyReview | None = None
     set_type: WorkoutSetType | None = None
     # Верхние границы — защита от переполнения Numeric(8,2), а не оценка
     # правдоподобности: ею занимается anomaly_guard.
@@ -287,6 +301,7 @@ class RepeatWorkoutSetRequest(BaseModel):
 
 
 class WorkoutFinishedExerciseSummary(BaseModel):
+    analytics_load_defaults: SetLoadSnapshot | None = None
     exercise_id: int
     exercise_name: str
     sets_count: int
@@ -295,6 +310,7 @@ class WorkoutFinishedExerciseSummary(BaseModel):
 
 
 class FinishWorkoutResponse(BaseModel):
+    analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     workout_id: int
     source: WorkoutSource
     started_at: datetime
@@ -307,3 +323,16 @@ class FinishWorkoutResponse(BaseModel):
     total_volume: Decimal | None = None
 
     exercises: list[WorkoutFinishedExerciseSummary]
+
+
+class UpdateAnalyticsContextRequest(BaseModel):
+    base_sync_version: int = Field(ge=0)
+    explicit_mass: BodyMassSnapshot | None = None
+    analytics_mass_intent: AnalyticsMassIntent | None = None
+    load_defaults: dict[int, SetLoadSnapshot | None] | None = None
+
+    @model_validator(mode='after')
+    def validate_single_mass_source(self):
+        if self.explicit_mass is not None and self.analytics_mass_intent is not None:
+            raise ValueError('Choose a mass snapshot or a new weighing intent')
+        return self

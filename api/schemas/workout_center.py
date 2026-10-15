@@ -1,4 +1,5 @@
 from datetime import datetime
+from api.schemas.analytics_context import WorkoutAnalyticsSnapshot, AnalyticsMassIntent
 from typing import Optional, List
 from uuid import UUID
 
@@ -22,6 +23,7 @@ class WorkoutCenterSplitDayRead(BaseModel):
 
 
 class WorkoutCenterActiveWorkoutRead(BaseModel):
+    analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     id: int
     started_at: datetime
     source: str
@@ -74,6 +76,7 @@ class UpdateSelectedSplitDayPayload(BaseModel):
 
 
 class StartWorkoutPayload(BaseModel):
+    analytics_mass_intent: AnalyticsMassIntent | None = None
     source: str
     split_id: UUID | None = None      # <-- БЫЛО int | None
     split_day_id: UUID | None = None  # <-- БЫЛО int | None
@@ -86,6 +89,7 @@ class StartWorkoutPayload(BaseModel):
 
 
 class StartWorkoutResponse(BaseModel):
+    analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     id: int
     started_at: datetime
     source: str

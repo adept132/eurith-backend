@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 from pydantic import BaseModel
+from api.schemas.analytics_context import WorkoutAnalyticsSnapshot
 
 
 class SupersetWorkoutSetItem(BaseModel):
+    analytics_load_snapshot: dict | None = None
+    anomaly_review: dict | None = None
     id: int
     set_number: int
     weight: float | None = None
@@ -16,6 +19,7 @@ class SupersetWorkoutSetItem(BaseModel):
 
 
 class WorkoutStructureExerciseItem(BaseModel):
+    analytics_load_defaults: dict | None = None
     type: Literal["exercise"] = "exercise"
     session_exercise_id: int
     order_index: int
@@ -27,6 +31,7 @@ class WorkoutStructureExerciseItem(BaseModel):
 
 
 class WorkoutStructureSupersetMember(BaseModel):
+    analytics_load_defaults: dict | None = None
     session_exercise_id: int
     order_index: int
     exercise_id: int
@@ -70,6 +75,7 @@ class RemoveExerciseFromSupersetRequest(BaseModel):
 
 
 class SupersetFlowExerciseItem(BaseModel):
+    analytics_load_defaults: dict | None = None
     session_exercise_id: int
     order_index: int
     exercise_id: int
@@ -85,6 +91,7 @@ class SupersetFlowExerciseItem(BaseModel):
 
 
 class SupersetFlowResponse(BaseModel):
+    analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     workout_id: int
     superset_group: str
     label: str

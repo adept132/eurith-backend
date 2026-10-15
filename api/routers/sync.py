@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from api.services.analytics.writes import apply_field, apply_set_context, apply_session_context, fingerprint, json_value
+from api.services.analytics.state import mark_dirty
 from datetime import datetime, timedelta, timezone
 from copy import deepcopy
 
@@ -103,6 +105,9 @@ async def sync_workout(
     app_user_id = app_user.id
     try:
         return await _apply_snapshot(db, app_user_id, payload)
+    except HTTPException:
+        await db.rollback()
+        raise
     except IntegrityError:
         # Гонка проскочила мимо advisory-лока (например, запросы ушли в разные
         # соединения через внешний пулер). Уникальный индекс отработал — второй
@@ -126,7 +131,7 @@ async def _apply_snapshot(
 
     # 1. Существующая тренировка этого пользователя по client_uuid.
     existing_stmt = (
-        select(WorkoutSession)
+        select(WorkoutSession).with_for_update()
         .where(
             WorkoutSession.app_user_id == app_user_id,
             WorkoutSession.client_uuid == payload.client_uuid,
@@ -143,7 +148,7 @@ async def _apply_snapshot(
     # и проставляем client_uuid, чтобы дальнейшие синки шли по нему без дублей.
     if workout is None and payload.server_id is not None:
         adopt_stmt = (
-            select(WorkoutSession)
+            select(WorkoutSession).with_for_update()
             .where(
                 WorkoutSession.app_user_id == app_user_id,
                 WorkoutSession.id == payload.server_id,
@@ -157,6 +162,28 @@ async def _apply_snapshot(
         workout = (await db.execute(adopt_stmt)).scalars().first()
         if workout is not None:
             workout.client_uuid = payload.client_uuid
+
+    if payload.server_id is not None and (workout is None or workout.id != payload.server_id):
+        foreign = await db.scalar(select(WorkoutSession.id).where(WorkoutSession.id == payload.server_id))
+        if foreign is not None:
+            raise HTTPException(404, 'Workout not found')
+    was_finished = workout is not None and workout.status == 'finished'
+    if was_finished:
+        intent = payload.analytics_mass_intent
+        mass = (workout.analytics_snapshot or {}).get('body_mass') or {}
+        changed_intent = intent is not None and not (
+            mass.get('measurement_client_uuid') == intent.client_uuid
+            and mass.get('weight_kg') == intent.weight_kg
+            and mass.get('measured_on') == intent.measured_on.isoformat())
+        incoming = json_value(payload.analytics_snapshot)
+        if not changed_intent and intent is not None and incoming and incoming.get('body_mass'):
+            body = incoming['body_mass']
+            if body['weight_kg'] == intent.weight_kg and body['measured_on'] == intent.measured_on.isoformat():
+                incoming['body_mass'] = deepcopy(mass)
+        changed_context = ('analytics_snapshot' in payload.model_fields_set
+                           and incoming != workout.analytics_snapshot)
+        if changed_context or changed_intent:
+            raise HTTPException(409, {'error': 'history_revision_required'})
 
     # 2. Проверка версии ДО любых мутаций. base_version=None означает «клиент эту
     # тренировку ещё не синхронизировал» — проверять нечего.
@@ -220,9 +247,11 @@ async def _apply_snapshot(
                 )
             )
             await db.delete(workout)
+            await mark_dirty(db, app_user_id)
             await db.commit()
         return SyncWorkoutResponse(deleted=True, id_map={}, sync_version=0, workout=None)
 
+    before_analytics = await fingerprint(db, workout.id) if workout is not None else None
     is_new = workout is None
     if is_new:
         workout = WorkoutSession(
@@ -362,6 +391,11 @@ async def _apply_snapshot(
             db.add(exercise)
             ex_is_new = True
 
+        if ex_snap.server_id is not None and ex_snap.server_id != exercise.id:
+            with db.no_autoflush:
+                linked = await db.scalar(select(WorkoutSessionExercise.id).where(WorkoutSessionExercise.id == ex_snap.server_id))
+            if linked is not None:
+                raise HTTPException(404, 'Workout exercise not found')
         exercise_changed = not ex_is_new and exercise.exercise_id != ex_snap.exercise_id
         if exercise_changed and exercise.sets:
             raise HTTPException(
@@ -378,6 +412,10 @@ async def _apply_snapshot(
         exercise.recommended_rep_min = ex_snap.recommended_rep_min
         exercise.recommended_rep_max = ex_snap.recommended_rep_max
         exercise.target_sets = ex_snap.target_sets
+        if (was_finished and 'analytics_load_defaults' in ex_snap.model_fields_set
+                and json_value(ex_snap.analytics_load_defaults) != exercise.analytics_load_defaults):
+            raise HTTPException(409, {'error': 'history_revision_required'})
+        apply_field(exercise, ex_snap, "analytics_load_defaults")
         if "warmup_group" in ex_snap.model_fields_set:
             exercise.warmup_group = snapshot_json(ex_snap.warmup_group)
         previous_mode = exercise.active_load_mode
@@ -447,6 +485,10 @@ async def _apply_snapshot(
                     await db.delete(workout_set)
                 continue
 
+            if workout_set is None and set_snap.server_id is not None:
+                linked = await db.scalar(select(WorkoutSessionSet.id).where(WorkoutSessionSet.id == set_snap.server_id))
+                if linked is not None:
+                    raise HTTPException(404, 'Workout set not found')
             set_is_new = workout_set is None
             if set_is_new:
                 workout_set = WorkoutSessionSet(
@@ -455,6 +497,12 @@ async def _apply_snapshot(
                 )
                 db.add(workout_set)
 
+            if was_finished and any(
+                name in set_snap.model_fields_set and json_value(getattr(set_snap, name)) != getattr(workout_set, name)
+                for name in ('analytics_load_snapshot', 'anomaly_review')
+            ):
+                raise HTTPException(409, {'error': 'history_revision_required'})
+            apply_set_context(workout_set, set_snap, exercise, is_new=set_is_new)
             workout_set.set_number = set_snap.set_number
             workout_set.set_type = set_snap.set_type
             workout_set.weight = set_snap.weight
@@ -579,6 +627,8 @@ async def _apply_snapshot(
                 used_orders.add(prior_order)
         await db.flush()
 
+    await apply_session_context(db, workout, payload, is_new=is_new)
+
     # 5. Новая версия — её клиент сохранит и пришлёт как base_version.
     workout.sync_version = (workout.sync_version or 0) + 1
     new_version = workout.sync_version
@@ -700,6 +750,8 @@ async def _apply_snapshot(
                     _refresh_one(se=se),
                 )
 
+    if before_analytics != await fingerprint(db, workout.id):
+        await mark_dirty(db, app_user_id)
     await db.commit()
     workout_id = workout.id
 

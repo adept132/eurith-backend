@@ -1,4 +1,6 @@
 import copy
+from api.services.analytics.writes import apply_session_context
+from api.services.analytics.state import mark_dirty
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -339,6 +341,7 @@ async def build_context(
 
         active_workout=(
             WorkoutCenterActiveWorkoutRead(
+                analytics_snapshot=active_workout.analytics_snapshot,
                 id=active_workout.id,
                 started_at=active_workout.started_at,
                 source=active_workout.source,
@@ -733,10 +736,13 @@ async def start_workout(
             )
             progression_repo.persist_prescription(new_ex, prescription)
 
+    await apply_session_context(session, workout, payload, is_new=True)
+    await mark_dirty(session, app_user.id)
     await session.commit()
     await session.refresh(workout)
 
     return StartWorkoutResponse(
+        analytics_snapshot=workout.analytics_snapshot,
         id=workout.id,
         started_at=workout.started_at,
         source=workout.source,
@@ -832,6 +838,7 @@ async def finish_workout(
             db, current_app_user.id, se.exercise_id, nxt
         )
 
+    await mark_dirty(db, current_app_user.id)
     await db.commit()
     await db.refresh(workout)
 
@@ -868,6 +875,7 @@ async def finish_workout(
 
         exercise_summaries.append(
             WorkoutFinishedExerciseSummary(
+                analytics_load_defaults=session_exercise.analytics_load_defaults,
                 exercise_id=session_exercise.exercise.id,
                 exercise_name=session_exercise.exercise.name,
                 sets_count=sets_count,
@@ -891,6 +899,7 @@ async def finish_workout(
     await safe_refresh_proposals(db, current_app_user.id)
 
     return FinishWorkoutResponse(
+        analytics_snapshot=workout.analytics_snapshot,
         workout_id=workout.id,
         source=workout.source,
         started_at=workout.started_at,

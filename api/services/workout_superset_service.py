@@ -1,4 +1,5 @@
 from __future__ import annotations
+from copy import deepcopy
 
 import uuid
 from collections import defaultdict
@@ -104,6 +105,8 @@ class WorkoutSupersetService:
     @staticmethod
     def _serialize_set(set_item: WorkoutSessionSet) -> dict:
         return {
+            "analytics_load_snapshot": deepcopy(set_item.analytics_load_snapshot),
+            "anomaly_review": deepcopy(set_item.anomaly_review),
             "id": set_item.id,
             "set_number": set_item.set_number,
             "weight": float(set_item.weight) if set_item.weight is not None else None,
@@ -216,6 +219,7 @@ class WorkoutSupersetService:
                     {
                         "type": "exercise",
                         "session_exercise_id": exercise.id,
+                        "analytics_load_defaults": deepcopy(exercise.analytics_load_defaults),
                         "order_index": exercise.order_index,
                         "exercise_id": exercise.exercise_id,
                         "exercise_name": exercise.exercise.name if exercise.exercise else "Без названия",
@@ -249,6 +253,7 @@ class WorkoutSupersetService:
                     "exercises": [
                         {
                             "session_exercise_id": ex.id,
+                            "analytics_load_defaults": deepcopy(ex.analytics_load_defaults),
                             "order_index": ex.order_index,
                             "exercise_id": ex.exercise_id,
                             "exercise_name": ex.exercise.name if ex.exercise else "Без названия",
@@ -523,6 +528,7 @@ class WorkoutSupersetService:
             items.append(
                 {
                     "session_exercise_id": exercise.id,
+                    "analytics_load_defaults": deepcopy(exercise.analytics_load_defaults),
                     "order_index": exercise.order_index,
                     "exercise_id": exercise.exercise_id,
                     "exercise_name": exercise.exercise.name if exercise.exercise else "Без названия",
@@ -541,6 +547,8 @@ class WorkoutSupersetService:
 
         return {
             "workout_id": workout_id,
+            "analytics_snapshot": deepcopy(await session.scalar(select(WorkoutSession.analytics_snapshot).where(
+                WorkoutSession.id == workout_id, WorkoutSession.app_user_id == app_user_id))),
             "superset_group": superset_group,
             "label": label,
             "rounds_completed": rounds_completed,

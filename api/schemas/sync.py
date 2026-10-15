@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from api.schemas.analytics_context import WorkoutAnalyticsSnapshot, SetLoadSnapshot, AnomalyReview, AnalyticsMassIntent
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -19,6 +20,8 @@ from api.schemas.workouts import (
 
 
 class SyncSetSnapshot(BaseModel):
+    analytics_load_snapshot: SetLoadSnapshot | None = None
+    anomaly_review: AnomalyReview | None = None
     """Снимок одного подхода из локального стора клиента."""
     client_uuid: str
     # Серверный id для адаптации ранее созданных (без client_uuid) строк:
@@ -101,6 +104,7 @@ class SyncPrescriptionSnapshot(BaseModel):
 
 
 class SyncExerciseSnapshot(BaseModel):
+    analytics_load_defaults: SetLoadSnapshot | None = None
     """Снимок упражнения сессии со всеми подходами."""
     client_uuid: str
     server_id: int | None = None
@@ -132,6 +136,8 @@ class SyncExerciseSnapshot(BaseModel):
 
 
 class SyncWorkoutSnapshot(BaseModel):
+    analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
+    analytics_mass_intent: AnalyticsMassIntent | None = None
     """Полный снимок тренировки для идемпотентного upsert по client_uuid."""
     client_uuid: str
     server_id: int | None = None

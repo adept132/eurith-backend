@@ -58,3 +58,9 @@ class AnomalyReview(BaseModel):
     reason_codes: list[str]
     confirmed: bool
     confirmed_at: AwareDatetime | None = None
+
+
+class AnalyticsMassIntent(BaseModel):
+    client_uuid: str = Field(min_length=1, max_length=64)
+    weight_kg: Annotated[float, Field(gt=0, allow_inf_nan=False)]
+    measured_on: date

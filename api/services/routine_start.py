@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from api.services.analytics.config import analytics_enabled
+from api.services.analytics.snapshots import capture_workout_snapshot
+from api.services.analytics.state import mark_dirty
 from datetime import datetime
 
 from sqlalchemy import select
@@ -194,6 +197,9 @@ async def start_routine(
         )
         progression_repo.persist_prescription(session_exercise, prescription)
 
+    if analytics_enabled():
+        await capture_workout_snapshot(db, workout, explicit_mass=None)
+    await mark_dirty(db, user.id)
     await db.commit()
     return (
         await db.execute(

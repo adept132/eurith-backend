@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from uuid import uuid4
+from api.services.analytics.writes import apply_field, apply_set_context, fingerprint, json_value
+from api.services.analytics.state import mark_dirty
+from api.services.analytics.config import analytics_enabled
+from api.services.analytics.snapshots import capture_workout_snapshot
+from api.schemas.workouts import UpdateAnalyticsContextRequest
 from copy import deepcopy
 from typing import Literal
 from uuid import UUID
@@ -140,6 +146,7 @@ async def delete_workout(
         )
 
     await db.delete(workout)
+    await mark_dirty(db, current_app_user.id)
     await db.commit()
 
 
@@ -231,6 +238,7 @@ async def add_exercise_to_workout(
         recommended_rep_max=rec_data.get("recommended_rep_max"),
     )
 
+    apply_field(session_exercise, payload, "analytics_load_defaults")
     db.add(session_exercise)
     await db.flush()
 
@@ -277,6 +285,7 @@ async def add_exercise_to_workout(
         ctx, override=override_for(settings, session_exercise.exercise_id)
     )
     progression_repo.persist_prescription(session_exercise, prescription)
+    await mark_dirty(db, current_app_user.id)
 
     await db.commit()
 
@@ -422,7 +431,11 @@ async def add_set_to_session_exercise(
         },
     )
 
+    if analytics_enabled() or session_exercise.analytics_load_defaults is not None:
+        new_set.client_uuid = str(uuid4())
+    apply_set_context(new_set, payload, session_exercise, is_new=True)
     db.add(new_set)
+    await mark_dirty(db, current_app_user.id)
     await db.commit()
     await db.refresh(new_set)
 
@@ -615,7 +628,11 @@ async def update_workout_session_set(
             detail="Workout is not active",
         )
 
+    before_analytics = await fingerprint(db, workout.id)
+    apply_set_context(workout_set, payload, session_exercise)
     update_data = payload.model_dump(exclude_unset=True)
+    update_data.pop("analytics_load_snapshot", None)
+    update_data.pop("anomaly_review", None)
 
     if "warmup_snapshot" in payload.model_fields_set:
         update_data["warmup_snapshot"] = snapshot_json(payload.warmup_snapshot)
@@ -671,8 +688,11 @@ async def update_workout_session_set(
         workout_set.set_type or "normal",
         stats,
     )
-    workout_set.is_anomalous = resolve_is_anomalous(verdict, anomaly_confirmed)
+    if {"weight", "reps", "set_type", "anomaly_confirmed"} & payload.model_fields_set:
+        workout_set.is_anomalous = resolve_is_anomalous(verdict, anomaly_confirmed)
 
+    if before_analytics != await fingerprint(db, workout.id):
+        await mark_dirty(db, current_app_user.id)
     await db.commit()
     await db.refresh(workout_set)
 
@@ -756,7 +776,8 @@ async def repeat_workout_session_set(
             )
 
         if (target_session_exercise.exercise_id != source_session_exercise.exercise_id
-                and (source_set.load_mode is not None or source_set.setup_id is not None)):
+                and (source_set.load_mode is not None or source_set.setup_id is not None
+                     or source_set.analytics_load_snapshot is not None)):
             raise HTTPException(status_code=400,
                                 detail="Machine context cannot be repeated for a different exercise")
 
@@ -797,7 +818,12 @@ async def repeat_workout_session_set(
         warmup_snapshot=repeated_snapshot,
     )
 
+    if analytics_enabled() or source_set.analytics_load_snapshot is not None:
+        repeated_set.client_uuid = str(uuid4())
+    repeated_set.analytics_load_snapshot = deepcopy(source_set.analytics_load_snapshot)
+    repeated_set.anomaly_review = deepcopy(source_set.anomaly_review)
     db.add(repeated_set)
+    await mark_dirty(db, current_app_user.id)
     await db.commit()
     await db.refresh(repeated_set)
 
@@ -848,6 +874,7 @@ async def delete_workout_session_exercise(
 
     await record_child_deletion(db, workout, "workout_exercise", session_exercise.client_uuid, session_exercise.id)
     await db.delete(session_exercise)
+    await mark_dirty(db, current_app_user.id)
     await db.flush()
 
     remaining_exercises = sorted(
@@ -914,6 +941,7 @@ async def delete_workout_session_set(
         s for s in session_exercise.sets if s.id != deleted_set_id
     ]
     _renumber_sets(session_exercise)
+    await mark_dirty(db, current_app_user.id)
 
     await db.commit()
 
@@ -950,3 +978,43 @@ async def reorder_workout_structure(
         items=payload.items,
     )
     return {"ok": True}
+
+
+@router.patch("/workouts/{workout_id}/analytics-context", response_model=WorkoutSessionDetailResponse)
+async def update_analytics_context(workout_id: int, payload: UpdateAnalyticsContextRequest,
+                                   db: AsyncSession = Depends(get_db),
+                                   current_app_user=Depends(get_current_app_user)):
+    workout = (await db.execute(select(WorkoutSession).where(
+        WorkoutSession.id == workout_id, WorkoutSession.app_user_id == current_app_user.id)
+        .options(_workout_session_options()).with_for_update())).scalar_one_or_none()
+    if workout is None:
+        raise HTTPException(404, 'Workout not found')
+    if workout.status != 'active':
+        raise HTTPException(409, {'error': 'history_revision_required'})
+    if payload.base_sync_version != (workout.sync_version or 0):
+        raise HTTPException(409, {'error': 'sync_conflict', 'sync_version': workout.sync_version or 0,
+            'workout': WorkoutSessionDetailResponse.model_validate(workout).model_dump(mode='json')})
+    before = await fingerprint(db, workout.id)
+    if not analytics_enabled():
+        raise HTTPException(409, {'error': 'analytics_disabled'})
+    if 'explicit_mass' in payload.model_fields_set:
+        if payload.explicit_mass is None:
+            old = deepcopy(workout.analytics_snapshot) or {'schema_version': 1}
+            old['body_mass'] = None
+            workout.analytics_snapshot = old
+        else:
+            await capture_workout_snapshot(db, workout, explicit_mass=payload.explicit_mass)
+    if payload.analytics_mass_intent is not None:
+        from api.services.analytics.writes import apply_session_context
+        await apply_session_context(db, workout, payload)
+    by_id = {exercise.id: exercise for exercise in workout.exercises}
+    for exercise_id, defaults in (payload.load_defaults or {}).items():
+        if exercise_id not in by_id:
+            raise HTTPException(404, 'Workout exercise not found')
+        by_id[exercise_id].analytics_load_defaults = json_value(defaults)
+    if before != await fingerprint(db, workout.id):
+        workout.sync_version = (workout.sync_version or 0) + 1
+        await mark_dirty(db, current_app_user.id)
+    await db.commit()
+    return (await db.execute(select(WorkoutSession).where(WorkoutSession.id == workout_id)
+        .options(_workout_session_options()).execution_options(populate_existing=True))).scalar_one()
