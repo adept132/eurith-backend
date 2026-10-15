@@ -35,6 +35,8 @@ from api.services.app_user_service import (  # noqa: E402
 )
 from api.services.models import (  # noqa: E402
     AppUser,
+    AnalyticsState,
+    AnalyticsRecordProjection,
     AppUserMesocycle,
     Exercise,
     Mesocycle,
@@ -128,6 +130,8 @@ async def test_user():
                 delete(WorkoutSession).where(WorkoutSession.id.in_(workout_ids))
             )
 
+        await session.execute(delete(AnalyticsRecordProjection).where(AnalyticsRecordProjection.app_user_id == user_id))
+        await session.execute(delete(AnalyticsState).where(AnalyticsState.app_user_id == user_id))
         # user_records.exercise_id → exercises в реальной БД — NO ACTION (модель
         # объявляет CASCADE, но init_db не умеет ALTER-ить существующие FK —
         # см. memory/backend-schema-create-all.md), поэтому сносим записи явно,
@@ -182,6 +186,45 @@ async def client(test_user: AppUser):
 async def db():
     async with SessionLocal() as session:
         yield session
+
+
+@pytest_asyncio.fixture
+async def p108_seed(db, test_user):
+    """Committed owner/time/context factory for analytics transaction tests."""
+    extra_owner_ids = []
+
+    async def seed(*, finished_at=None, analytics_snapshot=None, load_snapshot=None):
+        marker = uuid.uuid4().hex
+        exercise = Exercise(name=f'p108-{marker}', category='base', main_muscle_group='chest',
+                            secondary_muscle_groups=[], difficulty='beginner', equipment_needed=[],
+                            source='custom', app_user_id=test_user.id)
+        other = AppUser(firebase_uid=f'p108-active-{marker}', email=f'p108-{marker}@example.com')
+        db.add_all([exercise, other])
+        await db.flush()
+        extra_owner_ids.append(other.id)
+        workout = WorkoutSession(app_user_id=test_user.id, source='free', status='finished',
+                                 started_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                                 finished_at=finished_at or datetime.now(timezone.utc),
+                                 analytics_snapshot=analytics_snapshot)
+        active = WorkoutSession(app_user_id=other.id, source='free', status='active')
+        db.add_all([workout, active])
+        await db.flush()
+        se = WorkoutSessionExercise(workout_session_id=workout.id, exercise_id=exercise.id, order_index=0)
+        db.add_all([se, WorkoutSessionExercise(workout_session_id=active.id, exercise_id=exercise.id, order_index=0)])
+        await db.flush()
+        db.add(WorkoutSessionSet(workout_session_exercise_id=se.id, set_number=1, set_type='normal',
+                                weight=40, reps=10, is_completed=True, analytics_load_snapshot=load_snapshot))
+        await db.commit()
+        return SimpleNamespace(exercise_id=exercise.id, workout=workout, active_owner_id=other.id)
+
+    yield seed
+    await db.rollback()
+    for owner_id in extra_owner_ids:
+        workouts = select(WorkoutSession.id).where(WorkoutSession.app_user_id == owner_id)
+        await db.execute(delete(WorkoutSessionExercise).where(WorkoutSessionExercise.workout_session_id.in_(workouts)))
+        await db.execute(delete(WorkoutSession).where(WorkoutSession.app_user_id == owner_id))
+        await db.execute(delete(AppUser).where(AppUser.id == owner_id))
+    await db.commit()
 
 
 @pytest_asyncio.fixture

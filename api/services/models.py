@@ -20,6 +20,45 @@ from api.services.scheduling import SchedulingMode, WorkoutStatus, MesocyclePhas
 Base = declarative_base()
 
 
+class AnalyticsState(Base):
+    __tablename__ = 'analytics_states'
+    app_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('app_users.id', ondelete='CASCADE'), primary_key=True)
+    rules_version: Mapped[str] = mapped_column(String(32), primary_key=True)
+    source_revision: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default='0')
+    active_generation: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    active_revision: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    building_generation: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    building_revision: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default='pending', server_default='pending')
+    cursor: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        Index('ix_analytics_states_status', 'status', 'updated_at'),
+        CheckConstraint("status IN ('pending','rebuilding','ready','disabled')", name='ck_analytics_states_status'),
+        CheckConstraint('source_revision >= 0 AND (active_revision IS NULL OR active_revision BETWEEN 0 AND source_revision) AND (building_revision IS NULL OR building_revision BETWEEN 0 AND source_revision)', name='ck_analytics_states_revisions'),
+        CheckConstraint('(active_generation IS NULL) = (active_revision IS NULL) AND (building_generation IS NULL) = (building_revision IS NULL)', name='ck_analytics_states_generations'),
+        CheckConstraint("status <> 'ready' OR (active_generation IS NOT NULL AND active_revision = source_revision)", name='ck_analytics_states_ready'),
+    )
+
+
+class AnalyticsRecordProjection(Base):
+    __tablename__ = 'analytics_record_projections'
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('app_users.id', ondelete='CASCADE'), nullable=False)
+    exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey('exercises.id', ondelete='CASCADE'), nullable=False)
+    gym_scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    rules_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    generation: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        UniqueConstraint('app_user_id', 'exercise_id', 'gym_scope', 'rules_version', 'generation', name='uq_analytics_record_projection'),
+        Index('ix_analytics_projection_generation', 'app_user_id', 'rules_version', 'generation'),
+        Index('ix_analytics_projection_exercise', 'exercise_id'),
+        CheckConstraint("gym_scope IN ('all','unknown') OR gym_scope ~ '^gym:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'", name='ck_analytics_projection_scope'),
+    )
+
+
 class AppReleaseLane(Base):
     """The CI target ledger for one platform and delivery channel."""
 
@@ -606,6 +645,7 @@ class AppUserMesocycle(Base):
 
 class WorkoutSession(Base):
     __tablename__ = "workout_sessions"
+    analytics_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # Клиентский идемпотентный ключ для offline-синхронизации (см. /sync/workouts).
     # Уникальность обеспечивается на уровне приложения в рамках app_user (как import_key):
@@ -722,6 +762,7 @@ class WorkoutSession(Base):
 
 class WorkoutSessionExercise(Base):
     __tablename__ = "workout_session_exercises"
+    analytics_load_defaults: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # Клиентский идемпотентный ключ для offline-синхронизации (см. /sync/workouts).
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
@@ -770,6 +811,8 @@ class WorkoutSessionExercise(Base):
 
 class WorkoutSessionSet(Base):
     __tablename__ = "workout_session_sets"
+    analytics_load_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    anomaly_review: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # Клиентский идемпотентный ключ для offline-синхронизации (см. /sync/workouts).
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
@@ -1485,6 +1528,9 @@ class AppUserMicrocycle(Base):
 
 class UserCalendarDay(Base):
     __tablename__ = "user_calendar"
+    obligation_uuid: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    obligation_origin_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    obligation_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     app_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False,
