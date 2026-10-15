@@ -1,0 +1,256 @@
+{
+  "rules_version": "p1-08-v1",
+  "formula_id": "lombardi-v1",
+  "cases": [
+    {
+      "name": "full_barbell",
+      "input": {
+        "weight_kg": 100,
+        "reps": 8
+      },
+      "expected": {
+        "e1rm_weight_kg": 100.0,
+        "tonnage_kg": 800.0,
+        "unavailable": []
+      }
+    },
+    {
+      "name": "paired_simultaneous",
+      "input": {
+        "weight_kg": 20,
+        "reps": 10,
+        "load_context": {
+          "schema_version": 1,
+          "model": "dumbbell",
+          "input_basis": "per_implement",
+          "implement_count": 2,
+          "rep_basis": "simultaneous"
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 20.0,
+        "tonnage_kg": 400.0,
+        "unavailable": [],
+        "e1rm_reps": 10
+      }
+    },
+    {
+      "name": "paired_per_side",
+      "input": {
+        "weight_kg": 20,
+        "reps": 10,
+        "load_context": {
+          "schema_version": 1,
+          "model": "dumbbell",
+          "input_basis": "per_implement",
+          "implement_count": 2,
+          "rep_basis": "per_side",
+          "left_reps": 10,
+          "right_reps": 10
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 20.0,
+        "tonnage_kg": 400.0,
+        "unavailable": [],
+        "e1rm_reps": 10
+      }
+    },
+    {
+      "name": "paired_total",
+      "input": {
+        "weight_kg": 20,
+        "reps": 20,
+        "load_context": {
+          "schema_version": 1,
+          "model": "dumbbell",
+          "input_basis": "per_implement",
+          "implement_count": 2,
+          "rep_basis": "total",
+          "left_reps": 10,
+          "right_reps": 10
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 20.0,
+        "tonnage_kg": 400.0,
+        "unavailable": [],
+        "e1rm_reps": 10
+      }
+    },
+    {
+      "name": "missing_base",
+      "input": {
+        "weight_kg": 40,
+        "load_context": {
+          "schema_version": 1,
+          "model": "barbell",
+          "input_basis": "plates_only"
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": null,
+        "tonnage_kg": null,
+        "unavailable": [
+          "unknown_base_weight"
+        ]
+      }
+    },
+    {
+      "name": "zero_base",
+      "input": {
+        "weight_kg": 40,
+        "load_context": {
+          "schema_version": 1,
+          "model": "plate_loaded",
+          "input_basis": "plates_only",
+          "base_weight_kg": 0
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 40.0,
+        "tonnage_kg": 400.0,
+        "unavailable": []
+      }
+    },
+    {
+      "name": "stack_display",
+      "input": {
+        "weight_kg": 37.5,
+        "load_context": {
+          "schema_version": 1,
+          "model": "stack",
+          "input_basis": "displayed"
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 37.5,
+        "tonnage_kg": 375.0,
+        "unavailable": []
+      }
+    },
+    {
+      "name": "body_added",
+      "input": {
+        "load_context": {
+          "schema_version": 1,
+          "model": "bodyweight",
+          "input_basis": "body_components",
+          "added_load_kg": 10,
+          "assistance_kg": 0
+        },
+        "session_context": {
+          "body_mass": {
+            "weight_kg": 80,
+            "measured_on": "2026-10-01"
+          }
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 90.0,
+        "tonnage_kg": 900.0,
+        "unavailable": []
+      }
+    },
+    {
+      "name": "body_assisted",
+      "input": {
+        "load_context": {
+          "schema_version": 1,
+          "model": "bodyweight",
+          "input_basis": "body_components",
+          "added_load_kg": 0,
+          "assistance_kg": 20
+        },
+        "session_context": {
+          "body_mass": {
+            "weight_kg": 80,
+            "measured_on": "2026-10-01"
+          }
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 60.0,
+        "tonnage_kg": 600.0,
+        "unavailable": []
+      }
+    },
+    {
+      "name": "unknown_assistance",
+      "input": {
+        "load_context": {
+          "schema_version": 1,
+          "model": "bodyweight",
+          "input_basis": "body_components",
+          "added_load_kg": 0,
+          "assistance_kg": null
+        },
+        "session_context": {
+          "body_mass": {
+            "weight_kg": 80
+          }
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": null,
+        "tonnage_kg": null,
+        "unavailable": [
+          "unknown_body_components"
+        ]
+      }
+    },
+    {
+      "name": "partial_bodyweight",
+      "input": {
+        "load_context": {
+          "schema_version": 1,
+          "model": "partial_bodyweight",
+          "input_basis": "body_components"
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": null,
+        "tonnage_kg": null,
+        "unavailable": [
+          "partial_bodyweight_model_unavailable"
+        ]
+      }
+    },
+    {
+      "name": "unequal_sides",
+      "input": {
+        "weight_kg": 20,
+        "reps": 19,
+        "load_context": {
+          "schema_version": 1,
+          "model": "dumbbell",
+          "input_basis": "per_implement",
+          "implement_count": 2,
+          "rep_basis": "total",
+          "left_reps": 10,
+          "right_reps": 9
+        }
+      },
+      "expected": {
+        "e1rm_weight_kg": 20.0,
+        "tonnage_kg": 380.0,
+        "e1rm_reps": null,
+        "unavailable": [
+          "ambiguous_e1rm_reps"
+        ]
+      }
+    }
+  ],
+  "formula_cases": [
+    {
+      "weight_kg": 100,
+      "reps": 8,
+      "e1rm": 123.11444133449163
+    },
+    {
+      "weight_kg": 20,
+      "reps": 10,
+      "e1rm": 25.178508235883346
+    }
+  ]
+}
