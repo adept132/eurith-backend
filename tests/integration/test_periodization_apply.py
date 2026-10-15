@@ -387,80 +387,36 @@ async def test_stale_close_block_returns_conflict_not_crash(db, test_user: AppUs
 
 @pytest.mark.asyncio
 async def test_decision_is_recorded_before_the_mutation_commits(db, test_user: AppUser, monkeypatch):
-    """Critical 3: SchedulingEngine.generate_block_days коммитит сессию САМА —
-    раньше, чем apply_decision доходит до своего финального commit() со
-    статусом предложения. Правильный порядок (proposal.status/decided_action/
-    client_uuid/decided_at выставлены ДО вызова _perform) гарантирует, что оба
-    факта — "решение принято" и "блок изменён" — оседают ОДНИМ и тем же
-    внутренним commit'ом.
-
-    Ловим это напрямую: обрываем apply_decision ровно между внутренним
-    commit'ом (второй по счёту вызов session.commit — он внутри
-    generate_block_days) и финальным. Читаем результат ЧЕРЕЗ НОВУЮ сессию
-    (SessionLocal), а не ту же самую db, которую только что заставили упасть, —
-    это и честнее (настоящий обрыв процесса означает именно новое соединение
-    при повторе), и надёжнее: переиспользование db сразу после смоделированного
-    исключения из monkeypatched commit() иногда оставляет пул соединений в
-    состоянии, которое ловит не связанная с проверкой ошибка (MissingGreenlet
-    при health-check пинге на checkout) — так тест ловил бы не то, что должен.
-
-    Мутационная проверка (см. отчёт): если вернуть проставление
-    status/decided_action/client_uuid/decided_at ПОСЛЕ вызова _perform (как
-    было в исходном коде), этот тест падает на assert
-    "persisted_proposal.status != params.STATUS_PENDING" — внутренний коммит
-    зафиксирует только правку блока, решение останется pending.
-    """
+    """One owner commit atomically publishes both decision and calendar mutation."""
     from app.database import SessionLocal
-
     block = await _seed_with_split(db, test_user.id)
     proposal = await _proposal(db, test_user.id, block.id, params.KIND_EARLY_DELOAD)
-
+    block_id, proposal_id = block.id, proposal.id
+    before_phases = list(block.phases)
     real_commit = db.commit
-    seen = {"n": 0}
+    calls = []
 
-    async def crash_on_second_commit():
-        seen["n"] += 1
-        if seen["n"] == 2:
-            raise RuntimeError("симулированный обрыв процесса между двумя commit'ами")
-        await real_commit()
+    async def fail_owner_commit():
+        calls.append(True)
+        raise RuntimeError("interruption before owner commit")
 
-    monkeypatch.setattr(db, "commit", crash_on_second_commit)
-
+    monkeypatch.setattr(db, "commit", fail_owner_commit)
     with pytest.raises(RuntimeError):
-        await apply_decision(db, test_user.id, proposal.id, "insert_deload", today=TODAY)
-
-    monkeypatch.undo()
-
+        await apply_decision(db, test_user.id, proposal_id, "insert_deload", today=TODAY)
+    await db.rollback()
+    assert len(calls) == 1
     async with SessionLocal() as fresh:
-        persisted_proposal = (
-            await fresh.execute(select(PeriodizationProposal).where(PeriodizationProposal.id == proposal.id))
-        ).scalar_one()
-        persisted_block = (
-            await fresh.execute(select(TrainingBlock).where(TrainingBlock.id == block.id))
-        ).scalar_one()
-
-        assert "deload" in [p["effort_tier"] for p in persisted_block.phases], (
-            "внутренний commit generate_block_days обязан был зафиксировать правку фаз блока — "
-            "иначе тест ничего не проверяет (мутация без побочного эффекта)"
-        )
-        assert persisted_proposal.status != params.STATUS_PENDING, (
-            "решение обязано было зафиксироваться ТЕМ ЖЕ внутренним commit'ом, что и мутация блока"
-        )
-        assert persisted_proposal.status == params.STATUS_ACCEPTED
-        assert persisted_proposal.decided_action == "insert_deload"
-
-    # Повтор с ДРУГИМ client_uuid, уже обычной сессией теста, обязан получить
-    # конфликт, а не второе применение — предложение уже не pending.
-    repeat = await apply_decision(
-        db, test_user.id, proposal.id, "insert_deload", client_uuid=uuid.uuid4().hex, today=TODAY
-    )
+        assert (await fresh.get(PeriodizationProposal, proposal_id)).status == params.STATUS_PENDING
+        assert (await fresh.get(TrainingBlock, block_id)).phases == before_phases
+    monkeypatch.setattr(db, "commit", real_commit)
+    await apply_decision(db, test_user.id, proposal_id, "insert_deload", today=TODAY)
+    async with SessionLocal() as fresh:
+        persisted = await fresh.get(PeriodizationProposal, proposal_id)
+        assert persisted.status == params.STATUS_ACCEPTED
+        assert persisted.decided_action == "insert_deload"
+        assert [p["effort_tier"] for p in (await fresh.get(TrainingBlock, block_id)).phases].count("deload") == 1
+    repeat = await apply_decision(db, test_user.id, proposal_id, "insert_deload", client_uuid=uuid.uuid4().hex, today=TODAY)
     assert repeat["status"] == "conflict"
-    block_after_repeat = (
-        await db.execute(select(TrainingBlock).where(TrainingBlock.id == block.id))
-    ).scalar_one()
-    assert [p["effort_tier"] for p in block_after_repeat.phases].count("deload") == 1, (
-        "повтор не должен был вставить вторую разгрузку"
-    )
 
 
 @pytest.mark.asyncio

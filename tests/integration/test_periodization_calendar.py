@@ -253,13 +253,16 @@ async def test_launch_uses_block_snapshot_when_periodization_is_set(db, test_use
     block = await ensure_active_block(db, test_user.id, TODAY)
     assert block.split_blueprint_id is not None
 
-    await SchedulingEngine.launch_and_unroll_plan(
-        db,
-        test_user.id,
-        block.split_blueprint_id,
-        start_date=block.start_date,
-        blackout_weekdays=[],
-    )
+    with patch("api.services.scheduling_engine.date") as clock:
+        clock.today.return_value = TODAY
+        await SchedulingEngine.launch_and_unroll_plan(
+            db,
+            test_user.id,
+            block.split_blueprint_id,
+            start_date=block.start_date,
+            blackout_weekdays=[],
+        )
+
 
     days = (
         await db.execute(

@@ -1,3 +1,4 @@
+from api.services.scheduling_engine import active_calendar_clause
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -25,6 +26,7 @@ async def get_day_context(
     stmt = (
         select(UserCalendarDay)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == current_user.id,
             UserCalendarDay.target_date == local_date
         )
@@ -72,6 +74,7 @@ async def get_calendar_range(
     stmt = (
         select(UserCalendarDay)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == current_user.id,
             UserCalendarDay.target_date >= start_date,
             UserCalendarDay.target_date <= end_date
@@ -106,6 +109,7 @@ async def get_day_by_id(
         select(UserCalendarDay)
         .where(
             UserCalendarDay.id == day_id,
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == current_user.id
         )
         .options(selectinload(UserCalendarDay.plan))

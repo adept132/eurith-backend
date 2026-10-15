@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from api.services.scheduling_engine import active_calendar_clause
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -60,6 +61,7 @@ async def attach_session_to_day(
     второй сессией — факт принадлежит первой.
     """
     day: Optional[UserCalendarDay] = None
+    completion_source = "date_inferred"
 
     if workout.calendar_day_id:
         day = (await session.execute(
@@ -68,11 +70,16 @@ async def attach_session_to_day(
                 UserCalendarDay.app_user_id == app_user_id,
             )
         )).scalar_one_or_none()
+        if day is not None:
+            completion_source = "explicit_calendar_intent"
+        if day is not None and (day.obligation_snapshot or {}).get('cancellation'):
+            return None  # A cancelled explicit intent cannot fulfill its replacement.
 
     if day is None:
         started_on: date = workout.started_at.date()
         day = (await session.execute(
             select(UserCalendarDay).where(
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == app_user_id,
                 UserCalendarDay.target_date == started_on,
             )
@@ -85,6 +92,9 @@ async def attach_session_to_day(
 
     day.status = "completed"
     day.actual_workout_session_id = workout.id
+    day.obligation_snapshot = dict(day.obligation_snapshot or {}, completion={
+        "source": completion_source, "workout_session_id": workout.id,
+    })
     return day
 
 
@@ -147,6 +157,7 @@ async def mark_missed_days(
     result = await session.execute(
         update(UserCalendarDay)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date < today,
             UserCalendarDay.status == "planned",
@@ -175,6 +186,7 @@ async def adherence_for_range(
     """
     rows = (await session.execute(
         select(UserCalendarDay.status).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date >= start,
             UserCalendarDay.target_date <= end,
@@ -231,6 +243,7 @@ async def _window_starts(
     rows = (await session.execute(
         select(UserCalendarDay)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.microcycle_day_number == 1,
             block_filter,
@@ -255,6 +268,7 @@ async def _last_calendar_date(
         block_filter = UserCalendarDay.block_id == block_id
     return (await session.execute(
         select(func.max(UserCalendarDay.target_date)).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             block_filter,
         )
@@ -304,6 +318,7 @@ async def current_window(
     covering_day = (await session.execute(
         select(UserCalendarDay)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date <= today,
         )
@@ -385,6 +400,7 @@ async def prescribed_for(
     """
     days = (await session.execute(
         select(UserCalendarDay).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date >= window.start_date,
             UserCalendarDay.target_date <= window.end_date,
@@ -487,6 +503,7 @@ async def physical_set_totals(
     """Planned and completed physical work sets; each set counts once."""
     days = (await session.execute(
         select(UserCalendarDay).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date >= window.start_date,
             UserCalendarDay.target_date <= window.end_date,
@@ -608,6 +625,7 @@ async def close_window(
     # ничего подобного не произошло.
     day_rows = (await session.execute(
         select(UserCalendarDay.plan_id).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date >= window.start_date,
             UserCalendarDay.target_date <= window.end_date,
@@ -780,6 +798,7 @@ async def muscle_frequency(
     """
     days = (await session.execute(
         select(UserCalendarDay.plan_id).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date >= window.start_date,
             UserCalendarDay.target_date <= window.end_date,

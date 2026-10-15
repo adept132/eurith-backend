@@ -25,6 +25,8 @@ block.planned_end_date, значит regen кладёт НОВЫЕ строки 
 пользователя, как и в примере брифа задачи.
 """
 from datetime import date, timedelta
+from api.services.volume.repository import utc_today
+from api.services.scheduling_engine import active_calendar_clause
 
 import pytest
 from sqlalchemy import select
@@ -53,20 +55,25 @@ async def _fetch_all(db, app_user_id: int) -> dict[date, tuple]:
     иначе строки, которые регенерация придумала за пределами посева (см.
     докстринг модуля), остаются невидимыми для сравнения."""
     rows = (await db.execute(
-        select(UserCalendarDay).where(UserCalendarDay.app_user_id == app_user_id)
+        select(UserCalendarDay).where(active_calendar_clause(), UserCalendarDay.app_user_id == app_user_id)
     )).scalars().all()
     return {row.target_date: _coords(row) for row in rows}
 
 
-async def test_apply_then_undo_restores_calendar(test_user, fresh_exercise, active_block):
-    dates = [date.today() + timedelta(days=i) for i in range(1, 6)]
+async def test_apply_then_undo_restores_calendar(test_user, fresh_exercise, active_block, monkeypatch):
+    class OperationDate(date):
+        @classmethod
+        def today(cls):
+            return utc_today()
+    monkeypatch.setattr('api.services.goal.service.date', OperationDate)
+    dates = [utc_today() + timedelta(days=i) for i in range(1, 6)]
     fact_date = dates[2]  # третий будущий день уже отработан — несёт факт
 
     async with SessionLocal() as db:
         goal = UserGoal(
             app_user_id=test_user.id, goal_type="strength", target_value=140.0,
             exercise_id=fresh_exercise.id, target_reps=3,
-            deadline=date.today() + timedelta(days=60), is_primary=True,
+            deadline=utc_today() + timedelta(days=60), is_primary=True,
         )
         db.add(goal)
         await db.flush()  # нужен goal.id для payload["goal_id"] ниже
@@ -137,7 +144,7 @@ async def test_apply_then_undo_restores_calendar(test_user, fresh_exercise, acti
     # заполнить +6..+10 новыми строками, которых до применения не было
     # вовсе. Проверяем это явно: без этой проверки тест мог бы молча
     # пройти на конфигурации, где регенерация ничего нового не создаёт.
-    phantom_dates = {date.today() + timedelta(days=i) for i in range(6, 11)}
+    phantom_dates = {utc_today() + timedelta(days=i) for i in range(6, 11)}
     assert phantom_dates <= after_apply.keys() - before.keys()
     for d in phantom_dates:
         assert after_apply[d][0] in ("Push", "Pull")

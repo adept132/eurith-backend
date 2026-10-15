@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from api.services.scheduling_engine import active_calendar_clause
 import logging
 import math
 from datetime import date, timedelta
@@ -104,6 +105,7 @@ async def _pick_day_for(
     days = (await session.execute(
         select(UserCalendarDay)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date >= window.start_date,
             UserCalendarDay.target_date <= window.end_date,
@@ -553,6 +555,7 @@ async def _apply_prescription(
         day = (await session.execute(
             select(UserCalendarDay).where(
                 UserCalendarDay.id == day_id,
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == app_user_id,
             )
         )).scalar_one_or_none()
@@ -580,6 +583,7 @@ async def _apply_prescription(
         day = (await session.execute(
             select(UserCalendarDay).where(
                 UserCalendarDay.id == day_id,
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == app_user_id,
             )
         )).scalar_one_or_none()

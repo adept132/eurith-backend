@@ -1,3 +1,4 @@
+from api.services.scheduling_engine import active_calendar_clause
 from typing import Optional as _Optional
 from dataclasses import replace
 from fastapi.encoders import jsonable_encoder
@@ -382,6 +383,7 @@ async def _generation_comparison(db, current_user, blueprint, days, target_date,
 
     calendar_days = list((await db.execute(
         select(UserCalendarDay).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == current_user.id,
             UserCalendarDay.target_date >= applied_from,
             UserCalendarDay.is_rest_day == False,  # noqa: E712
@@ -1516,6 +1518,7 @@ async def confirm_generated_plan(request: ConfirmPlanRequest,
         }
         calendar_days = list((await db.execute(
             select(UserCalendarDay).where(
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == current_user.id,
                 UserCalendarDay.target_date >= applied_from,
                 UserCalendarDay.is_rest_day == False,  # noqa: E712
@@ -1523,10 +1526,15 @@ async def confirm_generated_plan(request: ConfirmPlanRequest,
                 UserCalendarDay.actual_workout_session_id.is_(None),
             )
         )).scalars().all())
+        calendar_changed = False
         for calendar_day in calendar_days:
             plan_id = by_tag.get((calendar_day.day_tag or "").lower())
-            if plan_id is not None:
+            if plan_id is not None and calendar_day.plan_id != plan_id:
                 calendar_day.plan_id = plan_id
+                calendar_changed = True
+        if calendar_changed:
+            from api.services.analytics.state import mark_dirty
+            await mark_dirty(db, current_user.id)
         await db.commit()
     else:
         await db.commit()

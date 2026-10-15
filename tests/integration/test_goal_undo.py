@@ -376,6 +376,7 @@ async def test_undo_restores_full_calendar_including_recreated_day(
     test_undo_is_blocked_after_fact_appears выше до кода восстановления
     (шаг 5 undo_goal_decision) вообще не доходит — возвращается через
     ранний conflict; здесь он действительно исполняется."""
+    from api.services.scheduling_engine import active_calendar_clause
     original = {
         "day_tag": "push", "micro_tag": "medium", "meso_tag": "medium",
         "is_rest_day": False, "plan_id": None, "mesocycle_phase_number": None,
@@ -424,7 +425,9 @@ async def test_undo_restores_full_calendar_including_recreated_day(
                 UserCalendarDay.target_date == far_date,
             )
         )).scalar_one_or_none()
-    assert far_day is None, "день за planned_end_date должен был исчезнуть при wipe"
+    assert far_day is not None
+    assert far_day.obligation_snapshot["cancellation"]["operation"] == "same_block_regeneration"
+    assert far_day.status == "skipped"
 
     async with SessionLocal() as db:
         proposal = await db.get(PeriodizationProposal, pid)
@@ -437,6 +440,7 @@ async def test_undo_restores_full_calendar_including_recreated_day(
             select(UserCalendarDay).where(
                 UserCalendarDay.app_user_id == test_user.id,
                 UserCalendarDay.target_date.in_(all_dates),
+                active_calendar_clause(),
             )
         )).scalars().all()
     by_date = {r.target_date: r for r in rows}

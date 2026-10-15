@@ -541,8 +541,13 @@ async def start_workout(
 
     # 1. Если это тренировка из Календаря, берем ИДЕАЛЬНЫЕ данные от движка
     if payload.calendar_day_id:
-        cal_stmt = select(UserCalendarDay).where(UserCalendarDay.id == payload.calendar_day_id)
+        cal_stmt = select(UserCalendarDay).where(
+            UserCalendarDay.id == payload.calendar_day_id, UserCalendarDay.app_user_id == app_user.id)
         cal_day = (await session.execute(cal_stmt)).scalar_one_or_none()
+        if cal_day is None:
+            raise HTTPException(status_code=404, detail="День календаря не найден")
+        if (cal_day.obligation_snapshot or {}).get("cancellation"):
+            raise HTTPException(status_code=409, detail="Расписание изменилось. Выберите актуальный день календаря.")
         if cal_day:
             meso_id = cal_day.user_mesocycle_id
             current_phase = cal_day.mesocycle_phase_number
@@ -1064,6 +1069,7 @@ async def set_active_mesocycle_phase(
     if target is None:
         raise HTTPException(status_code=400, detail="Такой фазы нет в текущем блоке")
 
+    previous_coordinates = (block.start_date, block.planned_end_date)
     block.start_date = today - timedelta(days=offset_days)
     total = sum(p.length_days for p in snapshot)
     block.planned_end_date = block.start_date + timedelta(days=total - 1)
@@ -1086,7 +1092,9 @@ async def set_active_mesocycle_phase(
     # _regenerate_future. Только этот путь (прямая команда пользователя
     # «перейти на фазу N») имеет право переписать сегодняшний день календаря;
     # insert_deload/postpone/close_block по-прежнему трогают только будущее.
-    await _regenerate_future(session, app_user.id, block, today, include_today=True)
+    if previous_coordinates != (block.start_date, block.planned_end_date):
+        await _regenerate_future(session, app_user.id, block, today, include_today=True)
+        await mark_dirty(session, app_user.id)
     await session.commit()
 
     return await build_context(session, app_user)

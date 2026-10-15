@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
+from api.services.analytics.state import mark_dirty
+
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import (
-    cast as sa_cast,
-    delete as sa_delete,
     or_ as sa_or,
     select,
     update as sa_update,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -634,7 +633,7 @@ _BLOCK_MUTATING_ACTIONS = frozenset({"insert_deload", "close_block", "postpone"}
 
 async def _wipe_future_calendar(
     session: AsyncSession, app_user_id: int, block: TrainingBlock, first_future: date
-) -> None:
+) -> dict[date, UserCalendarDay]:
     """Снести дни календаря БЛОКА с first_future, КРОМЕ несущих факт или решение.
 
     P0-09 закрывает долг, зафиксированный в §8.1 спеки P0-08. Прежнее
@@ -650,29 +649,28 @@ async def _wipe_future_calendar(
     сознательный обмен: сохранить факт важнее, чем перерисовать прошедший
     или уже настроенный день.
     """
-    await session.execute(
-        sa_delete(UserCalendarDay).where(
-            UserCalendarDay.app_user_id == app_user_id,
-            UserCalendarDay.block_id == block.id,
-            UserCalendarDay.target_date >= first_future,
-            UserCalendarDay.status == "planned",
-            sa_or(
-                UserCalendarDay.volume_adjustments.is_(None),
-                UserCalendarDay.volume_adjustments == sa_cast([], JSONB),
-            ),
-        )
-    )
+    from api.services.scheduling_engine import replaceable_calendar_days
+    rows = await replaceable_calendar_days(session, app_user_id, first_future, block_id=block.id)
+    replacements = {}
+    for row in rows:
+        if not row.is_rest_day and not row.is_blackout:
+            replacements[row.target_date] = row
+        else:
+            await session.delete(row)
     await session.flush()
+    return replacements
 
 
 async def _generate_future_calendar(
-    session: AsyncSession, app_user_id: int, block: TrainingBlock, first_future: date
+    session: AsyncSession, app_user_id: int, block: TrainingBlock, first_future: date,
+    *, replacements=None, today=None,
 ) -> None:
     from api.services.scheduling_engine import SchedulingEngine
 
     await SchedulingEngine.generate_block_days(
         session, app_user_id, block,
         from_date=first_future, until_date=block.planned_end_date,
+        commit=False, replacements=replacements, replacement_today=today,
     )
 
 
@@ -717,8 +715,8 @@ async def _regenerate_future(
     для них поведение остаётся прежним: перегенерация только будущего.
     """
     first_future = today if include_today else today + timedelta(days=1)
-    await _wipe_future_calendar(session, app_user_id, block, first_future)
-    await _generate_future_calendar(session, app_user_id, block, first_future)
+    replacements = await _wipe_future_calendar(session, app_user_id, block, first_future)
+    await _generate_future_calendar(session, app_user_id, block, first_future, replacements=replacements, today=today)
 
 
 def _recompute_planned_end(block: TrainingBlock) -> None:
@@ -756,7 +754,9 @@ async def _close_block(
     (app_user_id, target_date) и падает с MultipleResultsFound на дубликате.
     """
     first_future = today + timedelta(days=1)
-    await _wipe_future_calendar(session, app_user_id, block, first_future)
+    from api.services.scheduling_engine import cancel_future_calendar
+    await cancel_future_calendar(session, app_user_id, first_future, today=today,
+                                 operation='close_block', block_id=block.id)
 
     nxt = await close_and_advance(
         session,
@@ -845,34 +845,13 @@ async def apply_decision(
             # её докстринг), а не на ранних return (нечего отменять/конфликт
             # по факту), которые ещё не решение.
             outcome = await undo_goal_decision(session, app_user_id, proposal, client_uuid)
+            if outcome.get("status") == "undone":
+                await mark_dirty(session, app_user_id)
             await session.commit()
             return outcome
 
         if action == params.ACTION_APPLY_GOAL:
-            # ИСПРАВЛЕНО (ревью Задачи 10, Critical 1 — та же несущая
-            # конструкция, что и у _BLOCK_MUTATING_ACTIONS ниже по файлу, см.
-            # комментарий у Critical 3 там). Поля решения выставляем ДО вызова
-            # apply_goal_decision, а не после её return. Среди принятых
-            # рычагов может оказаться структурный (LEVER_LIFT_FREQUENCY/
-            # LEVER_STRUCTURAL) — тогда apply_goal_decision доходит до
-            # _apply_structural -> SchedulingEngine.generate_block_days, а та
-            # КОММИТИТ СЕССИЮ САМА (см. докстринг _apply_structural). Раньше
-            # decided-поля писались только ПОСЛЕ return — обрыв процесса в
-            # окне между внутренним commit'ом регенерации и финальным
-            # commit'ом здесь оставлял календарь уже перегенерированным и
-            # snapshot["structural_applied"] уже True, а proposal.status
-            # всё ещё pending. Повтор запроса тогда видел бы structural_
-            # applied=True, apply_goal_decision вернула бы applied=[]
-            # (структурному рычагу уже нечего применять), и предложение
-            # навсегда помечалось бы declined — хотя рычаг фактически
-            # применён, календарь реально изменён, а откат (undo_goal_
-            # decision) гейтится именно на status == accepted и стал бы для
-            # этого предложения недостижим НАВСЕГДА.
-            # Ставим оптимистично accepted СЕЙЧАС: обрыв процесса в этом окне
-            # оставит правдивую accepted-строку, чьи изменения откат сможет
-            # отменить. Если вызов благополучно вернётся и окажется, что
-            # НИЧЕГО не применилось (applied пуст), понижаем до declined уже
-            # после — см. ниже.
+            # Nested goal/scheduling helpers only flush; this owner commits all effects.
             proposal.status = params.STATUS_ACCEPTED
             proposal.decided_action = action
             proposal.client_uuid = client_uuid
@@ -890,6 +869,8 @@ async def apply_decision(
             proposal.client_uuid = client_uuid
             proposal.decided_at = datetime.now(timezone.utc)
 
+        if outcome.get("applied"):
+            await mark_dirty(session, app_user_id)
         await session.commit()
         return outcome
 
@@ -970,26 +951,7 @@ async def apply_decision(
             "reason": "block_closed",
         }
 
-    # P0-08, Задача 10, ревью, Critical 3: поля решения (status/decided_action/
-    # client_uuid/decided_at) проставляются ЗДЕСЬ, ДО вызова _perform — это
-    # порядок несущей конструкции, а не стиля, и переставлять его обратно
-    # нельзя. _perform для insert_deload/close_block/postpone в конце концов
-    # доходит до SchedulingEngine.generate_block_days, а та КОММИТИТ СЕССИЮ
-    # САМА (см. её докстринг и последнюю строку тела) — до того, как
-    # выполнение вернётся сюда и дойдёт до session.commit() ниже. Если бы
-    # решение проставлялось ПОСЛЕ _perform (как было раньше), между этими
-    # двумя коммитами появлялось окно: правка фаз блока и перегенерированный
-    # календарь уже зафиксированы в БД, а proposal.status всё ещё "pending".
-    # Прервись процесс в этом окне (обрыв соединения, таймаут, рестарт пода) —
-    # повтор запроса (например ретрай мобильного клиента) прошёл бы проверку
-    # "status == pending" заново и выполнил бы то же действие ВТОРОЙ раз. Для
-    # postpone это особенно разрушительно: phases.postpone_deload не защищена
-    # от повторного применения и при втором проходе продлит ту же самую фазу
-    # перед разгрузкой ещё раз — разгрузка уедет вдвое дальше плана. Проставляя
-    # решение ДО _perform, мы добиваемся, что оба факта — "предложение решено"
-    # и "блок изменён" — либо оба попадают в ОДИН И ТОТ ЖЕ commit() внутри
-    # _perform (когда он есть), либо ни один не попадает, если процесс
-    # прервался раньше. Расщепления на два отдельных коммита больше нет.
+    # The outer owner commits decision, calendar, cancellation proof and revision together.
     if action == "decline":
         proposal.status = params.STATUS_DECLINED
     else:
@@ -1000,7 +962,9 @@ async def apply_decision(
     proposal.decided_at = datetime.now(timezone.utc)
 
     if action != "decline":
-        await _perform(session, app_user_id, block, proposal, action, moment)
+        changed = await _perform(session, app_user_id, block, proposal, action, moment)
+        if changed:
+            await mark_dirty(session, app_user_id)
 
     await session.commit()
     return {"status": "applied", "proposal_id": proposal.id, "block_id": block.id}
@@ -1013,7 +977,7 @@ async def _perform(
     proposal: PeriodizationProposal,
     action: str,
     today: date,
-) -> None:
+) -> bool:
     """Что физически делает каждое действие."""
     if action == "insert_deload":
         after = proposal.payload.get("after_phase_number") or position(
@@ -1024,13 +988,18 @@ async def _perform(
             after_phase_number=after,
             length_days=block.microcycle_length,
         )
-        block.phases = phase_ops.to_json(updated)
+        phases = phase_ops.to_json(updated)
+        if phases == block.phases:
+            return False
+        block.phases = phases
         _recompute_planned_end(block)
         await session.flush()
         await _regenerate_future(session, app_user_id, block, today)
+        return True
 
     elif action == "close_block":
         await _close_block(session, app_user_id, block, params.CLOSE_EARLY_DELOAD, today)
+        return True
 
     elif action == "start_next_block":
         # P0-08, Задача 10, поправка 1 брифа: переход между блоками теперь
@@ -1042,16 +1011,20 @@ async def _perform(
         # только фиксирует, что пользователь увидел карточку с итогами и
         # ответил на неё. proposal.status/decided_action/decided_at уже
         # выставлены в apply_decision выше — здесь физически делать нечего.
-        return
+        return False
 
     elif action == "postpone":
         updated = phase_ops.postpone_deload(
             phase_ops.from_json(block.phases), extra_days=block.microcycle_length
         )
-        block.phases = phase_ops.to_json(updated)
+        phases = phase_ops.to_json(updated)
+        if phases == block.phases:
+            return False
+        block.phases = phases
         _recompute_planned_end(block)
         await session.flush()
         await _regenerate_future(session, app_user_id, block, today)
+        return True
 
     elif action == params.OPTION_SHIFT_REPS:
         await _shift_reps(session, app_user_id, proposal)
@@ -1060,7 +1033,9 @@ async def _perform(
         # replace уводит пользователя в существующий флоу умной замены на
         # клиенте — здесь фиксируется только само решение. keep не делает
         # ничего по определению.
-        return
+        return False
+
+    return False
 
 
 async def _shift_reps(

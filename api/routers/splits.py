@@ -421,12 +421,11 @@ async def launch_split(
     # 5. Очищаем будущее расписание в UserCalendarDay.
     # P0-09: request.start_date приходит ОТ ПОЛЬЗОВАТЕЛЯ и может лежать в
     # прошлом — без фильтра по статусу смена сплита стирала бы историю.
-    delete_stmt = delete(UserCalendarDay).where(
-        UserCalendarDay.app_user_id == current_user.id,
-        UserCalendarDay.target_date >= request.start_date,
-        UserCalendarDay.status == "planned",
-    )
-    await session.execute(delete_stmt)
+    from api.services.scheduling_engine import cancel_future_calendar
+    from api.services.volume.repository import utc_today
+    from api.services.analytics.state import mark_dirty
+    await cancel_future_calendar(session, current_user.id, request.start_date,
+                                 today=utc_today(), operation='split_launch')
 
     # P0-08, Задача 14: сплит сменился — координата активного блока (день
     # недели, структура сплита) больше не соответствует реальности. Блок
@@ -438,7 +437,7 @@ async def launch_split(
     # делает, старый путь работает как раньше.
     await close_block_for_split_change(session, current_user.id, request.start_date)
 
-    await session.commit()
+    await session.flush()
 
     # 6. ПРОВЕРЯЕМ ОПЦИОНАЛЬНЫЙ МЕЗОЦИКЛ
     meso_stmt = select(AppUserMesocycle).where(
@@ -458,10 +457,13 @@ async def launch_split(
             start_date=request.start_date,
             blackout_weekdays=request.blackout_weekdays,
             user_mesocycle_id=user_meso_id,
-            preview_length_days=90
+            preview_length_days=90, commit=False
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Ошибка генерации расписания: {str(e)}")
+
+    await mark_dirty(session, current_user.id)
+    await session.commit()
 
     return {
         "status": "success",

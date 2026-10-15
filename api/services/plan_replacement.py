@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from api.services.scheduling_engine import active_calendar_clause
 import hashlib
 import json
 import uuid
@@ -389,6 +390,7 @@ async def _load_affected_days(
     query = (
         select(UserCalendarDay)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == user_id,
             UserCalendarDay.plan_id == plan_id,
             UserCalendarDay.target_date >= today,
@@ -622,6 +624,7 @@ async def apply_replacement(
         update(UserCalendarDay)
         .where(
             UserCalendarDay.id.in_(affected_ids),
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == user_id,
             UserCalendarDay.plan_id == target_plan.id,
         )
@@ -631,6 +634,7 @@ async def apply_replacement(
     remaining_calendar_reference = await db.scalar(
         select(UserCalendarDay.id)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == user_id,
             UserCalendarDay.plan_id == target_plan.id,
             UserCalendarDay.target_date >= today,

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from api.services.scheduling_engine import active_calendar_clause
 from datetime import date, timedelta
 from typing import Optional
 
@@ -628,6 +629,7 @@ async def count_workouts_to_deload(
         (
             await session.execute(
                 select(UserCalendarDay.id).where(
+                    active_calendar_clause(),
                     UserCalendarDay.app_user_id == app_user_id,
                     UserCalendarDay.target_date >= today,
                     UserCalendarDay.target_date < deload_start,

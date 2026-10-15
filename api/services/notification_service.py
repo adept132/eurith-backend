@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from api.services.scheduling_engine import active_calendar_clause
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -124,6 +125,7 @@ async def materialize_domain_notifications(
     unplanned_day = (
         await db.execute(
             select(UserCalendarDay).where(
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == app_user_id,
                 UserCalendarDay.target_date == today,
                 UserCalendarDay.is_rest_day.is_(False),

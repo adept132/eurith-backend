@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +13,65 @@ from api.services.models import (
     DayBlueprint,
     WorkoutPlan,
     UserCalendarDay, AppUserMicrocycle,
-    UserSplit,
+    UserSplit, WorkoutSession,
 )
+
+
+def active_calendar_clause():
+    """Cancellation carriers are audit history, not active calendar dates."""
+    return UserCalendarDay.obligation_snapshot['cancellation'].astext.is_(None)
+
+
+def ensure_obligation_identity(day: UserCalendarDay) -> None:
+    """Capture newly assigned work once; never repair unknown historical chains."""
+    if day.is_rest_day or day.is_blackout or day.obligation_uuid:
+        return
+    day.obligation_uuid = uuid.uuid4()
+    day.obligation_origin_date = day.target_date
+    day.obligation_snapshot = dict(source='schedule', origin_date=day.target_date.isoformat(),
+        block_id=day.block_id, plan_id=day.plan_id, day_tag=day.day_tag,
+        reconstructed=day.target_date < datetime.now(timezone.utc).date(),
+        meso_tag=day.meso_tag, phase_number=day.mesocycle_phase_number)
+
+
+def cancel_obligation(day: UserCalendarDay, *, operation: str, today: date) -> None:
+    day.obligation_snapshot = dict(day.obligation_snapshot or {}, cancellation={
+        'operation': operation, 'effective_on': today.isoformat(),
+        'recorded_at': datetime.now(timezone.utc).isoformat()})
+    day.status = 'skipped'
+
+
+async def replaceable_calendar_days(session, app_user_id, first_future, *, block_id=None):
+    statement = select(UserCalendarDay).where(
+        UserCalendarDay.app_user_id == app_user_id,
+        UserCalendarDay.target_date >= first_future,
+        UserCalendarDay.status == 'planned', active_calendar_clause(),
+        UserCalendarDay.actual_workout_session_id.is_(None),
+        ~select(WorkoutSession.id).where(WorkoutSession.calendar_day_id == UserCalendarDay.id).exists())
+    if block_id is not None:
+        statement = statement.where(UserCalendarDay.block_id == block_id)
+    return [row for row in (await session.execute(statement)).scalars() if not row.volume_adjustments]
+
+
+async def cancel_future_calendar(session, app_user_id, first_future, *, today, operation, block_id=None):
+    rows = await replaceable_calendar_days(session, app_user_id, max(first_future, today + timedelta(days=1)), block_id=block_id)
+    for row in rows:
+        if row.obligation_uuid:
+            cancel_obligation(row, operation=operation, today=today)
+        else:
+            await session.delete(row)
+    await session.flush()
+    return len(rows)
+
+
+async def _finish_generation(session, app_user_id, changed, commit):
+    if commit:
+        if changed:
+            from api.services.analytics.state import mark_dirty
+            await mark_dirty(session, app_user_id)
+        await session.commit()
+    else:
+        await session.flush()
 
 
 class SchedulingEngine:
@@ -71,7 +128,7 @@ class SchedulingEngine:
         return best_plan_id
 
     @staticmethod
-    async def rebind_plans(session: AsyncSession, app_user_id: int, from_date: date) -> int:
+    async def rebind_plans(session: AsyncSession, app_user_id: int, from_date: date, *, commit: bool = True) -> int:
         """Re-score user plans onto future non-rest calendar days (fills plan_id)."""
         plans_res = await session.execute(
             select(WorkoutPlan).where(WorkoutPlan.app_user_id == app_user_id)
@@ -80,6 +137,7 @@ class SchedulingEngine:
 
         days_res = await session.execute(
             select(UserCalendarDay).where(
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == app_user_id,
                 UserCalendarDay.target_date >= from_date,
                 UserCalendarDay.is_rest_day == False,  # noqa: E712
@@ -96,7 +154,7 @@ class SchedulingEngine:
             if new_id is not None and new_id != day.plan_id:
                 day.plan_id = new_id
                 updated += 1
-        await session.commit()
+        await _finish_generation(session, app_user_id, updated, commit)
         return updated
 
     @staticmethod
@@ -106,6 +164,7 @@ class SchedulingEngine:
             block,
             from_date: date,
             until_date: date,
+            *, commit: bool = True, replacements: dict | None = None, replacement_today: date | None = None,
     ) -> int:
         """Записать дни календаря для блока, беря фазу ИЗ СНИМКА блока.
 
@@ -170,8 +229,11 @@ class SchedulingEngine:
         # позиция в сплите) — иначе раскладка сплита разъехалась бы для всех
         # дней ПОСЛЕ пропущенной даты. Опрос сделан один раз до цикла, а не
         # индивидуальным SELECT на каждую дату.
+        replacements = replacements or {}
         existing_dates = set((await session.execute(
             select(UserCalendarDay.target_date).where(
+                active_calendar_clause(),
+                UserCalendarDay.id.not_in([r.id for r in replacements.values()]),
                 UserCalendarDay.app_user_id == app_user_id,
                 UserCalendarDay.target_date >= from_date,
                 UserCalendarDay.target_date <= until_date,
@@ -223,7 +285,7 @@ class SchedulingEngine:
                         plans=plans, target_day_name=day_bp.name,
                         meso_tag=pos.effort_tier, micro_tag=micro_tag_calc,
                     )
-                session.add(UserCalendarDay(
+                cal_day = UserCalendarDay(
                     app_user_id=app_user_id,
                     target_date=current_date,
                     block_id=block.id,
@@ -238,12 +300,28 @@ class SchedulingEngine:
                     is_rest_day=is_rest_day,
                     is_blackout=is_banned,
                     status="planned",
-                ))
+                )
+                previous = replacements.pop(current_date, None)
+                if previous is not None and not is_rest_day and not is_banned:
+                    for field in ('user_mesocycle_id', 'mesocycle_phase_number', 'user_microcycle_id',
+                                  'microcycle_day_number', 'day_tag', 'micro_tag', 'meso_tag', 'plan_id', 'block_id'):
+                        setattr(previous, field, getattr(cal_day, field))
+                else:
+                    if previous is not None:
+                        if current_date <= replacement_today:
+                            current_date += timedelta(days=1)
+                            continue
+                        cancel_obligation(previous, operation='same_block_regeneration', today=replacement_today)
+                    ensure_obligation_identity(cal_day)
+                    session.add(cal_day)
                 created += 1
 
             current_date += timedelta(days=1)
 
-        await session.commit()
+        for previous in replacements.values():
+            if previous.target_date > replacement_today:
+                cancel_obligation(previous, operation='same_block_regeneration', today=replacement_today)
+        await _finish_generation(session, app_user_id, created, commit)
         return created
 
     @staticmethod
@@ -254,7 +332,7 @@ class SchedulingEngine:
             start_date: date,
             blackout_weekdays: List[int],
             user_mesocycle_id: Optional[int] = None,
-            preview_length_days: int = 90
+            preview_length_days: int = 90, *, commit: bool = True
     ) -> None:
 
         # 1. Сплит (Базовая структура)
@@ -303,7 +381,7 @@ class SchedulingEngine:
             await SchedulingEngine.generate_block_days(
                 session, app_user_id, block,
                 from_date=start_date,
-                until_date=block.planned_end_date,
+                until_date=block.planned_end_date, commit=commit,
             )
             return
 
@@ -319,6 +397,7 @@ class SchedulingEngine:
         # один раз до цикла, как и там.
         existing_dates = set((await session.execute(
             select(UserCalendarDay.target_date).where(
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == app_user_id,
                 UserCalendarDay.target_date >= start_date,
                 UserCalendarDay.target_date <= start_date + timedelta(days=preview_length_days - 1),
@@ -365,6 +444,7 @@ class SchedulingEngine:
         total_workout_days_passed = 0
 
         # 5. Главный цикл генерации
+        created = 0
         for _ in range(preview_length_days):
             weekday = current_date.weekday()
 
@@ -438,11 +518,13 @@ class SchedulingEngine:
                     is_blackout=is_banned,
                     status="planned"
                 )
+                ensure_obligation_identity(cal_day)
                 session.add(cal_day)
+                created += 1
 
             current_date += timedelta(days=1)
 
-        await session.commit()
+        await _finish_generation(session, app_user_id, created, commit)
 
     @staticmethod
     async def ensure_horizon(
@@ -460,6 +542,7 @@ class SchedulingEngine:
 
         # 1. Узнаем, когда заканчивается текущее расписание в БД
         max_date_stmt = select(func.max(UserCalendarDay.target_date)).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id
         )
         max_date = (await session.execute(max_date_stmt)).scalar()
@@ -559,6 +642,7 @@ class SchedulingEngine:
         total_workout_days_passed = 0
 
         # 7. Запускаем Fast-Forward карусель
+        created = 0
         while current_date <= target_end_date:
             weekday = current_date.weekday()
 
@@ -626,8 +710,10 @@ class SchedulingEngine:
                     is_blackout=is_banned,
                     status="planned"
                 )
+                ensure_obligation_identity(cal_day)
                 session.add(cal_day)
+                created += 1
 
             current_date += timedelta(days=1)
 
-        await session.commit()
+        await _finish_generation(session, app_user_id, created, True)

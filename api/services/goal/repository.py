@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from api.services.scheduling_engine import active_calendar_clause
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -59,6 +60,7 @@ async def future_sessions(
                WorkoutPlanExercise.target_sets)
         .join(WorkoutPlanExercise, WorkoutPlanExercise.plan_id == UserCalendarDay.plan_id)
         .where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date > today,
             UserCalendarDay.target_date <= until,
@@ -107,6 +109,7 @@ async def structural_calendar_preview(
     first_future = today + timedelta(days=1)
     rows = (await session.execute(
         select(UserCalendarDay.status, UserCalendarDay.volume_adjustments).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.block_id == block_id,
             UserCalendarDay.target_date >= first_future,

@@ -10,6 +10,8 @@ build_context (Задача 11) — тело GET /goals/{id}/autopilot: всё, 
 
 from __future__ import annotations
 
+from api.services.models import WorkoutSession
+from api.services.scheduling_engine import active_calendar_clause
 import hashlib
 import json
 import logging
@@ -337,11 +339,13 @@ async def _blocked_by_calendar_fact(
         return False
     blocked = (await session.execute(
         select(UserCalendarDay.id).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.target_date.in_(dates),
             sa_or(
                 UserCalendarDay.status != "planned",
                 UserCalendarDay.actual_workout_session_id.isnot(None),
+                select(WorkoutSession.id).where(WorkoutSession.calendar_day_id == UserCalendarDay.id).exists(),
             ),
         )
     )).scalars().first()
@@ -1118,38 +1122,10 @@ async def _apply_structural(
     восстановить "прежний" plan_id для отката можно прямо из
     snapshot["days"][i]["plan_id"], который уже сохранён ниже.
 
-    ИСПРАВЛЕНО (ревью Задачи 9, Critical 1 — снимок мог потеряться
-    безвозвратно): эта функция идёт через _generate_future_calendar ->
-    SchedulingEngine.generate_block_days, а та КОММИТИТ СЕССИЮ САМА (см. её
-    докстринг и последнюю строку тела) — это не в нашей власти и не
-    предмет этой задачи. Раньше snapshot оставался только в локальном
-    словаре до конца ВСЕГО цикла рычагов в apply_goal_decision, и попадал
-    в proposal.payload только её финальным flush() — уже ПОСЛЕ того как
-    wipe+регенерация были необратимо закоммичены тем внутренним commit'ом.
-    Обрыв процесса в этом окне удалял старый календарь безвозвратно, не
-    оставляя от него ни строки в БД, ни снимка — Задаче 10 нечего было бы
-    восстанавливать, а status предложения снаружи всё ещё выглядел бы
-    pending, никак не сигналя о повреждении.
-    Чиним, переставляя запись: снимок (включая маркер structural_applied)
-    пишется в proposal.payload и flush()-ится ЗДЕСЬ, ДО вызова
-    _wipe_future_calendar/_generate_future_calendar. Поскольку flush() не
-    открывает отдельную транзакцию, а лишь готовит УЖЕ ОТКРЫТУЮ, наш снимок
-    едет в ТОЙ ЖЕ транзакции, что и сам wipe — когда generate_block_days
-    вызовет commit(), закоммитятся оба разом. Если процесс оборвётся ДО
-    этого внутреннего commit'а — не закоммитится ничего из этой транзакции
-    вовсе (ни снимок, ни удаление), и повтор начнёт с нетронутых дней.
-    Если оборвётся ПОСЛЕ — календарь и снимок, описывающий его прежнее
-    состояние, окажутся в БД вместе, консистентно.
-    Отдельно (СДЕЛАНО ревью Задачи 10, Critical 1 — см. periodization.service.
-    apply_decision, ветку KIND_GOAL_PLAN/ACTION_APPLY_GOAL): вызывающий
-    проставляет proposal.status/decided_action/client_uuid/decided_at ДО
-    apply_goal_decision, тем же порядком, что и _BLOCK_MUTATING_ACTIONS
-    там же (её "Critical 3" у вызова _perform) — то же самое обещание "не
-    коммитит сессию сама" здесь не держится. Это НЕ то же самое, что риск
-    потери snapshot, который эта правка (Critical 2 предыдущего ревью)
-    закрывает: снимок переживает обрыв благодаря flush() выше ДО wipe/
-    regenerate; proposal.status/decided_action вне payload переживает обрыв
-    благодаря тому, что вызывающий пишет их ДО, а не после, этого вызова.
+    Snapshot and structural_applied are flushed before calendar replacement.
+    Nested generation uses commit=False: the outer decision owner atomically
+    commits the snapshot, calendar, decision and analytics revision. An interruption
+    before that commit leaves both the old calendar and old decision intact.
     """
     if snapshot.get("structural_applied"):
         return False, 0
@@ -1166,6 +1142,7 @@ async def _apply_structural(
     first_future = date.today() + timedelta(days=1)
     days = (await session.execute(
         select(UserCalendarDay).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id,
             UserCalendarDay.block_id == block.id,
             UserCalendarDay.target_date >= first_future,
@@ -1184,7 +1161,9 @@ async def _apply_structural(
     # ТОЛЬКО на даты с touched=True: день, который автопилот не трогал, не
     # имеет права блокировать откат тем, что позже обзавёлся фактом, — этот
     # факт никак не связан с применением рычага.
-    touched_flags = [d.status == "planned" and not d.volume_adjustments for d in days]
+    from api.services.scheduling_engine import replaceable_calendar_days
+    replaceable = {d.id for d in await replaceable_calendar_days(session, app_user_id, first_future, block_id=block.id)}
+    touched_flags = [d.id in replaceable for d in days]
 
     # Дыра в диапазоне [first_future, block.planned_end_date], для которой
     # ВООБЩЕ НЕТ строки UserCalendarDay, — SchedulingEngine.generate_block_days
@@ -1229,6 +1208,11 @@ async def _apply_structural(
             "meso_tag": d.meso_tag,
             "mesocycle_phase_number": d.mesocycle_phase_number,
             "is_rest_day": d.is_rest_day,
+            "is_blackout": d.is_blackout,
+            "status": d.status,
+            "obligation_uuid": str(d.obligation_uuid) if d.obligation_uuid else None,
+            "obligation_origin_date": d.obligation_origin_date.isoformat() if d.obligation_origin_date else None,
+            "obligation_snapshot": d.obligation_snapshot,
             "touched": touched,
         }
         for d, touched in zip(days, touched_flags)
@@ -1264,8 +1248,8 @@ async def _apply_structural(
     flag_modified(proposal, "payload")
     await session.flush()
 
-    await _wipe_future_calendar(session, app_user_id, block, first_future)
-    await _generate_future_calendar(session, app_user_id, block, first_future)
+    replacements = await _wipe_future_calendar(session, app_user_id, block, first_future)
+    await _generate_future_calendar(session, app_user_id, block, first_future, replacements=replacements, today=first_future - timedelta(days=1))
     await session.flush()
 
     return True, skipped
@@ -1406,18 +1390,25 @@ async def undo_goal_decision(
             profile.settings = settings
             flag_modified(profile, "settings")
 
-    # 3. Дни календаря — вернуть снятые координаты.
+    # Restore the exact audited carrier where known, removing its temporary replacement.
     for row in snapshot.get("days") or []:
+        if not row.get("touched", True):
+            continue
         target = date.fromisoformat(row["target_date"])
-        day = (await session.execute(
-            select(UserCalendarDay).where(
-                UserCalendarDay.app_user_id == app_user_id,
-                UserCalendarDay.target_date == target,
-            )
-        )).scalars().first()
+        candidates = list((await session.execute(select(UserCalendarDay).where(
+            UserCalendarDay.app_user_id == app_user_id, UserCalendarDay.target_date == target,
+        ))).scalars())
+        identity = row.get("obligation_uuid")
+        day = next((d for d in candidates if identity and str(d.obligation_uuid) == identity), None)
+        active = [d for d in candidates if not (d.obligation_snapshot or {}).get('cancellation')]
         if day is None:
-            day = UserCalendarDay(app_user_id=app_user_id, target_date=target)
+            day = active[0] if active else UserCalendarDay(app_user_id=app_user_id, target_date=target)
             session.add(day)
+        for replacement in active:
+            if replacement is not day:
+                await session.delete(replacement)
+        day.status = row.get("status", "planned")
+        day.is_blackout = row.get("is_blackout", False)
         day.plan_id = row["plan_id"]
         day.day_tag = row["day_tag"]
         day.micro_tag = row["micro_tag"]
@@ -1425,6 +1416,11 @@ async def undo_goal_decision(
         day.mesocycle_phase_number = row["mesocycle_phase_number"]
         day.is_rest_day = row["is_rest_day"]
         day.block_id = proposal.block_id
+        if "obligation_uuid" in row:
+            import uuid
+            day.obligation_uuid = uuid.UUID(row["obligation_uuid"]) if row["obligation_uuid"] else None
+            day.obligation_origin_date = date.fromisoformat(row["obligation_origin_date"]) if row["obligation_origin_date"] else None
+            day.obligation_snapshot = row["obligation_snapshot"]
 
     # 4. Фантомные дни — снести то, что регенерация ПРИДУМАЛА, а снимок
     # никогда не видел (ревью Задачи 15, Critical 1). _apply_structural идёт
@@ -1463,13 +1459,14 @@ async def undo_goal_decision(
         }
         candidates = (await session.execute(
             select(UserCalendarDay).where(
+                active_calendar_clause(),
                 UserCalendarDay.app_user_id == app_user_id,
                 UserCalendarDay.block_id == proposal.block_id,
                 UserCalendarDay.target_date >= first_future,
             )
         )).scalars().all()
         for day in candidates:
-            if day.target_date in known_dates:
+            if day.target_date in known_dates or day.target_date <= date.today():
                 continue
             if day.status != "planned":
                 continue
@@ -1477,7 +1474,14 @@ async def undo_goal_decision(
                 continue
             if day.volume_adjustments:
                 continue
-            await session.delete(day)
+            linked = (await session.execute(select(WorkoutSession.id).where(WorkoutSession.calendar_day_id == day.id))).first()
+            if linked:
+                continue
+            from api.services.scheduling_engine import cancel_obligation
+            if day.obligation_uuid:
+                cancel_obligation(day, operation='goal_undo', today=date.today())
+            else:
+                await session.delete(day)
 
     proposal.status = periodization_params.STATUS_UNDONE
     proposal.decided_action = periodization_params.ACTION_UNDO_GOAL

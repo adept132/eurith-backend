@@ -133,7 +133,7 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             day = row['measured_on'] or row['recorded_at'].astimezone(zone).date()
             common = dict(row, source=source, observation_date=day,
                           date_source='measured_on' if row['measured_on'] else 'recorded_at_local',
-                          estimated=row['measured_on'] is None)
+                          date_estimated=row['measured_on'] is None, estimated=False, value_estimated=False)
             if source == 'body_measurement':
                 measurements.append(dict(common, value=Decimal(str(row['value']))))
             else:

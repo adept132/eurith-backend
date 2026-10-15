@@ -1,5 +1,6 @@
 """Сборка CSV-экспорта тренировок в формате «Eurith CSV v1» (см. csv_format)."""
 
+from api.services.scheduling_engine import active_calendar_clause
 import csv
 import io
 import json
@@ -81,6 +82,7 @@ async def _load_micro_days(
     """Дата -> номер дня микроцикла (контекст периодизации для колонки Micro Day)."""
     result = await session.execute(
         select(UserCalendarDay.target_date, UserCalendarDay.microcycle_day_number).where(
+            active_calendar_clause(),
             UserCalendarDay.app_user_id == app_user_id
         )
     )

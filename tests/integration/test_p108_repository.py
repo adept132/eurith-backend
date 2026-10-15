@@ -184,7 +184,8 @@ async def test_measurements_boundaries_local_fallback_and_explicit_fields(db_ses
     facts = await load_facts(db,app_user.id,QUERY)
     assert {(r['metric_key'],r['value']) for r in facts.measurements} == {('weight',Decimal(80)),('body_fat',Decimal(20)),('waist',Decimal(81))}
     fallback = next(r for r in facts.measurements if r['metric_key']=='waist')
-    assert fallback['observation_date'] == date(2026,10,8) and fallback['estimated']
+    assert fallback['observation_date'] == date(2026,10,8) and fallback['date_estimated']
+    assert not fallback['estimated'] and not fallback['value_estimated']
 
 @pytest.mark.asyncio
 async def test_read_preserves_unknowns_and_normalizes_side_reps(db_session,app_user,exercise):

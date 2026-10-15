@@ -251,25 +251,11 @@ async def test_snapshot_keeps_previous_day_coordinates(
     assert {d["day_tag"] for d in days} == {"push"}
 
 
-async def test_snapshot_persists_through_generate_block_days_internal_commit(
-    test_user, fresh_exercise, active_block, seeded_future_days
+@pytest.mark.parametrize("commit_owner", [False, True])
+async def test_snapshot_and_calendar_share_outer_transaction(
+    test_user, fresh_exercise, active_block, seeded_future_days, commit_owner
 ):
-    """Finding 1 (ревью Задачи 9, Critical 1): SchedulingEngine.
-    generate_block_days коммитит сессию САМА, ДО того как apply_goal_
-    decision успевает дописать snapshot в proposal.payload обычным путём.
-    Раньше snapshot["days"]/["structural_applied"] жили только в локальном
-    dict до самого конца цикла рычагов — обрыв процесса между внутренним
-    commit'ом регенерации и финальным commit'ом вызывающего стирал их
-    безвозвратно, при том что старый календарь уже был удалён.
-
-    Проверяем это не косвенно, а имитацией именно такого обрыва: НЕ делаем
-    финальный commit() вызывающего (как это сделал бы Задачи 10 apply_
-    decision) вовсе, читаем результат из ДРУГОЙ, свежей сессии — если бы
-    snapshot ехал в БД только вместе с финальным commit'ом вызывающего, его
-    бы там не оказалось. Он там есть, потому что _apply_structural
-    записывает и flush()-ит его ДО wipe/regenerate — тот же flush попадает
-    в ТУ ЖЕ транзакцию, что и внутренний commit() generate_block_days.
-    """
+    """Snapshot, decision and calendar either all commit at the owner or all roll back."""
     async with SessionLocal() as db:
         proposal = PeriodizationProposal(
             app_user_id=test_user.id, block_id=active_block.id,
@@ -287,22 +273,31 @@ async def test_snapshot_persists_through_generate_block_days_internal_commit(
         await db.commit()
         await db.refresh(proposal)
 
-        result = await apply_goal_decision(
-            db, test_user.id, proposal,
-            periodization_params.ACTION_APPLY_GOAL, {"accepted": [0]},
-        )
         pid = proposal.id
-        # СОЗНАТЕЛЬНО не коммитим здесь: имитируем обрыв вызывающего сразу
-        # после apply_goal_decision, ДО его собственного финального
-        # commit(). Если snapshot переживёт это — он попал в БД благодаря
-        # внутреннему commit'у generate_block_days, а не этому отсутствующему
-        # финальному commit'у.
+        if commit_owner:
+            from api.services.periodization.service import apply_decision
+            result = await apply_decision(db, test_user.id, pid,
+                periodization_params.ACTION_APPLY_GOAL, options={"accepted": [0]})
+        else:
+            result = await apply_goal_decision(db, test_user.id, proposal,
+                periodization_params.ACTION_APPLY_GOAL, {"accepted": [0]})
+        # Exiting without an owner commit models interruption after regeneration.
 
     assert result["status"] == "applied"
 
     async with SessionLocal() as db:
         row = await db.get(PeriodizationProposal, pid)
         assert row is not None
+        if not commit_owner:
+            assert row.payload["applied_snapshot"] is None
+            unchanged = (await db.execute(select(UserCalendarDay).where(
+                UserCalendarDay.app_user_id == test_user.id,
+                UserCalendarDay.block_id == active_block.id,
+            ))).scalars().all()
+            assert len(unchanged) == 5
+            assert {d.day_tag for d in unchanged} == {"push"}
+            return
+        assert row.status == periodization_params.STATUS_ACCEPTED
         snap = row.payload["applied_snapshot"]
         assert snap["structural_applied"] is True
         assert snap["days"], "снимок обязан содержать координаты прежних дней"
@@ -310,9 +305,7 @@ async def test_snapshot_persists_through_generate_block_days_internal_commit(
         # превратила регенерация.
         assert {d["day_tag"] for d in snap["days"]} == {"push"}
 
-        # А календарь при этом УЖЕ несёт результат регенерации — значит,
-        # внутренний commit() действительно произошёл и действительно унёс
-        # snapshot с собой в одной транзакции.
+        # A fresh session sees both the committed snapshot and regenerated calendar.
         regenerated = (await db.execute(
             select(UserCalendarDay).where(
                 UserCalendarDay.app_user_id == test_user.id,
