@@ -20,6 +20,30 @@ def raw():
     return make
 
 @pytest.fixture
+def points():
+    from datetime import timedelta
+    from api.services.analytics.types import ExerciseSessionPoint
+    def make(values, deload_ids=()):
+        return [ExerciseSessionPoint(i, 101,
+            datetime(2026, 9, 1, tzinfo=timezone.utc) + timedelta(days=i),
+            value, 0., 1, 0, i in deload_ids, None, i)
+            for i, value in enumerate(values, 1)]
+    return make
+
+@pytest.fixture
+def weighted_90_60(raw):
+    from api.services.analytics.load import normalize_set
+    return [normalize_set(raw(set_id=i, weight_kg=Decimal(weight), reps=reps))
+            for i, weight, reps in [(1, '90', 3), (2, '60', 12)]]
+
+@pytest.fixture
+def reference(raw):
+    from api.services.analytics.load import normalize_set
+    return [normalize_set(raw(workout_id=2, set_id=3, weight_kg=Decimal('100'),
+        reps=1, started_at=datetime(2026, 9, 30, 10, tzinfo=timezone.utc),
+        finished_at=datetime(2026, 9, 30, 11, tzinfo=timezone.utc)))]
+
+@pytest.fixture
 def facts():
     def make(rows, **overrides):
         values = dict(period=ResolvedPeriod(date(2026,10,1), date(2026,10,1),
