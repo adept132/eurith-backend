@@ -139,7 +139,7 @@ class MuscleProgress:
 
 @dataclass(frozen=True)
 class AnalyticsFacts:
-    period: ResolvedPeriod
+    period: ResolvedPeriod | None
     window_sets: list[RawSetFact]
     reference_sets: list[RawSetFact]
     record_sets: list[RawSetFact]
@@ -149,3 +149,8 @@ class AnalyticsFacts:
     source_revision: int
     catalog_mappings: list[dict] = field(default_factory=list)
     global_workouts: list[dict] = field(default_factory=list)
+
+    timezone: str = "UTC"
+    as_of: datetime | None = None
+    preview_start: datetime | None = None
+    graph_sets: list[RawSetFact] = field(default_factory=list)

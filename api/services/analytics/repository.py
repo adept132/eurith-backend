@@ -42,7 +42,8 @@ def _deload(workout, blocks, days):
 
 
 async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
-                     exercise_ids: set[int] | None = None) -> AnalyticsFacts:
+                     exercise_ids: set[int] | None = None,
+                     allow_unresolved_period: bool = False) -> AnalyticsFacts:
     # Scalar table projections deliberately avoid relationship loaders and writes.
     zone_name = await db.scalar(select(AppUserProfile.timezone).where(AppUserProfile.app_user_id == user_id)) or 'UTC'
     zone = ZoneInfo(zone_name)
@@ -66,8 +67,13 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
         WorkoutSession.finished_at.is_not(None)).order_by(WorkoutSession.finished_at, WorkoutSession.id))
     history_dates = [w['finished_at'].astimezone(zone).date() for w in workouts
                      if w['finished_at'].astimezone(zone).date() <= today]
-    period = resolve_period(query, timezone=zone_name, today=today,
-        block=block_map.get(query.block_id), history_start=min(history_dates, default=None))
+    try:
+        period = resolve_period(query, timezone=zone_name, today=today,
+            block=block_map.get(query.block_id), history_start=min(history_dates, default=None))
+    except ValueError as exc:
+        if not allow_unresolved_period or str(exc) != 'unknown_block_end':
+            raise
+        period = None
     calendar = await _rows(db, select(UserCalendarDay.__table__).where(UserCalendarDay.app_user_id == user_id))
     linked_days = {}
     for day in calendar:
@@ -89,11 +95,14 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
         statement = statement.where(S.gym_profile_id == query.gym_id)
     rows = await _rows(db, statement.order_by(W.finished_at, W.id, E.order_index, E.id, S.set_number, S.id))
     facts = []
+    linked_block_workouts = set()
     for row in rows:
         # Context belongs to this joined observation, even if another session
         # finished between the independent global-workout and set batches.
         w = {name: row['session_' + name] for name in session_fields}
         w['id'] = row['workout_id']
+        if w['training_block_id'] == query.block_id:
+            linked_block_workouts.add(w['id'])
         saved_load = row['load_snapshot'] or {}
         context = row['analytics_load_snapshot']
         if context is None:
@@ -109,7 +118,8 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             reps=row['reps'], effort_level=row['effort_level'], load_context=context,
             session_context=w['analytics_snapshot'], is_deload=_deload(w, block_map, linked_days))
         facts.append(normalize_set(raw))
-    window = [f for f in facts if period.start_at <= f.finished_at < period.end_exclusive]
+    window = [f for f in facts if period.start_at <= f.finished_at < period.end_exclusive] if period else [
+        f for f in facts if f.workout_id in linked_block_workouts]
     # Graph targets always retain full chronology, even during an active preview.
     targets = {f.workout_id:f.started_at for f in window}
     if preview:
@@ -121,8 +131,8 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
     records = [f for f in facts if f.workout_id != query.preview_workout_id
                and f.finished_at < cutoff]
     measurements = []
-    measurement_start = period.start - timedelta(days=7)
-    measurement_end = period.end + timedelta(days=7)
+    measurement_start = (period.start if period else block_map[query.block_id]['start_date']) - timedelta(days=7)
+    measurement_end = (period.end if period else block_map[query.block_id]['start_date']) + timedelta(days=7)
     measurement_start_at = datetime.combine(measurement_start, time.min, zone)
     measurement_end_at = datetime.combine(measurement_end + timedelta(days=1), time.min, zone)
     for model, source in ((UserAnthropometry, 'anthropometry'), (BodyMeasurement, 'body_measurement')):
@@ -148,4 +158,5 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             if (key := to_system_key(item)) is not None and key != row['main_muscle_group']})
     return AnalyticsFacts(period=period, window_sets=window, reference_sets=reference, record_sets=records,
         calendar=calendar, measurements=measurements, blocks=blocks, source_revision=revision,
-        catalog_mappings=catalog, global_workouts=workouts)
+        catalog_mappings=catalog, global_workouts=workouts, timezone=zone_name,
+        as_of=now, preview_start=preview["started_at"] if preview else None, graph_sets=facts)
