@@ -95,7 +95,7 @@ async def _latest_anthro(session: AsyncSession, user_id: int) -> Optional[UserAn
     )).scalars().first()
 
 
-async def record_body_entry(
+async def append_body_entry(
     session: AsyncSession,
     user_id: int,
     weight: Optional[float] = None,
@@ -105,7 +105,7 @@ async def record_body_entry(
     gender: Optional[str] = None,
     client_uuid: Optional[str] = None,
     measured_on: Optional[date] = None,
-) -> None:
+) -> bool:
     """Пишет снимок композиции. Вес/рост/жир — новой записью UserAnthropometry
     (недостающие поля переносим из последней записи, чтобы не терять их).
     Обхваты — отдельными записями BodyMeasurement.
@@ -113,6 +113,8 @@ async def record_body_entry(
     Если % жира не задан вручную, но пришли обхваты (талия/шея/+бёдра) и есть
     рост+пол — считаем его автоматически по US Navy (ручной ввод приоритетнее).
     """
+    if client_uuid:
+        await lock_body_intent(session, user_id, client_uuid)
     # Идемпотентность offline-повтора: если запись с этим client_uuid уже есть
     # (в любой из таблиц), считаем операцию применённой и выходим.
     if client_uuid:
@@ -129,7 +131,7 @@ async def record_body_entry(
             )
         )).first()
         if exists_anthro or exists_measure:
-            return
+            return False
 
     last = await _latest_anthro(session, user_id)
     eff_height = height if height is not None else (last.height if last else None)
@@ -172,7 +174,35 @@ async def record_body_entry(
                 measured_on=measured_on,
             ))
 
-    await session.commit()
+    changed = bool(weight is not None or height is not None or resolved_fat is not None
+                   or any(key in BODY_METRIC_KEYS and value is not None
+                          for key, value in (measurements or {}).items()))
+    await session.flush()
+    return changed
+
+
+async def lock_body_intent(session: AsyncSession, user_id: int, client_uuid: str) -> None:
+    """One transaction-scoped namespace shared by journal and workout writes."""
+    import hashlib
+    from sqlalchemy import text
+    key = int.from_bytes(hashlib.sha256(
+        f"body:{user_id}:{client_uuid}".encode()).digest()[:8], 'big', signed=True)
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+
+async def record_body_entry(
+    session: AsyncSession, user_id: int, weight: Optional[float] = None,
+    height: Optional[float] = None, body_fat: Optional[float] = None,
+    measurements: Optional[Dict[str, float]] = None, gender: Optional[str] = None,
+    client_uuid: Optional[str] = None, measured_on: Optional[date] = None,
+) -> None:
+    """Standalone journal mutation; nested workout writes use append_body_entry."""
+    changed = await append_body_entry(session, user_id, weight, height, body_fat,
+                                     measurements, gender, client_uuid, measured_on)
+    if changed:
+        from api.services.analytics.state import mark_dirty
+        await mark_dirty(session, user_id)
+        await session.commit()
 
 
 async def get_metric_series(
