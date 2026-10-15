@@ -159,7 +159,10 @@ class WorkoutSupersetService:
             return []
 
         completed_sets = [s for s in session_exercise.sets if s.is_completed]
-        return [WorkoutSupersetService._serialize_set(set_item) for set_item in completed_sets]
+        return [dict(WorkoutSupersetService._serialize_set(set_item),
+                     source_workout_id=workout.id,
+                     source_analytics_snapshot=deepcopy(workout.analytics_snapshot))
+                for set_item in completed_sets]
 
     @staticmethod
     async def get_workout_session_exercises(

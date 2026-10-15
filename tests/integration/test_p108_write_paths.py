@@ -234,3 +234,76 @@ async def test_actual_foreign_workout_and_measurement_ids(client, db, test_user,
         await db.execute(delete(UserAnthropometry).where(UserAnthropometry.app_user_id == foreign_id))
         await db.execute(delete(AppUser).where(AppUser.id == foreign_id))
         await db.commit()
+
+
+async def test_finished_sync_cannot_inherit_context_for_new_set(client, db, test_user, seeded_history, monkeypatch):
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+    data = snapshot(seeded_history.id)
+    data.update(status='finished', finished_at=datetime.now(timezone.utc).isoformat())
+    saved = await push(client, data)
+    data['exercises'][0]['sets'].append({'client_uuid': str(uuid4()), 'set_number': 2, 'reps': 8})
+    response = await client.post('/sync/workouts', json=data)
+    assert response.status_code == 409, response.text
+    assert response.json()['detail']['error'] == 'history_revision_required'
+    detail = await client.get(f"/workouts/{saved['workout']['id']}")
+    assert len(detail.json()['exercises'][0]['sets']) == 1
+
+
+@pytest.mark.parametrize('operation', ['upsert', 'delete', 'tombstone_replay'])
+async def test_matching_set_uuid_rejects_foreign_server_id(client, db, test_user, seeded_history, monkeypatch, operation):
+    from sqlalchemy import delete
+    from api.services.models import AppUser, WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+    data = snapshot(seeded_history.id)
+    saved = await push(client, data)
+    if operation == 'tombstone_replay':
+        local_id = saved['workout']['exercises'][0]['sets'][0]['id']
+        assert (await client.delete(f'/workout-session-sets/{local_id}')).status_code == 204
+    foreign = AppUser(firebase_uid=f'foreign-{uuid4()}', email=f'{uuid4()}@example.com')
+    db.add(foreign); await db.flush()
+    foreign_id = foreign.id
+    workout = WorkoutSession(app_user_id=foreign_id, source='free', status='active', started_at=datetime.now(timezone.utc))
+    db.add(workout); await db.flush()
+    exercise = WorkoutSessionExercise(workout_session_id=workout.id, exercise_id=seeded_history.id, order_index=0)
+    db.add(exercise); await db.flush()
+    row = WorkoutSessionSet(workout_session_exercise_id=exercise.id, set_number=1, set_type='normal', is_completed=True)
+    db.add(row); await db.commit()
+    exercise_id, workout_id = exercise.id, workout.id
+    try:
+        data['exercises'][0]['sets'][0].update(server_id=row.id, deleted=operation == 'delete')
+        response = await client.post('/sync/workouts', json=data)
+        assert response.status_code == 404, response.text
+        detail = await client.get(f"/workouts/{saved['workout']['id']}")
+        assert len(detail.json()['exercises'][0]['sets']) == (0 if operation == 'tombstone_replay' else 1)
+    finally:
+        await db.execute(delete(WorkoutSessionSet).where(WorkoutSessionSet.workout_session_exercise_id == exercise_id))
+        await db.execute(delete(WorkoutSessionExercise).where(WorkoutSessionExercise.id == exercise_id))
+        await db.execute(delete(WorkoutSession).where(WorkoutSession.id == workout_id))
+        await db.execute(delete(AppUser).where(AppUser.id == foreign_id)); await db.commit()
+
+
+@pytest.mark.parametrize('known_prior', [True, False])
+async def test_last_performance_keeps_origin_mass(client, db, test_user, seeded_history, monkeypatch, known_prior):
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+    prior = snapshot(seeded_history.id)
+    prior.update(status='finished', finished_at=datetime.now(timezone.utc).isoformat())
+    prior['analytics_snapshot'] = {'body_mass': {'weight_kg': 80, 'source': 'manual',
+        'measured_on': datetime.now(timezone.utc).date().isoformat(),
+        'captured_at': datetime.now(timezone.utc).isoformat()}} if known_prior else None
+    saved = await push(client, prior)
+    current = snapshot(seeded_history.id)
+    current['exercises'][0]['superset_group'] = str(uuid4())
+    current['analytics_snapshot'] = {'body_mass': {'weight_kg': 82, 'source': 'manual',
+        'measured_on': datetime.now(timezone.utc).date().isoformat(),
+        'captured_at': datetime.now(timezone.utc).isoformat()}}
+    await push(client, current)
+    response = await client.get(f"/workout-supersets/{current['exercises'][0]['superset_group']}")
+    assert response.status_code == 200, response.text
+    assert response.json()['analytics_snapshot']['body_mass']['weight_kg'] == 82
+    rows = response.json()['exercises'][0]['last_performance_sets']
+    assert rows and rows[0]['source_workout_id'] == saved['workout']['id']
+    if known_prior:
+        assert rows[0]['source_analytics_snapshot']['body_mass']['weight_kg'] == 80
+    else:
+        assert rows[0]['source_analytics_snapshot'] == saved['workout']['analytics_snapshot']
+        assert rows[0]['source_analytics_snapshot']['body_mass'] is None

@@ -7,6 +7,8 @@ from api.schemas.analytics_context import WorkoutAnalyticsSnapshot
 
 
 class SupersetWorkoutSetItem(BaseModel):
+    source_workout_id: int | None = None
+    source_analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     analytics_load_snapshot: dict | None = None
     anomaly_review: dict | None = None
     id: int

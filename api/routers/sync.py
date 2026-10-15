@@ -476,6 +476,11 @@ async def _apply_snapshot(
                 if workout_set is not None:
                     workout_set.client_uuid = set_snap.client_uuid
 
+            # Check contradictory identity references before tombstone/delete branches too.
+            if set_snap.server_id is not None and (workout_set is None or workout_set.id != set_snap.server_id):
+                linked = await db.scalar(select(WorkoutSessionSet.id).where(WorkoutSessionSet.id == set_snap.server_id))
+                if linked is not None:
+                    raise HTTPException(404, 'Workout set not found')
             if await child_was_deleted(db, workout, "workout_set", set_snap.client_uuid, set_snap.server_id):
                 continue
             if set_snap.deleted:
@@ -485,10 +490,6 @@ async def _apply_snapshot(
                     await db.delete(workout_set)
                 continue
 
-            if workout_set is None and set_snap.server_id is not None:
-                linked = await db.scalar(select(WorkoutSessionSet.id).where(WorkoutSessionSet.id == set_snap.server_id))
-                if linked is not None:
-                    raise HTTPException(404, 'Workout set not found')
             set_is_new = workout_set is None
             if set_is_new:
                 workout_set = WorkoutSessionSet(
@@ -497,12 +498,10 @@ async def _apply_snapshot(
                 )
                 db.add(workout_set)
 
-            if was_finished and any(
-                name in set_snap.model_fields_set and json_value(getattr(set_snap, name)) != getattr(workout_set, name)
-                for name in ('analytics_load_snapshot', 'anomaly_review')
-            ):
-                raise HTTPException(409, {'error': 'history_revision_required'})
+            previous_analytics = (deepcopy(workout_set.analytics_load_snapshot), deepcopy(workout_set.anomaly_review))
             apply_set_context(workout_set, set_snap, exercise, is_new=set_is_new)
+            if was_finished and previous_analytics != (workout_set.analytics_load_snapshot, workout_set.anomaly_review):
+                raise HTTPException(409, {'error': 'history_revision_required'})
             workout_set.set_number = set_snap.set_number
             workout_set.set_type = set_snap.set_type
             workout_set.weight = set_snap.weight
