@@ -182,7 +182,7 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             for key in ('weight', 'height', 'body_fat'):
                 if key in (row['submitted_fields'] or []) and row[key] is not None:
                     measurements.append(dict(common, metric_key=key, value=Decimal(str(row[key]))))
-    catalog = await _rows(db, select(Exercise.id.label('exercise_id'), Exercise.main_muscle_group,
+    catalog = await _rows(db, select(Exercise.id.label('exercise_id'), Exercise.name, Exercise.main_muscle_group,
         Exercise.secondary_muscle_groups).where(or_(Exercise.app_user_id.is_(None), Exercise.app_user_id == user_id)))
     for row in catalog:
         row['main_muscle_group'] = to_system_key(row['main_muscle_group'])

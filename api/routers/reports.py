@@ -14,7 +14,7 @@ from api.schemas.reports import (
 )
 from api.services.app_user_service import get_current_app_user
 from api.services.models import PeriodReport
-from api.services.reports.service import ensure_reports
+from api.services.reports.service import ensure_reports, calculation_label
 
 router = APIRouter(tags=["reports"])
 
@@ -106,6 +106,8 @@ def _to_read(report: PeriodReport) -> ReportRead:
         seen_at=report.seen_at,
         metrics=report.payload.get("metrics", {}),
         actions=report.payload.get("actions", []),
+        calculation_label=calculation_label(report.rules_version, report.shape_version),
+        analytics_meta=report.payload.get('analytics_meta') if (report.rules_version, report.shape_version) == (3, 3) else None,
     )
 
 

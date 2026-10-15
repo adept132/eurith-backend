@@ -265,6 +265,18 @@ class BlockAnalytics(AnalyticsEnvelope):
     excluded: list[Exclusion] = Field(default_factory=list)
 
 
+class CalendarAnalytics(AnalyticsEnvelope):
+    """Closed calendar summary shared with immutable periodic reports."""
+    exercises: dict[int, ExerciseAnalytics]
+    exercise_names: dict[int, str]
+    volume: VolumeSummary
+    intensity: Metric
+    effort: EffortSummary
+    adherence: AdherenceContext
+    sessions: int
+    total_minutes: int
+
+
 class Difference(DTO):
     value: float | None
     unit: str

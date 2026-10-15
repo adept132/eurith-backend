@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from api.services.reports.metrics import ReportMetrics
 
 # Версия набора. Пишется в снапшот; задним числом ничего не переписывает.
-RULES_VERSION = 2
+RULES_VERSION = 3
 
 # Больше трёх советов человек не выполняет — он их пролистывает.
 MAX_ACTIONS = 3
@@ -50,7 +50,7 @@ class RuleContext:
 
 def _adherence_low(metrics: ReportMetrics, _: RuleContext) -> Action | None:
     adherence = metrics.adherence
-    if adherence.planned_days == 0 or adherence.rate >= ADHERENCE_FLOOR:
+    if adherence.planned_days == 0 or adherence.rate is None or adherence.rate >= ADHERENCE_FLOOR:
         return None
     return Action(
         id="adherence_low",

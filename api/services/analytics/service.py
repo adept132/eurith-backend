@@ -157,6 +157,27 @@ async def muscle_analytics(db, user_id: int, query: AnalyticsQuery) -> MuscleAna
         coverage=Coverage(sum(m.coverage.used for m in muscles),len(exercises)), excluded=_exclusions(facts.window_sets))
 
 
+async def calendar_analytics(db, user_id: int, start, end):
+    """Inclusive profile-local finish dates; no readiness or transaction ownership."""
+    from api.schemas.analytics import CalendarAnalytics
+    query = AnalyticsQuery(period='custom', start=start, end=end)
+    facts = await load_facts(db, user_id, query)
+    exercises = {eid: _exercise(facts, query, eid)
+                 for eid in sorted({r.exercise_id for r in facts.window_sets})}
+    workouts = [w for w in facts.global_workouts
+                if facts.period.start_at <= w['finished_at'] < facts.period.end_exclusive]
+    return CalendarAnalytics(**_envelope(facts, query), exercises=exercises,
+        exercise_names={m['exercise_id']: m['name'] for m in facts.catalog_mappings},
+        volume=_volume(facts, facts.window_sets),
+        intensity=intensity_summary(facts.window_sets, facts.reference_sets),
+        effort=effort_summary(facts.window_sets),
+        adherence=AdherenceContext(**adherence_summary(facts.calendar, facts.global_workouts,
+            today=facts.as_of.astimezone(ZoneInfo(facts.timezone)).date(),
+            period=facts.period, is_closed=True)),
+        sessions=len(workouts), total_minutes=sum(max(0, int(
+            (w['finished_at'] - w['started_at']).total_seconds() // 60)) for w in workouts))
+
+
 def _block(facts, query):
     block = next(b for b in facts.blocks if b['id'] == query.block_id)
     exercises = {eid:_exercise(facts,query,eid) for eid in sorted({r.exercise_id for r in facts.window_sets})}

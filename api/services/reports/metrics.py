@@ -78,7 +78,7 @@ class AdherenceMetric:
     planned_days: int
     completed_days: int
     missed_days: int
-    rate: float
+    rate: float | None
 
 
 @dataclass(frozen=True)
@@ -93,7 +93,7 @@ class MuscleVolume:
 @dataclass(frozen=True)
 class VolumeMetric:
     work_sets: int
-    tonnage_kg: float
+    tonnage_kg: float | None
     by_muscle: dict[str, MuscleVolume] = field(default_factory=dict)
 
 
@@ -401,3 +401,40 @@ async def compute_metrics(
 def has_activity(metrics: ReportMetrics) -> bool:
     """Был ли период вообще прожит: хоть один плановый день или тренировка."""
     return metrics.adherence.planned_days > 0 or metrics.time.sessions > 0
+
+
+def from_analytics(resource, period_type: str, level: str | None, names: dict[int, str]) -> ReportMetrics:
+    """Adapt common observations to the historical report's display units.
+
+    Raw indirect set counts and the existing recommendation landmarks remain
+    unchanged; no new effective-volume scale is fed into the old rule thresholds.
+    """
+    from zoneinfo import ZoneInfo
+    period = resource.scope.period
+    volume, adherence, effort = resource.volume, resource.adherence, resource.effort.mean_rir
+    by_muscle = {}
+    for muscle, channels in volume.muscles.items():
+        lm = landmarks_for(muscle, level)
+        if lm:
+            by_muscle[muscle] = MuscleVolume(
+                direct=sum(c.direct for c in channels.values()),
+                indirect=sum(c.indirect for c in channels.values()),
+                mev=lm.mev, mav=lm.mav, mrv=lm.mrv)
+    normal = [o for ex in resource.exercises.values() for p in ex.points
+              for o in p.details.observations if o.set_type == 'normal']
+    known_reps = [o for o in normal if o.actual_reps is not None and o.actual_reps > 0]
+    records = [RecordItem(exercise_id=eid, exercise_name=names.get(eid, ''),
+        record_type='e1rm_lombardi_v1', value=event.e1rm,
+        achieved_on=event.at.astimezone(ZoneInfo(resource.scope.timezone)).date())
+        for eid, ex in resource.exercises.items() for event in ex.record_events]
+    records.sort(key=lambda r: (r.achieved_on, r.exercise_id))
+    return ReportMetrics(period_type=period_type, period_start=period.start, period_end=period.end,
+        adherence=AdherenceMetric(adherence.planned_days, adherence.completed_days, adherence.missed_days,
+            None if adherence.reason else adherence.completed_days / adherence.planned_days if adherence.planned_days else 0.),
+        volume=VolumeMetric(volume.work_sets, volume.tonnage.value, by_muscle),
+        intensity=IntensityMetric(resource.intensity.value / 100 if resource.intensity.value is not None else None,
+            sum(o.actual_reps <= HEAVY_REPS_MAX for o in known_reps) / len(known_reps) if known_reps else None),
+        effort=EffortMetric(effort.value, effort.coverage.used / effort.coverage.total if effort.coverage.total else 0.),
+        time=TimeMetric(resource.sessions, resource.total_minutes,
+            resource.total_minutes / resource.sessions if resource.sessions else None,
+            volume.work_sets * 60 / resource.total_minutes if resource.total_minutes else None), records=records)

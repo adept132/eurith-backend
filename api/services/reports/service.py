@@ -16,16 +16,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.models import AppUserProfile, PeriodizationProposal, PeriodReport
 from api.services.progression.params import DEFAULT_RIR
-from api.services.reports.metrics import ReportMetrics, compute_metrics, has_activity
+from api.services.reports.metrics import ReportMetrics, compute_metrics, from_analytics, has_activity
+from api.services.analytics.config import analytics_enabled
+from api.services.analytics.publication import coherent_read
+from api.services.analytics.service import calendar_analytics
 from api.services.reports.periods import PERIOD_TYPES, closed_periods
 from api.services.reports.rules import RULES_VERSION, Action, RuleContext, build_actions
 
-REPORT_SHAPE_VERSION = 2
+REPORT_SHAPE_VERSION = 3
+LEGACY_RULES_VERSION = 2
+LEGACY_SHAPE_VERSION = 2
+
+# Only registered stored pairs identify a calculation. Never infer from today's gate.
+CALCULATION_LABELS = {
+    (1, 1): 'Расчёт по прежним правилам (Бржицки)',
+    (2, 2): 'Расчёт по прежним правилам (Бржицки)',
+    (3, 3): 'Единая аналитика: Lombardi',
+}
+
+
+def calculation_label(rules_version: int, shape_version: int) -> str:
+    return CALCULATION_LABELS.get((rules_version, shape_version), 'Создано до обновления аналитики')
 
 PERIOD_TITLE = {"week": "неделю", "month": "месяц", "year": "год"}
 
 
-def build_payload(metrics: ReportMetrics, actions: list[Action]) -> dict:
+def build_payload(metrics: ReportMetrics, actions: list[Action], *,
+                  analytics_meta: dict | None = None) -> dict:
     """JSON-представление снапшота. Даты — ISO-строки: payload переживает
     и БД, и офлайн-кэш клиента."""
     data = asdict(metrics)
@@ -33,12 +50,15 @@ def build_payload(metrics: ReportMetrics, actions: list[Action]) -> dict:
     data["period_end"] = metrics.period_end.isoformat()
     for record in data["records"]:
         record["achieved_on"] = record["achieved_on"].isoformat()
-    return {
-        "shape_version": REPORT_SHAPE_VERSION,
-        "rules_version": RULES_VERSION,
+    payload = {
+        "shape_version": REPORT_SHAPE_VERSION if analytics_meta else LEGACY_SHAPE_VERSION,
+        "rules_version": RULES_VERSION if analytics_meta else LEGACY_RULES_VERSION,
         "metrics": data,
         "actions": [asdict(action) for action in actions],
     }
+    if analytics_meta is not None:
+        payload['analytics_meta'] = analytics_meta
+    return payload
 
 
 async def _rule_context(session: AsyncSession, app_user_id: int) -> RuleContext:
@@ -82,13 +102,26 @@ async def ensure_reports(
             if exists is not None:
                 continue
 
-            metrics = await compute_metrics(
-                session, app_user_id, period_type, start, end, level
-            )
+            analytics_meta = None
+            if analytics_enabled():
+                async def assemble():
+                    return await calendar_analytics(session, app_user_id, start, end)
+
+                resource = await coherent_read(session, app_user_id, assemble)
+                if resource.state != 'ready':
+                    continue
+                metrics = from_analytics(resource, period_type, level, resource.exercise_names)
+                analytics_meta = dict(rules_version=resource.rules_version,
+                    formula_id=resource.formula_id, data_revision=resource.data_revision)
+            else:
+                metrics = await compute_metrics(
+                    session, app_user_id, period_type, start, end, level
+                )
             if not has_activity(metrics):
                 continue
 
             actions = build_actions(metrics, context)
+            payload = build_payload(metrics, actions, analytics_meta=analytics_meta)
             statement = (
                 insert(PeriodReport)
                 .values(
@@ -96,9 +129,9 @@ async def ensure_reports(
                     period_type=period_type,
                     period_start=start,
                     period_end=end,
-                    payload=build_payload(metrics, actions),
-                    rules_version=RULES_VERSION,
-                    shape_version=REPORT_SHAPE_VERSION,
+                    payload=payload,
+                    rules_version=payload['rules_version'],
+                    shape_version=payload['shape_version'],
                 )
                 .on_conflict_do_nothing(
                     index_elements=[

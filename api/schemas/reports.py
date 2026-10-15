@@ -43,3 +43,5 @@ class ReportRead(BaseModel):
     seen_at: datetime | None = None
     metrics: dict[str, Any]
     actions: list[ReportActionRead]
+    calculation_label: str
+    analytics_meta: dict[str, Any] | None = None
