@@ -20,8 +20,7 @@ from api.services.workout_tombstones import record_child_deletion
 from api.schemas.supersets import CreateSupersetRequest, ReorderWorkoutStructureRequest
 from api.schemas.workouts import WorkoutSessionDetailResponse, AddWorkoutExerciseRequest, AddWorkoutSetResponse, \
     AddWorkoutSetRequest, UpdateWorkoutSetRequest, RepeatWorkoutSetRequest, AutoprogressionResponse
-from api.services.anomaly_guard import check_set, resolve_is_anomalous
-from api.services.anomaly_stats import load_exercise_stats
+from api.services.anomaly_stats import review_set, review_workout
 from api.services.app_user_service import get_current_app_user
 from api.services.autoprogression import compute_autoprogression
 from api.services.calculate_exercise_recommendation import calculate_exercise_recommendations
@@ -392,17 +391,6 @@ async def add_set_to_session_exercise(
 
     next_set_number = len(session_exercise.sets) + 1
 
-    stats = await load_exercise_stats(
-        db, current_app_user.id, session_exercise.exercise_id
-    )
-    verdict = check_set(
-        float(payload.weight) if payload.weight is not None else None,
-        payload.reps,
-        payload.set_type or "normal",
-        stats,
-    )
-    is_anomalous = resolve_is_anomalous(verdict, payload.anomaly_confirmed)
-
     new_set = WorkoutSessionSet(
         workout_session_exercise_id=session_exercise.id,
         set_number=next_set_number,
@@ -415,7 +403,7 @@ async def add_set_to_session_exercise(
         superset_round=payload.superset_round,
         is_completed=True,
         is_max_reps=payload.is_max_reps,
-        is_anomalous=is_anomalous,
+        is_anomalous=False,
         **context,
         shown_target_snapshot=deepcopy(payload.shown_target_snapshot),
         warmup_snapshot=snapshot_json(payload.warmup_snapshot),
@@ -434,6 +422,7 @@ async def add_set_to_session_exercise(
     if analytics_enabled() or session_exercise.analytics_load_defaults is not None:
         new_set.client_uuid = str(uuid4())
     apply_set_context(new_set, payload, session_exercise, is_new=True)
+    await review_set(db, workout, session_exercise, new_set, confirmed=payload.anomaly_confirmed if 'anomaly_confirmed' in payload.model_fields_set else None)
     db.add(new_set)
     await mark_dirty(db, current_app_user.id)
     await db.commit()
@@ -629,6 +618,7 @@ async def update_workout_session_set(
         )
 
     before_analytics = await fingerprint(db, workout.id)
+    previous_review = deepcopy(workout_set.anomaly_review)
     apply_set_context(workout_set, payload, session_exercise)
     update_data = payload.model_dump(exclude_unset=True)
     update_data.pop("analytics_load_snapshot", None)
@@ -679,17 +669,9 @@ async def update_workout_session_set(
     for field_name, value in update_data.items():
         setattr(workout_set, field_name, value)
 
-    stats = await load_exercise_stats(
-        db, current_app_user.id, session_exercise.exercise_id
-    )
-    verdict = check_set(
-        float(workout_set.weight) if workout_set.weight is not None else None,
-        workout_set.reps,
-        workout_set.set_type or "normal",
-        stats,
-    )
-    if {"weight", "reps", "set_type", "anomaly_confirmed"} & payload.model_fields_set:
-        workout_set.is_anomalous = resolve_is_anomalous(verdict, anomaly_confirmed)
+    if ({"weight", "reps", "set_type", "analytics_load_snapshot", "anomaly_review"} & payload.model_fields_set
+            and before_analytics != await fingerprint(db, workout.id)) or "anomaly_confirmed" in payload.model_fields_set:
+        await review_set(db, workout, session_exercise, workout_set, previous_review=previous_review, confirmed=anomaly_confirmed if 'anomaly_confirmed' in payload.model_fields_set else None)
 
     if before_analytics != await fingerprint(db, workout.id):
         await mark_dirty(db, current_app_user.id)
@@ -1012,6 +994,7 @@ async def update_analytics_context(workout_id: int, payload: UpdateAnalyticsCont
         if exercise_id not in by_id:
             raise HTTPException(404, 'Workout exercise not found')
         by_id[exercise_id].analytics_load_defaults = json_value(defaults)
+    await review_workout(db, workout)
     if before != await fingerprint(db, workout.id):
         workout.sync_version = (workout.sync_version or 0) + 1
         await mark_dirty(db, current_app_user.id)

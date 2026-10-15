@@ -518,6 +518,8 @@ async def import_workouts(
                     analytics_load_snapshot=deepcopy(ps.analytics_load_snapshot),
                     anomaly_review=deepcopy(ps.anomaly_review),
                 )
+                from api.services.anomaly_stats import review_set
+                await review_set(session, ws, ws_ex, new_set)
                 session.add(new_set)
                 await session.flush()
                 id_by_set_order.setdefault(ps.set_order, new_set.id)

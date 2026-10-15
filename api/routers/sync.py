@@ -24,8 +24,7 @@ from api.schemas.sync import (
 from api.schemas.workouts import WorkoutSessionDetailResponse
 from api.schemas.warmups import snapshot_json, validate_warmup_rows
 from api.services.workout_tombstones import child_was_deleted, record_child_deletion
-from api.services.anomaly_guard import check_set, resolve_is_anomalous
-from api.services.anomaly_stats import load_exercise_stats
+from api.services.anomaly_stats import review_set, anomaly_inputs
 from api.services.app_user_service import get_current_app_user
 from api.services.models import (
     AppUser,
@@ -461,13 +460,6 @@ async def _apply_snapshot(
         existing_sets_by_id = {s.id: s for s in loaded_sets}
         set_by_client: dict[str, WorkoutSessionSet] = {}
 
-        # Статистика по упражнению считается один раз на всю пачку подходов
-        # снапшота, а не на каждый подход — иначе на большом снимке это N
-        # лишних запросов к БД.
-        exercise_stats = await load_exercise_stats(
-            db, app_user_id, exercise.exercise_id
-        )
-
         # Первый проход: создать/обновить подходы без разрешения parent.
         for set_snap in ex_snap.sets:
             workout_set = existing_sets.get(set_snap.client_uuid)
@@ -498,6 +490,7 @@ async def _apply_snapshot(
                 )
                 db.add(workout_set)
 
+            previous_anomaly_inputs = anomaly_inputs(workout_set)
             previous_analytics = (deepcopy(workout_set.analytics_load_snapshot), deepcopy(workout_set.anomaly_review))
             apply_set_context(workout_set, set_snap, exercise, is_new=set_is_new)
             if was_finished and previous_analytics != (workout_set.analytics_load_snapshot, workout_set.anomaly_review):
@@ -558,15 +551,9 @@ async def _apply_snapshot(
             # Синк только помечает аномалию — не поднимаем HTTPException ни при
             # каком вердикте, иначе один кривой подход развалит весь снимок
             # тренировки (см. api/schemas/sync.py:28).
-            verdict = check_set(
-                float(set_snap.weight) if set_snap.weight is not None else None,
-                set_snap.reps,
-                set_snap.set_type or "normal",
-                exercise_stats,
-            )
-            workout_set.is_anomalous = resolve_is_anomalous(
-                verdict, set_snap.anomaly_confirmed
-            )
+            if set_is_new or previous_anomaly_inputs != anomaly_inputs(workout_set) or "anomaly_confirmed" in set_snap.model_fields_set:
+                await review_set(db, workout, exercise, workout_set, previous_review=previous_analytics[1],
+                    confirmed=set_snap.anomaly_confirmed if 'anomaly_confirmed' in set_snap.model_fields_set else None)
 
             await db.flush()
             id_map[set_snap.client_uuid] = workout_set.id

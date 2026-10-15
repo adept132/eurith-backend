@@ -38,10 +38,17 @@ def apply_set_context(target, payload, exercise, *, is_new=False):
         target.analytics_load_snapshot = deepcopy(exercise.analytics_load_defaults)
     else:
         apply_field(target, payload, 'analytics_load_snapshot')
-    apply_field(target, payload, 'anomaly_review')
+    if 'anomaly_review' in payload.model_fields_set:
+        from api.services.anomaly_guard import review_input_state
+        supplied = json_value(payload.anomaly_review)
+        # A full client replay may omit the server's derived reasons/timestamp.
+        # Only a changed confirmation or non-derived annotation is a new input.
+        if review_input_state(supplied) != review_input_state(target.anomaly_review):
+            apply_field(target, payload, 'anomaly_review')
 
 
 async def apply_session_context(db, workout, payload, *, is_new=False):
+    previous_context = deepcopy(workout.analytics_snapshot)
     intent = getattr(payload, 'analytics_mass_intent', None)
     established_mass = deepcopy((workout.analytics_snapshot or {}).get('body_mass') or {})
     established_replay = intent is not None and (
@@ -88,6 +95,10 @@ async def apply_session_context(db, workout, payload, *, is_new=False):
             await capture_workout_snapshot(db, workout, explicit_mass=mass)
     elif is_new and analytics_enabled() and workout.analytics_snapshot is None:
         await capture_workout_snapshot(db, workout, explicit_mass=None)
+
+    if previous_context != workout.analytics_snapshot:
+        from api.services.anomaly_stats import review_workout
+        await review_workout(db, workout)
 
 
 async def fingerprint(db, workout_id):

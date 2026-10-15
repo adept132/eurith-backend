@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from api.schemas.actual_numbers import ActualReps, ActualWeight
 from api.schemas.analytics_context import BodyMassSnapshot, WorkoutAnalyticsSnapshot, SetLoadSnapshot, AnomalyReview, AnalyticsMassIntent
 from datetime import datetime
 from decimal import Decimal
@@ -225,8 +226,8 @@ class AddWorkoutSetRequest(BaseModel):
     set_type: WorkoutSetType = "normal"
     # Верхние границы — защита от переполнения Numeric(8,2), а не оценка
     # правдоподобности: ею занимается anomaly_guard.
-    weight: Decimal | None = Field(default=None, ge=0, le=2000)
-    reps: int | None = Field(default=None, ge=0, le=1000)
+    weight: ActualWeight | None = None
+    reps: ActualReps | None = None
     effort_level: WorkoutEffortLevel | None = None
     notes: str | None = None
     parent_set_id: int | None = Field(default=None, gt=0)
@@ -277,8 +278,8 @@ class UpdateWorkoutSetRequest(BaseModel):
     set_type: WorkoutSetType | None = None
     # Верхние границы — защита от переполнения Numeric(8,2), а не оценка
     # правдоподобности: ею занимается anomaly_guard.
-    weight: Decimal | None = Field(default=None, ge=0, le=2000)
-    reps: int | None = Field(default=None, ge=0, le=1000)
+    weight: ActualWeight | None = None
+    reps: ActualReps | None = None
     effort_level: WorkoutEffortLevel | None = None
     notes: str | None = None
     parent_set_id: int | None = Field(default=None, gt=0)

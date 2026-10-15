@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from api.schemas.actual_numbers import ActualReps, ActualWeight
 from api.schemas.analytics_context import WorkoutAnalyticsSnapshot, SetLoadSnapshot, AnomalyReview, AnalyticsMassIntent
 from datetime import datetime
 from decimal import Decimal
@@ -29,8 +30,8 @@ class SyncSetSnapshot(BaseModel):
     server_id: int | None = None
     set_number: int
     set_type: WorkoutSetType = "normal"
-    weight: Decimal | None = Field(default=None, ge=0, le=2000)
-    reps: int | None = Field(default=None, ge=0, le=1000)
+    weight: ActualWeight | None = None
+    reps: ActualReps | None = None
     # effort_level принимаем свободной строкой: набор значений на клиенте и
     # бэкенде исторически расходится ("warmup" vs "warmup_effort"), а синк не
     # место для 422 из-за расхождения справочников.

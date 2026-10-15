@@ -31,18 +31,18 @@ def test_bodyweight_set_is_not_anomalous():
 @pytest.mark.parametrize("weight_kg", [600.1, 1000.0, 5000.0])
 def test_absurd_weight(weight_kg):
     verdict = check_set(weight_kg, 5, "normal", NO_HISTORY)
-    assert verdict.level == "absurd"
+    assert verdict.level == "suspicious"
     assert verdict.reason
 
 
 @pytest.mark.parametrize("reps", [301, 1000])
 def test_absurd_reps(reps):
-    assert check_set(50.0, reps, "normal", NO_HISTORY).level == "absurd"
+    assert check_set(50.0, reps, "normal", NO_HISTORY).level == "ok"
 
 
 def test_absolute_rules_work_without_history():
     # Абсолютные правила не требуют истории вообще.
-    assert check_set(700.0, 5, "normal", NO_HISTORY).level == "absurd"
+    assert check_set(700.0, 5, "normal", NO_HISTORY).level == "suspicious"
 
 
 def test_e1rm_jump_is_suspicious():
@@ -71,7 +71,7 @@ def test_warmup_set_skips_relative_rules():
 
 
 def test_warmup_set_still_checked_for_absurd():
-    assert check_set(700.0, 10, "warmup", RICH_HISTORY).level == "absurd"
+    assert check_set(700.0, 10, "warmup", RICH_HISTORY).level == "suspicious"
 
 
 def test_resolve_marks_suspicious_by_default():

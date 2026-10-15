@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from copy import deepcopy
 import hashlib
 import json
 import re
@@ -24,8 +25,8 @@ from api.schemas.workout_history import (
     WorkoutHistorySetDraft,
 )
 from api.services.exercise_utils import get_base_exercise_query
-from api.services.anomaly_guard import check_set, resolve_is_anomalous
-from api.services.anomaly_stats import load_exercise_stats
+from api.services.anomaly_guard import review_input_state
+from api.services.anomaly_stats import review_set
 from api.services.models import (
     Exercise,
     WorkoutRecalculationOperation,
@@ -138,8 +139,8 @@ def _history_set_state(item: WorkoutHistorySetDraft) -> tuple[object, ...]:
         item.is_completed,
         snapshot_json(item.warmup_snapshot),
         item.load_mode, item.gym_profile_id, item.setup_id, item.load_snapshot,
-        json_value(item.analytics_load_snapshot), json_value(item.anomaly_review),
-        item.is_max_reps, item.is_anomalous, item.shown_target_snapshot, item.superset_round,
+        json_value(item.analytics_load_snapshot), review_input_state(item.anomaly_review),
+        item.is_max_reps, item.shown_target_snapshot, item.superset_round,
     )
 
 
@@ -282,10 +283,7 @@ async def get_history_draft(db: AsyncSession, user_id: int, workout_id: int):
 def _apply_set_fields(
     target: WorkoutSessionSet,
     source,
-    stats,
 ) -> None:
-    numeric_changed = (target.id is None or target.weight != source.weight
-        or target.reps != source.reps or target.set_type != source.set_type)
     target.client_uuid = source.client_uuid
     target.set_number = source.set_number
     target.set_type = source.set_type
@@ -302,16 +300,6 @@ def _apply_set_fields(
     for field in ('is_max_reps', 'shown_target_snapshot', 'superset_round'):
         if field in source.model_fields_set:
             setattr(target, field, json_value(getattr(source, field)))
-    verdict = check_set(
-        float(source.weight) if source.weight is not None else None,
-        source.reps,
-        source.set_type,
-        stats,
-    )
-    if numeric_changed:
-        target.is_anomalous = resolve_is_anomalous(verdict, confirmed=False)
-    elif 'is_anomalous' in source.model_fields_set:
-        target.is_anomalous = source.is_anomalous
 
 
 def _apply_set_parent_links(
@@ -406,9 +394,6 @@ async def _replace_exercises(
         if await child_was_deleted(db, workout, "workout_exercise", source_exercise.client_uuid,
                                    legacy_server_id=legacy_id):
             continue
-        stats = await load_exercise_stats(
-            db, workout.app_user_id, source_exercise.exercise_id
-        )
         target_exercise = existing_exercise
         if target_exercise is None:
             target_exercise = _new_session_exercise(
@@ -461,8 +446,10 @@ async def _replace_exercises(
                 db.add(target_set)
             elif target_set.client_uuid is None:
                 target_set.client_uuid = source_set.client_uuid
+            previous_review = deepcopy(target_set.anomaly_review)
             apply_set_context(target_set, source_set, target_exercise, is_new=target_set.id is None)
-            _apply_set_fields(target_set, source_set, stats)
+            _apply_set_fields(target_set, source_set)
+            await review_set(db, workout, target_exercise, target_set, previous_review=previous_review)
             if "warmup_snapshot" in source_set.model_fields_set:
                 try:
                     validate_warmup_rows(target_exercise.warmup_group, [target_set.warmup_snapshot])

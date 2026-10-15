@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from api.schemas.actual_numbers import actual_weight, actual_reps
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -100,11 +101,11 @@ class MlWorkoutPatch(StrictWorkoutImportModel):
             if type(value) is not str or not value.strip() or len(value.strip()) > 160:
                 raise ValueError("exercise_name must be non-empty text")
         elif self.field == "weight":
-            if type(value) not in (int, float) or not math.isfinite(float(value)) or not 0 <= float(value) <= 2000:
-                raise ValueError("weight must be finite and between 0 and 2000")
+            if type(value) not in (int, float) or not math.isfinite(float(value)) or actual_weight(value) < 0:
+                raise ValueError("actual_weight_format: finite nonnegative storage number required")
         elif self.field == "reps":
-            if type(value) is not int or not 1 <= value <= 1000:
-                raise ValueError("reps must be an integer between 1 and 1000")
+            if type(value) is not int or actual_reps(value) < 1:
+                raise ValueError("actual_reps_format: positive storage integer required")
         elif self.field == "unit":
             if type(value) is not str or value not in ("kg", "lb"):
                 raise ValueError("unit must be kg or lb")

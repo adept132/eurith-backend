@@ -11,6 +11,7 @@
   переданной default_unit (её у пользователя спрашивает UI).
 """
 
+from api.schemas.actual_numbers import actual_reps, actual_weight
 import csv
 import hashlib
 import io
@@ -144,9 +145,15 @@ def _to_float(value: Optional[str]) -> Optional[float]:
         return None
 
 
-def _to_int(value: Optional[str]) -> Optional[int]:
-    f = _to_float(value)
-    return int(f) if f is not None else None
+def _to_int(value: Optional[str], *, actual: bool = False) -> Optional[int]:
+    if not _clean(value):
+        return None
+    try:
+        return actual_reps(_clean(value).replace(",", "."))
+    except ValueError as error:
+        if actual:
+            raise CsvParseError(str(error)) from error
+        return None
 
 
 def _to_bool(value: Optional[str], default: bool = True) -> bool:
@@ -241,7 +248,12 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
             continue
 
         weight_raw = _to_float(col(row, COL_WEIGHT))
-        reps = _to_int(col(row, COL_REPS))
+        if _clean(col(row, COL_WEIGHT)):
+            try:
+                actual_weight(_clean(col(row, COL_WEIGHT)).replace(",", "."))
+            except ValueError as error:
+                raise CsvParseError(str(error)) from error
+        reps = _to_int(col(row, COL_REPS), actual=True)
 
         # Кардио: есть дистанция/время, но нет веса и повторов — наша модель
         # такое не хранит, честно сообщаем в отчёте вместо тихой потери.
@@ -319,7 +331,7 @@ def parse_csv(text: str, default_unit: str = UNIT_KG) -> ParseResult:
         exercises[ekey].sets.append(
             ParsedSet(
                 set_order=set_order,
-                weight_kg=unit_to_kg(weight_raw, unit),
+                weight_kg=float(actual_weight(unit_to_kg(weight_raw, unit))) if weight_raw is not None else None,
                 reps=reps,
                 notes=_clean(col(row, COL_NOTES)) or None,
                 effort_level=effort,

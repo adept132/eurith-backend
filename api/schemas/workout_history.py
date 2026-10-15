@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from api.schemas.actual_numbers import ActualReps, ActualWeight
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
@@ -38,8 +39,8 @@ class WorkoutHistorySetDraft(StrictHistoryModel):
     parent_client_uuid: ClientUuid | None = None
     set_number: int = Field(ge=1)
     set_type: WorkoutSetType = "normal"
-    weight: Decimal | None = Field(default=None, ge=0, le=2000)
-    reps: int | None = Field(default=None, ge=0, le=1000)
+    weight: ActualWeight | None = None
+    reps: ActualReps | None = None
     effort_level: WorkoutEffortLevel | None = None
     notes: str | None = None
     is_completed: bool = True
@@ -123,8 +124,8 @@ class WorkoutHistoryDraft(StrictHistoryModel):
 
 class WorkoutHistoryServerSetSnapshot(WorkoutHistorySetDraft):
     # Older completed sessions may predate strict history-entry validation.
-    # Keep those snapshots readable while new writes require 1..1000 reps.
-    reps: int | None = Field(default=None, ge=0, le=1000)
+    # Actual repetitions share the storage-format contract with new writes.
+    reps: ActualReps | None = None
 
 
 class WorkoutHistoryServerExerciseSnapshot(WorkoutHistoryExerciseDraft):
