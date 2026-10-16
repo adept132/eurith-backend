@@ -8,6 +8,15 @@ from typing import Any, Optional
 from pydantic import BaseModel
 
 
+class BlockIndexRead(BaseModel):
+    id: int
+    block_index: int
+    status: str
+    start_date: date
+    planned_end_date: date | None
+    actual_end_date: date | None
+
+
 class BlockCoordinateRead(BaseModel):
     block_id: int
     block_index: int

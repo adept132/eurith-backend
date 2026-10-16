@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_db
 from api.schemas.periodization import (
+    BlockIndexRead,
     BlockCoordinateRead,
     BlockExerciseSummary,
     BlockSummaryRead,
@@ -35,6 +36,22 @@ from api.services.periodization.service import (
 from api.services.scheduling_engine import SchedulingEngine
 
 router = APIRouter(prefix="/periodization", tags=["Periodization"])
+
+
+@router.get("/blocks", response_model=list[BlockIndexRead])
+async def list_owned_blocks(
+    current_user: AppUser = Depends(get_current_app_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[BlockIndexRead]:
+    """Saved metadata only: reading history never advances block lifecycle."""
+    rows = (await db.execute(select(
+        TrainingBlock.id, TrainingBlock.block_index, TrainingBlock.status,
+        TrainingBlock.start_date, TrainingBlock.planned_end_date,
+        TrainingBlock.actual_end_date,
+    ).where(TrainingBlock.app_user_id == current_user.id).order_by(
+        TrainingBlock.block_index.desc(), TrainingBlock.id.desc(),
+    ))).mappings().all()
+    return [BlockIndexRead(**row) for row in rows]
 
 
 # ИСПРАВЛЕНО (ревью Задачи 15, Critical 2 — карточка цели уходила на экран
