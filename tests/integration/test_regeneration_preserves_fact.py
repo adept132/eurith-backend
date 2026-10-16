@@ -42,16 +42,26 @@ async def _surviving_dates(db, user_id):
 
 
 async def test_wipe_keeps_completed_day(db, test_user, active_block):
+    from api.services.scheduling_engine import ensure_obligation_identity, cancel_future_calendar, active_calendar_clause
     today = utc_today()
     done = await _day(db, test_user.id, active_block.id, today, status="completed")
     plain = await _day(db, test_user.id, active_block.id, today + timedelta(days=1))
+    ensure_obligation_identity(plain)
+    identity = plain.obligation_uuid
 
-    await _wipe_future_calendar(db, test_user.id, active_block, today)
+    replacements = await _wipe_future_calendar(db, test_user.id, active_block, today)
     await db.commit()
 
     survived = await _surviving_dates(db, test_user.id)
     assert done.target_date in survived
-    assert plain.target_date not in survived
+    assert replacements[plain.target_date].id == plain.id
+    assert plain.target_date in survived  # staged same-block replacement preserves identity
+    await cancel_future_calendar(db,test_user.id,today,today=today,operation='acceptance_cancel')
+    await db.commit();await db.refresh(plain)
+    assert plain.obligation_uuid == identity
+    assert plain.obligation_snapshot['cancellation']['operation'] == 'acceptance_cancel'
+    active = (await db.execute(select(UserCalendarDay.id).where(UserCalendarDay.app_user_id==test_user.id,active_calendar_clause()))).scalars().all()
+    assert done.id in active and plain.id not in active
 
 
 async def test_wipe_keeps_missed_day(db, test_user, active_block):
@@ -80,14 +90,21 @@ async def test_wipe_keeps_day_with_accepted_adjustments(db, test_user, active_bl
 
 
 async def test_wipe_still_removes_untouched_future(db, test_user, active_block):
+    from api.services.scheduling_engine import ensure_obligation_identity, cancel_future_calendar, active_calendar_clause
     today = utc_today()
+    rows=[]
     for offset in range(1, 5):
-        await _day(db, test_user.id, active_block.id, today + timedelta(days=offset))
+        row=await _day(db, test_user.id, active_block.id, today + timedelta(days=offset))
+        ensure_obligation_identity(row);rows.append(row)
 
-    await _wipe_future_calendar(db, test_user.id, active_block, today)
+    replacements=await _wipe_future_calendar(db, test_user.id, active_block, today)
     await db.commit()
 
-    assert await _surviving_dates(db, test_user.id) == set()
+    assert {row.id for row in replacements.values()}=={row.id for row in rows}
+    await cancel_future_calendar(db,test_user.id,today,today=today,operation='acceptance_cancel')
+    await db.commit()
+    assert all(row.obligation_uuid and row.obligation_snapshot['cancellation']['operation']=='acceptance_cancel' for row in rows)
+    assert not (await db.execute(select(UserCalendarDay.id).where(UserCalendarDay.app_user_id==test_user.id,active_calendar_clause()))).scalars().all()
 
 
 async def test_regeneration_over_a_survivor_makes_no_duplicate_and_keeps_the_layout(

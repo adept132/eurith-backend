@@ -148,9 +148,9 @@ async def test_load_exercise_stats_computes_sessions_e1rm_median(db, test_user):
     stats = await load_exercise_stats(db, test_user.id, exercise.id)
 
     assert stats.sessions == 3
-    # best_e1rm = max(100*(1+10/30), 120*(1+8/30), 110*(1+5/30)) = 152.0 (сессия 2).
+    # P1-08 relative-anomaly history uses Lombardi, independently of progression.
     # Если бы аномалия/разминка не исключались, максимум ушёл бы к 999 или 200 кг.
-    assert stats.best_e1rm == pytest.approx(152.0)
+    assert stats.best_e1rm == pytest.approx(120 * 8 ** .1)
     # Медиана весов [100, 110, 120] (без 999 и без разминочных 200) = 110.
     assert stats.median_weight_kg == pytest.approx(110.0)
 

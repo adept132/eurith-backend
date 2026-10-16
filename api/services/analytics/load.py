@@ -5,6 +5,8 @@ import math
 from .policy import EFFORT_TO_RIR, finite_number, positive_reps
 from .types import RawSetFact, NormalizedSetFact
 
+_RAW_FIELD_NAMES = tuple(field.name for field in fields(RawSetFact))
+
 
 def lombardi(weight_kg: float, reps: int) -> float | None:
     weight = finite_number(weight_kg)
@@ -107,7 +109,7 @@ def normalize_set(raw: RawSetFact) -> NormalizedSetFact:
     for key in ('base_weight_kg','implement_count','added_load_kg','assistance_kg','body_mass_kg'):
         comparison_context[key] = finite_number(comparison_context[key])
     comparison_key = json.dumps(comparison_context, sort_keys=True, separators=(',',':'), default=str)
-    return NormalizedSetFact(**{f.name:getattr(raw,f.name) for f in fields(RawSetFact)},
+    return NormalizedSetFact(**{name:getattr(raw,name) for name in _RAW_FIELD_NAMES},
         e1rm_weight_kg=weight, tonnage_kg=tonnage,
         rir=EFFORT_TO_RIR.get(raw.effort_level), comparison_key=comparison_key,
         unavailable=tuple(reasons), e1rm_reps=e1rm_reps)

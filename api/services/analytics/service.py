@@ -10,9 +10,9 @@ from api.schemas.analytics import (AnalyticsScope, ExerciseAnalytics, ExercisePo
 from .types import AnalyticsQuery, AnalyticsFacts, Coverage, Metric, StrengthChange
 from .repository import load_facts
 from .strength import session_points, strength_change, record_history
-from .intensity import intensity_summary
+from .intensity import intensity_summary, prepare_intensity
 from .effort import effort_summary
-from .volume import volume_summary
+from .volume import volume_summary, _tonnage
 from .muscles import muscle_progress
 from .context import body_changes, select_boundary_measurement, adherence_summary
 from .policy import eligible
@@ -48,18 +48,21 @@ def _volume(facts, rows):
     return VolumeSummary(**result)
 
 
-def _points(facts, rows):
+def _points(facts, rows, prepared_intensity, pure_points):
     groups = defaultdict(list)
     zone = ZoneInfo(facts.timezone)
     for row in rows:
         if eligible(row, 'work_sets') or eligible(row, 'drop_sets'):
             groups[row.workout_id, row.exercise_id].append(row)
     result = []
-    for point in session_points(rows):
+    for point in pure_points:
         group = groups[point.workout_id, point.exercise_id]
-        intensity = intensity_summary(group, facts.reference_sets)
+        intensity = prepared_intensity.summary(group)
         effort = effort_summary(group).mean_rir
-        volume = _volume(facts, group).tonnage
+        # Point details need only tonnage/coverage, not a second full catalog
+        # muscle-volume fold. Preserve the kernel's normal-then-drop sum order.
+        volume = _tonnage([row for row in group if row.set_type == 'normal']
+                          + [row for row in group if row.set_type == 'drop'])
         observations = []
         for row in group:
             observations.append(dict(set_id=row.set_id, exercise_instance_id=row.exercise_instance_id,
@@ -67,7 +70,7 @@ def _points(facts, rows):
                 at=row.finished_at, observation_date=row.finished_at.astimezone(zone).date(),
                 set_type=row.set_type, actual_reps=row.reps, e1rm_reps=row.e1rm_reps,
                 e1rm_weight_kg=row.e1rm_weight_kg, tonnage_kg=row.tonnage_kg, rir=row.rir,
-                intensity=intensity_summary([row], facts.reference_sets), load_context=row.load_context,
+                intensity=prepared_intensity.summary([row]), load_context=row.load_context,
                 session_context=row.session_context, reasons=row.unavailable))
         detail = asdict(point.details)
         detail.update(intensity=intensity, effort=effort, observations=observations,
@@ -97,19 +100,26 @@ def _exclusions(rows):
 
 def _exercise(facts, query, exercise_id):
     rows = [r for r in facts.window_sets if r.exercise_id == exercise_id]
-    points = _points(facts, rows)
+    prepared_intensity = prepare_intensity(facts.reference_sets)
     pure_points = session_points(rows)
+    points = _points(facts, rows, prepared_intensity, pure_points)
     change = strength_change(pure_points) if facts.period else StrengthChange(None,None,None,None,None,())
     reason = ('unknown_block_end' if facts.period is None else
               'insufficient_sessions' if change.delta_pct is None else None)
-    volume, intensity, effort = _volume(facts, rows), intensity_summary(rows, facts.reference_sets), effort_summary(rows)
+    volume, intensity, effort = _volume(facts, rows), prepared_intensity.summary(rows), effort_summary(rows)
     valid = [p.e1rm for p in points if p.e1rm is not None]
     strength_coverage = Coverage(len(valid), len(points))
-    records = record_history([r for r in facts.record_sets if r.exercise_id == exercise_id])
+    record_rows = [r for r in facts.record_sets if r.exercise_id == exercise_id]
+    records = record_history(record_rows)
     # Preview baseline cutoff and graph fold are independent. Full graph input
     # retains pre-window chronology, including observations after the cutoff.
     chronology = {r.set_id: r for r in facts.graph_sets if r.exercise_id == exercise_id}
-    events = record_history(list(chronology.values()))['events']
+    graph_rows = list(chronology.values())
+    # Reuse only the exact same immutable facts; preview cutoffs still fold
+    # their different graph chronology independently.
+    same_rows = len(record_rows) == len(graph_rows) and all(
+        chronology.get(row.set_id) is row for row in record_rows)
+    events = (records if same_rows else record_history(graph_rows))['events']
     visible_ids = {r.set_id for r in rows}
     baseline = RecordBaseline(exercise_id=exercise_id, data_revision=facts.source_revision,
         gym_scope=_gym_scope(query.gym_id), as_of=facts.preview_start or facts.as_of or datetime.now(timezone.utc),

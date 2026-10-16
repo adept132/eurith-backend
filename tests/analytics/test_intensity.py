@@ -7,6 +7,49 @@ from api.services.analytics.intensity import intensity_summary
 from api.services.analytics.strength import session_points, record_history
 
 
+def test_prepared_reference_reuses_admission_and_matches_independent_summaries(weighted_90_60, reference, monkeypatch):
+    from api.services.analytics import intensity
+    prepare = getattr(intensity, 'prepare_intensity', None)
+    assert callable(prepare), 'Shared point/observation intensity must prepare historical candidates once'
+    first = weighted_90_60[0]
+    candidates = [*reference,
+        replace(reference[0], set_id=20, finished_at=first.started_at),
+        replace(reference[0], set_id=21, finished_at=first.started_at-timedelta(days=56, seconds=1)),
+        replace(reference[0], set_id=22, workout_id=first.workout_id),
+        replace(reference[0], set_id=23, is_deload=True),
+        replace(reference[0], set_id=24, exercise_id=999)]
+    windows = [weighted_90_60, [first], [replace(first,e1rm_reps=None)],
+               [replace(first,set_type='drop')], [replace(first,exercise_id=998)]]
+    expected = [intensity_summary(rows,candidates) for rows in windows]
+    calls = 0
+    original = intensity._e1rm
+    def counted(row):
+        nonlocal calls
+        calls += 1
+        return original(row)
+    monkeypatch.setattr(intensity,'_e1rm',counted)
+    prepared=prepare(candidates)
+    initial_calls=calls
+    for _ in range(10):
+        for rows,want in zip(windows,expected):
+            assert prepared.summary(rows)==want
+    # Repeating detail/point requests must not re-admit and recompute every reference.
+    assert calls-initial_calls <= sum(len(rows) for rows in windows)*10
+
+
+def test_prepared_reference_deduplicates_only_exact_boundary_equivalent_candidates(weighted_90_60, reference):
+    from api.services.analytics.intensity import prepare_intensity
+    target=weighted_90_60[0]
+    prior=reference[0]
+    candidates=[replace(prior,set_id=i) for i in range(1000)]
+    candidates += [replace(prior,workout_id=target.workout_id,set_id=1001),
+                   replace(prior,finished_at=target.started_at,set_id=1002),
+                   replace(prior,e1rm_weight_kg=prior.e1rm_weight_kg+1e-9,set_id=1003)]
+    prepared=prepare_intensity(candidates)
+    assert len(prepared.history[prior.exercise_id])==4
+    assert prepared.summary(weighted_90_60)==intensity_summary(weighted_90_60,reference)
+
+
 def test_repetition_weighted_intensity(weighted_90_60, reference):
     metric = intensity_summary(weighted_90_60, reference)
     assert metric.value == 66

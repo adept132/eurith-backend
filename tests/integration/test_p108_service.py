@@ -4,12 +4,51 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select, event
 from api.services.models import (WorkoutSession, WorkoutSessionExercise, WorkoutSessionSet,
-    AppUserProfile, TrainingBlock, UserCalendarDay, UserAnthropometry, Exercise)
+    AppUser, AppUserProfile, TrainingBlock, UserCalendarDay, UserAnthropometry, Exercise)
 from api.services.analytics.types import AnalyticsQuery, Coverage
 from api.services.analytics.service import exercise_analytics, muscle_analytics, block_analytics, compare_blocks
 
 UTC=timezone.utc
 CTX=dict(schema_version=1,model='barbell',input_basis='full')
+
+@pytest.mark.asyncio
+async def test_identical_record_and_graph_inputs_fold_once(p108_seed, monkeypatch):
+    from api.services.analytics import service
+    db, uid, exercises, _, _, _ = p108_seed
+    original = service.record_history
+    calls = []
+    def counted(rows):
+        calls.append(tuple(r.set_id for r in rows))
+        return original(rows)
+    monkeypatch.setattr(service, 'record_history', counted)
+    result = await service.exercise_analytics(db, uid, exercises[1].id, AnalyticsQuery(period='all'))
+    assert result.record_baseline.best_e1rm is not None
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_point_tonnage_does_not_repeat_full_muscle_volume_assembly(p108_seed, monkeypatch):
+    from api.services.analytics import service
+    from api.services.analytics.repository import load_facts
+    db, uid, exercises, _, _, _ = p108_seed
+    query = AnalyticsQuery(period='all')
+    facts = await load_facts(db, uid, query, exercise_ids={exercises[1].id})
+    expected = service._exercise(facts, query, exercises[1].id).model_dump(mode='json')
+    original = service._volume
+    calls = []
+    def counted(facts, rows):
+        calls.append(len(rows))
+        return original(facts, rows)
+    monkeypatch.setattr(service, '_volume', counted)
+    actual = service._exercise(facts, query, exercises[1].id).model_dump(mode='json')
+    assert actual == expected  # full metrics, every observation/source and PR marker
+    assert calls == [len(facts.window_sets)]
+    for point in actual['points']:
+        group = [row for row in facts.window_sets if row.workout_id == point['workout_id']]
+        full_volume = original(facts, group).tonnage
+        assert point['details']['metric_coverage']['volume'] == {
+            'used':full_volume.coverage.used, 'total':full_volume.coverage.total}
+        assert point['volume'] == full_volume.value
 
 @pytest.fixture
 async def p108_seed(app_user, db_session):
@@ -45,10 +84,12 @@ async def p108_seed(app_user, db_session):
             await db.flush()
             cal.actual_workout_session_id=w.id
             workouts.append(w)
+            order = 0
             for ex in (exercises[index*2],exercises[1],exercises[3]):
                 # Same exercise can occur twice with independent setup identifiers.
                 for instance in range(2 if ex==exercises[1] else 1):
-                    e=WorkoutSessionExercise(workout_session_id=w.id,exercise_id=ex.id,order_index=instance)
+                    e=WorkoutSessionExercise(workout_session_id=w.id,exercise_id=ex.id,order_index=order)
+                    order += 1
                     db.add(e)
                     await db.flush()
                     weight=100 if offset<2 else (103 if index==0 else 106)
@@ -58,7 +99,18 @@ async def p108_seed(app_user, db_session):
         db.add_all([UserAnthropometry(app_user_id=app_user.id,measured_on=block.start_date,weight=80,submitted_fields=['weight']),
                     UserAnthropometry(app_user_id=app_user.id,measured_on=block.actual_end_date,weight=81,submitted_fields=['weight'])])
     await db.commit()
-    return db,app_user.id,exercises,blocks,gym,workouts
+    uid = app_user.id
+    try:
+        yield db,uid,exercises,blocks,gym,workouts
+    finally:
+        # This fixture commits so independent HTTP sessions can observe facts;
+        # the parent rollback fixture cannot undo those commits.
+        from api.services.account_service import purge_user
+        await db.rollback()
+        await purge_user(db, uid)
+        assert await db.scalar(select(AppUser.id).where(AppUser.id == uid)) is None
+        assert await db.scalar(select(WorkoutSession.id).where(WorkoutSession.app_user_id == uid)) is None
+        assert await db.scalar(select(Exercise.id).where(Exercise.app_user_id == uid)) is None
 
 @pytest.mark.asyncio
 async def test_block_actual_days_and_global_context(p108_seed):

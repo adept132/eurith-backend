@@ -90,7 +90,7 @@ async def test_missing_fields_preserve_but_explicit_null_clears(client):
     assert all(row["warmup_snapshot"] is None for row in cleared["sets"])
 
 
-@pytest.mark.parametrize("case", ["version", "group", "duplicate_order", "negative_weight", "too_many_reps"])
+@pytest.mark.parametrize("case", ["version", "group", "duplicate_order", "negative_weight", "negative_reps"])
 async def test_snapshot_rejects_invalid_refs(client, case):
     payload = await payload_fixture(client)
     await push(client, payload)
@@ -101,9 +101,20 @@ async def test_snapshot_rejects_invalid_refs(client, case):
     if case == "group": row["warmup_snapshot"]["group_id"] = str(uuid4())
     if case == "duplicate_order": exercise["sets"][1]["warmup_snapshot"]["order"] = 1
     if case == "negative_weight": row["weight"] = -1
-    if case == "too_many_reps": row["reps"] = 1001
+    if case == "negative_reps": row["reps"] = -1
     response = await client.post("/sync/workouts", json=payload)
     assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize('reps', [301, 1001])
+async def test_performed_high_reps_preserve_prescribed_warmup_source(client, reps):
+    payload = await payload_fixture(client)
+    original = deepcopy(payload['exercises'][0]['warmup_group'])
+    await push(client, payload)
+    payload['exercises'][0]['sets'][0]['reps'] = reps
+    saved = await push(client, payload)
+    assert saved['exercises'][0]['sets'][0]['reps'] == reps
+    assert saved['exercises'][0]['warmup_group'] == original
 
 
 async def test_manual_group_and_legacy_warmups(client):

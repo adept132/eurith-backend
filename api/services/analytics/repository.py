@@ -140,9 +140,9 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
     targets = {f.workout_id:f.started_at for f in window}
     if preview:
         targets[preview['id']] = preview['started_at']
+    target_windows = [(wid, start - timedelta(days=56), start) for wid, start in targets.items()]
     reference = [f for f in facts if any(wid != f.workout_id and
-        start - timedelta(days=56) <= f.finished_at < start
-        for wid, start in targets.items())]
+        lower <= f.finished_at < start for wid, lower, start in target_windows)]
     cutoff = preview['started_at'] if preview else now
     records = [f for f in facts if f.workout_id != query.preview_workout_id
                and f.finished_at < cutoff]

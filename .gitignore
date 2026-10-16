@@ -41,3 +41,4 @@ api/data/embedder_full/
 # Сгенерированные ingest_exercise_images.py страницы ручного ревью картинок.
 scripts/review.html
 scripts/review-propagate.html
+.pytest_tmp/
