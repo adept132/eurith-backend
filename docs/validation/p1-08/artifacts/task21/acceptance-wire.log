@@ -1,0 +1,53 @@
+E                                                                        [100%]
+=================================== ERRORS ====================================
+____ ERROR at setup of test_mobile_serializer_canonical_ack_restart_replay ____
+
+self = <Coroutine test_mobile_serializer_canonical_ack_restart_replay>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/task21-wire')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+>           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] ������� �� ������� ����� ��������� ����: 'D:\\Eurith\\worktrees\\p1-08-backend\\.pytest_tmp\\task21-wire'
+
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\pathlib\_local.py:722: FileNotFoundError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+============================== warnings summary ===============================
+api\schemas\�nboarding.py:17
+  D:\Eurith\worktrees\p1-08-backend\api\schemas\�nboarding.py:17: PydanticDeprecatedSince20: Pydantic V1 style `@root_validator` validators are deprecated. You should migrate to Pydantic V2 style `@model_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @root_validator(pre=False, skip_on_failure=True)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: 11 warnings
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/integration/test_p108_acceptance.py::test_mobile_serializer_canonical_ack_restart_replay
+15 warnings, 1 error in 1.86s

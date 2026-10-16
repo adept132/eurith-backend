@@ -1,0 +1,314 @@
+FF........FFFFF..F.                                                      [100%]
+================================== FAILURES ===================================
+____________________ test_naive_cascade_would_have_failed _____________________
+
+client = <httpx.AsyncClient object at 0x000001775A3627B0>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775A668050>
+test_user = <api.services.models.AppUser object at 0x000001775A37FC50>
+
+    async def test_naive_cascade_would_have_failed(client, db, test_user):
+        """�������������, ������ purge_user ������� �������.
+    
+        ������ DELETE FROM app_users ������: ����������� workout_session_exercises
+        ������ ��������� ���������� ����� ON DELETE RESTRICT.
+        """
+        await _seed_workout(client)
+        user_id = test_user.id
+    
+        # ��������� ����� ��, ��� ������ ������: ������ ������ ����������.
+        await db.execute(
+            text("DELETE FROM workout_sessions WHERE app_user_id = :uid"),
+            {"uid": user_id},
+        )
+        await db.commit()
+    
+        orphans = await db.scalar(
+            text(
+                "SELECT count(*) FROM workout_session_exercises e "
+                "WHERE NOT EXISTS (SELECT 1 FROM workout_sessions s WHERE s.id = e.workout_session_id) "
+                "AND e.exercise_id IN (SELECT id FROM exercises WHERE app_user_id = :uid)"
+            ),
+            {"uid": user_id},
+        )
+        # ������ ������������� �������� � FK �� workout_sessions � �� ���.
+>       assert orphans >= 1
+E       assert 0 >= 1
+
+tests\integration\test_account_lifecycle.py:158: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________ test_load_exercise_stats_computes_sessions_e1rm_median ____________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775A33A8D0>
+test_user = <api.services.models.AppUser object at 0x000001775A3239B0>
+
+    async def test_load_exercise_stats_computes_sessions_e1rm_median(db, test_user):
+        """sessions/best_e1rm/median_weight_kg ��������� �� ������� normal-��������;
+        warmup � ��� ���������� �������� ����������� � ����� ���� ������
+        ��������� �� �������������� ������� ��� ��������� ��������."""
+        exercise = await _get_catalog_exercise(db)
+    
+        # ������ 1: ������� ������ (100��/10) + ���������� (999��), ������� ������
+        # ���� �������� (����� ��������� ������� �� � e1rm, � �������).
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 100, "reps": 10},
+                {"weight": 999, "reps": 10, "is_anomalous": True},
+            ],
+        )
+        # ������ 2: ������� ������ (120��/8, ��� ������ e1rm=152) + ��������
+        # (200��/20), ������� ���� ������� ���� ���������.
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 120, "reps": 8},
+                {"weight": 200, "reps": 20, "set_type": "warmup"},
+            ],
+        )
+        # ������ 3: ������� ������ (110��/5).
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 110, "reps": 5},
+            ],
+        )
+        await db.commit()
+    
+        stats = await load_exercise_stats(db, test_user.id, exercise.id)
+    
+        assert stats.sessions == 3
+        # best_e1rm = max(100*(1+10/30), 120*(1+8/30), 110*(1+5/30)) = 152.0 (������ 2).
+        # ���� �� ��������/�������� �� �����������, �������� ���� �� � 999 ��� 200 ��.
+>       assert stats.best_e1rm == pytest.approx(152.0)
+E       assert 147.73732960138994 == 152.0 � 1.5e-04
+E         
+E         comparison failed
+E         Obtained: 147.73732960138994
+E         Expected: 152.0 � 1.5e-04
+
+tests\integration\test_p001_integrity.py:153: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__________________ test_analytics_history_excludes_anomalous __________________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775A94B410>
+test_user = <api.services.models.AppUser object at 0x000001775A86EA40>
+
+    async def test_analytics_history_excludes_anomalous(db, test_user):
+        """get_exercise_analytics_history �� ������ �������� ���������� ������� �
+        ������ e1RM/������ (����� �5.3): ��� ���������� ����� � e1rm �� ���� ���� ��
+        �������� ��������� �����."""
+        exercise = await _get_catalog_exercise(db)
+    
+        session = await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 100, "reps": 10},
+                {"weight": ABSURD_BUT_SCHEMA_VALID_WEIGHT, "reps": 5, "is_anomalous": True},
+            ],
+        )
+        session.finished_at = datetime.now(timezone.utc)
+        await db.commit()
+    
+        history = await ExerciseSearchService.get_exercise_analytics_history(
+            db, test_user.id, exercise.id
+        )
+    
+>       assert history is not None
+E       assert None is not None
+
+tests\integration\test_p001_integrity.py:504: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__________ test_add_exercise_populates_recommended_weight_with_basis __________
+
+client = <httpx.AsyncClient object at 0x000001775A979D00>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775AA640B0>
+test_user = <api.services.models.AppUser object at 0x000001775A86F3E0>
+
+    async def test_add_exercise_populates_recommended_weight_with_basis(client, db, test_user):
+        """POST /workouts/{id}/exercises ������ ���������� � ���������
+        recommended_weight, ���� � ������������ ��� ���� ����������� ���������� �
+        ���� ����������� (���� ��� ��������������)."""
+        exercise = await _get_catalog_exercise(db)
+    
+        # ����������� ������ � �������� ��������� � ���� ��� ��������������.
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 100, "reps": 10},
+                {"weight": 105, "reps": 8},
+            ],
+        )
+    
+        workout = await _make_active_session(db, test_user.id)
+        workout_id = workout.id
+        await db.commit()
+    
+        resp = await client.post(
+            f"/workouts/{workout_id}/exercises",
+            json={"exercise_id": exercise.id},
+        )
+>       assert resp.status_code == 200, resp.text
+E       AssertionError: {"detail":"Exercise not found"}
+E       assert 404 == 200
+E        +  where 404 = <Response [404 Not Found]>.status_code
+
+tests\integration\test_p001_integrity.py:541: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________ test_add_exercise_recommended_weight_null_without_basis ___________
+
+client = <httpx.AsyncClient object at 0x000001775A7EB650>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775A94B410>
+test_user = <api.services.models.AppUser object at 0x000001775A86EDB0>
+
+    async def test_add_exercise_recommended_weight_null_without_basis(client, db, test_user):
+        """��� ���������� ����������� ���������� � ���� ����������� ���� ���
+        �������������� ��� � recommended_weight ������ �������� null (�� 0 � ��
+        ���������� ��������)."""
+        exercise = await _get_catalog_exercise(db)
+    
+        workout = await _make_active_session(db, test_user.id)
+        workout_id = workout.id
+        await db.commit()
+    
+        resp = await client.post(
+            f"/workouts/{workout_id}/exercises",
+            json={"exercise_id": exercise.id},
+        )
+>       assert resp.status_code == 200, resp.text
+E       AssertionError: {"detail":"Exercise not found"}
+E       assert 404 == 200
+E        +  where 404 = <Response [404 Not Found]>.status_code
+
+tests\integration\test_p001_integrity.py:572: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________ test_readiness_muscle_keys_are_system_keys_not_russian ____________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775A9C3AD0>
+test_user = <api.services.models.AppUser object at 0x000001775A86ED00>
+
+    async def test_readiness_muscle_keys_are_system_keys_not_russian(db, test_user):
+        """Exercise.main_muscle_group �������� ��-������, �� ������ ������ �������
+        ���������� ���������� �������: �� ��� ������ ������ ����� ����.
+    
+        ���������: ������ ����� ������� �������� (������� ������ �chest�), ����������
+        ������� �� ������� ���������� � ��� ����� ���������� �����.
+        """
+        from api.services.fatigue.service import compute_readiness
+        from api.services.muscle_keys import to_system_key
+    
+        # ���� ���������� � �������������� ��������� ������ ������.
+        exercises = (await db.execute(select(Exercise).limit(200))).scalars().all()
+        exercise = next(
+            (e for e in exercises if to_system_key(e.main_muscle_group) is not None),
+            None,
+        )
+        assert exercise is not None, "� ����������� ��� ���������� � ��������� ������"
+        expected_key = to_system_key(exercise.main_muscle_group)
+    
+        await _make_finished_session_with_sets(
+            db,
+            test_user.id,
+            exercise.id,
+            [{"weight": 100, "reps": 8}, {"weight": 100, "reps": 8}],
+        )
+        await db.commit()
+    
+        report = await compute_readiness(db, test_user.id)
+    
+        assert report.muscular, "������ �� ������� �� ����� �������� ������"
+        # �������: ���� � ���������, � ����� ������� ��� ����� ������ �� �����������.
+        assert expected_key in report.muscular, (
+            f"������� ��������� ���� {expected_key!r}, �������� {list(report.muscular)}"
+        )
+>       assert exercise.main_muscle_group not in report.muscular, (
+            f"����� ������� ��� {exercise.main_muscle_group!r} ����������� � �����"
+        )
+E       AssertionError: ����� ������� ��� 'chest' ����������� � �����
+E       assert 'chest' not in {'chest': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=1.6980324074074074e-07), 'triceps': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=1.6980324074074074e-07)}
+E        +  where 'chest' = <api.services.models.Exercise object at 0x000001775A9F1850>.main_muscle_group
+E        +  and   {'chest': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=1.6980324074074074e-07), 'triceps': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=1.6980324074074074e-07)} = ReadinessReport(model_version='fatigue-v0.2-gym-1', computed_at=datetime.datetime(2026, 10, 16, 4, 18, 2, 274614, tzin...n=Progression(ratio=None, wow_change_pct=None, chronic_level=0.0, flag='ok'), effort_labeled_pct=0.0, imported_pct=0.0).muscular
+
+tests\integration\test_p001_integrity.py:626: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+________________________ test_wipe_keeps_completed_day ________________________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775AA37CB0>
+test_user = <api.services.models.AppUser object at 0x000001775A86FE30>
+active_block = <api.services.models.TrainingBlock object at 0x000001775A362CF0>
+
+    async def test_wipe_keeps_completed_day(db, test_user, active_block):
+        today = utc_today()
+        done = await _day(db, test_user.id, active_block.id, today, status="completed")
+        plain = await _day(db, test_user.id, active_block.id, today + timedelta(days=1))
+    
+        await _wipe_future_calendar(db, test_user.id, active_block, today)
+        await db.commit()
+    
+        survived = await _surviving_dates(db, test_user.id)
+        assert done.target_date in survived
+>       assert plain.target_date not in survived
+E       assert datetime.date(2026, 10, 17) not in {datetime.date(2026, 10, 16), datetime.date(2026, 10, 17)}
+E        +  where datetime.date(2026, 10, 17) = <api.services.models.UserCalendarDay object at 0x000001775A8F6850>.target_date
+
+tests\integration\test_regeneration_preserves_fact.py:54: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__________________ test_wipe_still_removes_untouched_future ___________________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001775AA8B470>
+test_user = <api.services.models.AppUser object at 0x000001775AABCF70>
+active_block = <api.services.models.TrainingBlock object at 0x000001775AAB4FC0>
+
+    async def test_wipe_still_removes_untouched_future(db, test_user, active_block):
+        today = utc_today()
+        for offset in range(1, 5):
+            await _day(db, test_user.id, active_block.id, today + timedelta(days=offset))
+    
+        await _wipe_future_calendar(db, test_user.id, active_block, today)
+        await db.commit()
+    
+>       assert await _surviving_dates(db, test_user.id) == set()
+E       assert {datetime.dat...2026, 10, 20)} == set()
+E         
+E         Extra items in the left set:
+E         datetime.date(2026, 10, 18)
+E         datetime.date(2026, 10, 19)
+E         datetime.date(2026, 10, 20)
+E         datetime.date(2026, 10, 17)
+E         Use -v to get more diff
+
+tests\integration\test_regeneration_preserves_fact.py:90: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+============================== warnings summary ===============================
+api\schemas\�nboarding.py:17
+  D:\Eurith\worktrees\p1-08-backend\api\schemas\�nboarding.py:17: PydanticDeprecatedSince20: Pydantic V1 style `@root_validator` validators are deprecated. You should migrate to Pydantic V2 style `@model_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @root_validator(pre=False, skip_on_failure=True)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: 11 warnings
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/integration/test_account_lifecycle.py::test_naive_cascade_would_have_failed
+FAILED tests/integration/test_p001_integrity.py::test_load_exercise_stats_computes_sessions_e1rm_median
+FAILED tests/integration/test_p001_integrity.py::test_analytics_history_excludes_anomalous
+FAILED tests/integration/test_p001_integrity.py::test_add_exercise_populates_recommended_weight_with_basis
+FAILED tests/integration/test_p001_integrity.py::test_add_exercise_recommended_weight_null_without_basis
+FAILED tests/integration/test_p001_integrity.py::test_readiness_muscle_keys_are_system_keys_not_russian
+FAILED tests/integration/test_regeneration_preserves_fact.py::test_wipe_keeps_completed_day
+FAILED tests/integration/test_regeneration_preserves_fact.py::test_wipe_still_removes_untouched_future
+8 failed, 11 passed, 15 warnings in 38.09s

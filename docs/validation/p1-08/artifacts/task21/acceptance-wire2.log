@@ -1,0 +1,193 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_____________ test_mobile_serializer_canonical_ack_restart_replay _____________
+
+fut = <coroutine object Process.communicate at 0x000001B40FD9E6B0>
+timeout = 100
+
+    async def wait_for(fut, timeout):
+        """Wait for the single Future or coroutine to complete, with timeout.
+    
+        Coroutine will be wrapped in Task.
+    
+        Returns result of the Future or coroutine.  When a timeout occurs,
+        it cancels the task and raises TimeoutError.  To avoid the task
+        cancellation, wrap it in shield().
+    
+        If the wait is cancelled, the task is also cancelled.
+    
+        If the task suppresses the cancellation and returns a value instead,
+        that value is returned.
+    
+        This function is a coroutine.
+        """
+        # The special case for timeout <= 0 is for the following case:
+        #
+        # async def test_waitfor():
+        #     func_started = False
+        #
+        #     async def func():
+        #         nonlocal func_started
+        #         func_started = True
+        #
+        #     try:
+        #         await asyncio.wait_for(func(), 0)
+        #     except asyncio.TimeoutError:
+        #         assert not func_started
+        #     else:
+        #         assert False
+        #
+        # asyncio.run(test_waitfor())
+    
+    
+        if timeout is not None and timeout <= 0:
+            fut = ensure_future(fut)
+    
+            if fut.done():
+                return fut.result()
+    
+            await _cancel_and_wait(fut)
+            try:
+                return fut.result()
+            except exceptions.CancelledError as exc:
+                raise TimeoutError from exc
+    
+        async with timeouts.timeout(timeout):
+>           return await fut
+                   ^^^^^^^^^
+
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\tasks.py:507: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\subprocess.py:201: in communicate
+    stdin, stdout, stderr = await tasks.gather(stdin, stdout, stderr)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\subprocess.py:181: in _read_stream
+    output = await stream.read()
+             ^^^^^^^^^^^^^^^^^^^
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\streams.py:723: in read
+    block = await self.read(self._limit)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\streams.py:730: in read
+    await self._wait_for_data('read')
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <StreamReader transport=<_ProactorReadPipeTransport fd=836 read=<_OverlappedFuture pending cb=[_ProactorReadPipeTransport._loop_reading()]>>>
+func_name = 'read'
+
+    async def _wait_for_data(self, func_name):
+        """Wait until feed_data() or feed_eof() is called.
+    
+        If stream was paused, automatically resume it.
+        """
+        # StreamReader uses a future to link the protocol feed_data() method
+        # to a read coroutine. Running two read coroutines at the same time
+        # would have an unexpected behaviour. It would not possible to know
+        # which coroutine would get the next data.
+        if self._waiter is not None:
+            raise RuntimeError(
+                f'{func_name}() called while another coroutine is '
+                f'already waiting for incoming data')
+    
+        assert not self._eof, '_wait_for_data after EOF'
+    
+        # Waiting for data while paused will make deadlock, so prevent it.
+        # This is essential for readexactly(n) for case when n > self._limit.
+        if self._paused:
+            self._paused = False
+            self._transport.resume_reading()
+    
+        self._waiter = self._loop.create_future()
+        try:
+>           await self._waiter
+E           asyncio.exceptions.CancelledError
+
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\streams.py:539: CancelledError
+
+The above exception was the direct cause of the following exception:
+
+client = <httpx.AsyncClient object at 0x000001B40FA52270>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001B40F95FB10>
+test_user = <api.services.models.AppUser object at 0x000001B40F95F750>
+fresh_exercise = <api.services.models.Exercise object at 0x000001B40FA52900>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001B40FC1DA50>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/task21-wire2/test_mobile_serializer_canonic0')
+
+    async def test_mobile_serializer_canonical_ack_restart_replay(client, db, test_user, fresh_exercise, monkeypatch, tmp_path):
+        import uvicorn
+        mobile = Path(os.environ.get('P108_MOBILE_ROOT', '../p1-08-mobile')).resolve()
+        assert (mobile/'src/offline/__tests__/analyticsHttpAcceptance.test.ts').is_file(), 'Set P108_MOBILE_ROOT to the matching mobile checkout'
+        monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+        sock = socket.socket(); sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(app, log_level='warning', lifespan='off'))
+        server.install_signal_handlers = lambda: None
+        serving = asyncio.create_task(server.serve(sockets=[sock]))
+        exchange = tmp_path/'exchange.json'
+        try:
+            for _ in range(100):
+                if server.started: break
+                await asyncio.sleep(.05)
+            assert server.started
+            env = dict(os.environ, P108_QA_HTTP=f'http://127.0.0.1:{port}', P108_QA_UID=test_user.firebase_uid,
+                       P108_QA_EXERCISE=str(fresh_exercise.id), P108_QA_EXCHANGE=str(exchange))
+            process = await asyncio.create_subprocess_exec('node', 'node_modules/jest/bin/jest.js', '--runInBand',
+                '--runTestsByPath', 'src/offline/__tests__/analyticsHttpAcceptance.test.ts', cwd=mobile,
+                env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+>           output, _ = await asyncio.wait_for(process.communicate(), 100)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\integration\test_p108_acceptance.py:49: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\tasks.py:506: in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <Timeout [expired]>
+exc_type = <class 'asyncio.exceptions.CancelledError'>
+exc_val = CancelledError(), exc_tb = <traceback object at 0x000001B40FE40F40>
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        assert self._state in (_State.ENTERED, _State.EXPIRING)
+    
+        if self._timeout_handler is not None:
+            self._timeout_handler.cancel()
+            self._timeout_handler = None
+    
+        if self._state is _State.EXPIRING:
+            self._state = _State.EXPIRED
+    
+            if self._task.uncancel() <= self._cancelling and exc_type is not None:
+                # Since there are no new cancel requests, we're
+                # handling this.
+                if issubclass(exc_type, exceptions.CancelledError):
+>                   raise TimeoutError from exc_val
+E                   TimeoutError
+
+C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\timeouts.py:116: TimeoutError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+============================== warnings summary ===============================
+api\schemas\�nboarding.py:17
+  D:\Eurith\worktrees\p1-08-backend\api\schemas\�nboarding.py:17: PydanticDeprecatedSince20: Pydantic V1 style `@root_validator` validators are deprecated. You should migrate to Pydantic V2 style `@model_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @root_validator(pre=False, skip_on_failure=True)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: 11 warnings
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/integration/test_p108_acceptance.py::test_mobile_serializer_canonical_ack_restart_replay
+1 failed, 15 warnings in 103.35s (0:01:43)

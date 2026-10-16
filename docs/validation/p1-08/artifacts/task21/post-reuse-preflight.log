@@ -1,0 +1,17 @@
+Waiting for isolated backend suite before post-reuse bounded timing.
+Fixture ready: 10000 selected sets / 100 workouts / one exercise
+Warmup 10000/1/legacy: 556.6 ms; 107 SELECTs; 259312 bytes
+Measured 10000/1/legacy: 1 requests
+Warmup 10000/1/exercise: 1847.8 ms; 12 SELECTs; 5143130 bytes
+Measured 10000/1/exercise: 1 requests
+Warmup 10000/1/comparison: 3735.2 ms; 18 SELECTs; 10252545 bytes
+Measured 10000/1/comparison: 1 requests
+Retained synthetic fixture owner id 7 for local inspection
+Fixture ready: 100000 selected sets / 100 workouts / one exercise
+Warmup 100000/1/legacy: 7142.3 ms; 107 SELECTs; 2509412 bytes
+Measured 100000/1/legacy: 1 requests
+Warmup 100000/1/exercise: 27752.5 ms; 12 SELECTs; 50415551 bytes
+Measured 100000/1/exercise: 1 requests
+Warmup 100000/1/comparison: 36709.8 ms; 18 SELECTs; 100797462 bytes
+Measured 100000/1/comparison: 1 requests
+Retained synthetic fixture owner id 8 for local inspection

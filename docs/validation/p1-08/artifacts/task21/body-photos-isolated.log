@@ -1,0 +1,261 @@
+FFFF.FFFFFF..                                                            [100%]
+================================== FAILURES ===================================
+_________________ test_owner_can_upload_list_read_and_delete __________________
+
+client = <httpx.AsyncClient object at 0x000002394477A120>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000002394467F610>
+test_user = <api.services.models.AppUser object at 0x000002394467F250>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_owner_can_upload_list_rea0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944780270>
+
+    @pytest.mark.asyncio
+    async def test_owner_can_upload_list_read_and_delete(client, db, test_user, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+    
+        created = await client.post("/body/photos", **_payload())
+>       assert created.status_code == 201, created.text
+E       AssertionError: {"detail":"��������� ��������� ���� ����������"}
+E       assert 503 == 201
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests\integration\test_body_photos.py:40: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+_______________________ test_upload_uuid_is_idempotent ________________________
+
+client = <httpx.AsyncClient object at 0x0000023944A5F390>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_upload_uuid_is_idempotent0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944A30E50>
+
+    @pytest.mark.asyncio
+    async def test_upload_uuid_is_idempotent(client, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+        key = uuid.uuid4().hex
+        first = await client.post("/body/photos", **_payload(key))
+        second = await client.post("/body/photos", **_payload(key))
+>       assert first.status_code == 201
+E       assert 503 == 201
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests\integration\test_body_photos.py:73: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+____________ test_parallel_upload_same_uuid_keeps_one_object_pair _____________
+
+client = <httpx.AsyncClient object at 0x0000023944B19810>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x0000023944A86150>
+test_user = <api.services.models.AppUser object at 0x0000023944A86350>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_parallel_upload_same_uuid0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002394472F490>
+
+    @pytest.mark.asyncio
+    async def test_parallel_upload_same_uuid_keeps_one_object_pair(client, db, test_user, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+        key = uuid.uuid4().hex
+        responses = await asyncio.gather(
+            client.post("/body/photos", **_payload(key)),
+            client.post("/body/photos", **_payload(key)),
+        )
+>       assert sorted(response.status_code for response in responses) == [200, 201]
+E       assert [503, 503] == [200, 201]
+E         
+E         At index 0 diff: 503 != 200
+E         Use -v to get more diff
+
+tests\integration\test_body_photos.py:89: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________________ test_other_users_photo_is_not_revealed ____________________
+
+client = <httpx.AsyncClient object at 0x0000023944AB1E00>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x0000023944BD2750>
+test_user = <api.services.models.AppUser object at 0x0000023944B22C10>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_other_users_photo_is_not_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944B55550>
+
+    @pytest.mark.asyncio
+    async def test_other_users_photo_is_not_revealed(client, db, test_user, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+        other = AppUser(firebase_uid=uuid.uuid4().hex, email=f"{uuid.uuid4().hex}@example.com")
+        db.add(other)
+        await db.flush()
+        photo = BodyProgressPhoto(
+            app_user_id=other.id, taken_on=date.today(), angle="front",
+            storage_key=f"{other.id}/{uuid.uuid4().hex}/full.jpg",
+            thumbnail_key=f"{other.id}/{uuid.uuid4().hex}/thumb.jpg",
+            mime_type="image/jpeg", byte_size=3, width=1, height=1, state="active",
+        )
+        db.add(photo)
+        await db.commit()
+        try:
+>           assert (await client.get("/body/photos")).json()["items"] == []
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'items'
+
+tests\integration\test_body_photos.py:113: KeyError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+________________ test_photo_list_has_stable_cursor_pagination _________________
+
+client = <httpx.AsyncClient object at 0x0000023944BB7890>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_photo_list_has_stable_cur0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944B16D60>
+
+    @pytest.mark.asyncio
+    async def test_photo_list_has_stable_cursor_pagination(client, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+        ids = set()
+        for _ in range(3):
+            response = await client.post("/body/photos", **_payload())
+>           assert response.status_code == 201
+E           assert 503 == 201
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests\integration\test_body_photos.py:138: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+______________ test_comparison_uses_explicit_dates_and_calendar _______________
+
+client = <httpx.AsyncClient object at 0x0000023944B778A0>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x0000023944BF1710>
+test_user = <api.services.models.AppUser object at 0x0000023944B59D90>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_comparison_uses_explicit_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944BF2EB0>
+
+    @pytest.mark.asyncio
+    async def test_comparison_uses_explicit_dates_and_calendar(client, db, test_user, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+        before_day = date.today() - timedelta(days=20)
+        after_day = before_day + timedelta(days=14)
+        photo_ids = []
+        for day in (before_day, after_day):
+            payload = _payload()
+            payload["data"]["taken_on"] = day.isoformat()
+            response = await client.post("/body/photos", **payload)
+>           assert response.status_code == 201
+E           assert 503 == 201
+E            +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests\integration\test_body_photos.py:163: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+_____________ test_delete_failure_hides_photo_and_retry_cleans_it _____________
+
+client = <httpx.AsyncClient object at 0x0000023944B757B0>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x0000023944C17AD0>
+test_user = <api.services.models.AppUser object at 0x0000023944913DD0>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_delete_failure_hides_phot0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944B17E00>
+
+    @pytest.mark.asyncio
+    async def test_delete_failure_hides_photo_and_retry_cleans_it(client, db, test_user, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+>       photo_id = (await client.post("/body/photos", **_payload())).json()["id"]
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'id'
+
+tests\integration\test_body_photos.py:194: KeyError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+____________ test_account_purge_removes_private_photos_and_summary ____________
+
+client = <httpx.AsyncClient object at 0x0000023944A86A50>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x0000023944B11BB0>
+test_user = <api.services.models.AppUser object at 0x0000023942FEA390>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_account_purge_removes_pri0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944B17930>
+
+    @pytest.mark.asyncio
+    async def test_account_purge_removes_private_photos_and_summary(client, db, test_user, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+>       assert (await client.post("/body/photos", **_payload())).status_code == 201
+E       assert 503 == 201
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests\integration\test_body_photos.py:215: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+____________ test_invalid_upload_rejected_before_any_private_file _____________
+
+client = <httpx.AsyncClient object at 0x0000023944A85850>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_invalid_upload_rejected_b0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944BF17F0>
+
+    @pytest.mark.asyncio
+    async def test_invalid_upload_rejected_before_any_private_file(client, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+        invalid = _payload()
+        invalid["files"] = {"file": ("bad.jpg", b"not a photo", "image/jpeg")}
+>       assert (await client.post("/body/photos", **invalid)).status_code == 400
+E       assert 503 == 400
+E        +  where 503 = <Response [503 Service Unavailable]>.status_code
+
+tests\integration\test_body_photos.py:235: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+____________________ test_comparison_rejects_foreign_photo ____________________
+
+client = <httpx.AsyncClient object at 0x0000023944B60230>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x0000023944B11E50>
+test_user = <api.services.models.AppUser object at 0x0000023944B59C10>
+tmp_path = WindowsPath('D:/Eurith/worktrees/p1-08-backend/.pytest_tmp/current-photos/test_comparison_rejects_foreig0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000023944BF3E00>
+
+    @pytest.mark.asyncio
+    async def test_comparison_rejects_foreign_photo(client, db, test_user, tmp_path, monkeypatch):
+        root = tmp_path / "private"
+        root.mkdir()
+        monkeypatch.setenv("BODY_PHOTO_ROOT", str(root))
+>       own = (await client.post("/body/photos", **_payload())).json()["id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'id'
+
+tests\integration\test_body_photos.py:247: KeyError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+============================== warnings summary ===============================
+api\schemas\�nboarding.py:17
+  D:\Eurith\worktrees\p1-08-backend\api\schemas\�nboarding.py:17: PydanticDeprecatedSince20: Pydantic V1 style `@root_validator` validators are deprecated. You should migrate to Pydantic V2 style `@model_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @root_validator(pre=False, skip_on_failure=True)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: 11 warnings
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/integration/test_body_photos.py::test_owner_can_upload_list_read_and_delete
+FAILED tests/integration/test_body_photos.py::test_upload_uuid_is_idempotent
+FAILED tests/integration/test_body_photos.py::test_parallel_upload_same_uuid_keeps_one_object_pair
+FAILED tests/integration/test_body_photos.py::test_other_users_photo_is_not_revealed
+FAILED tests/integration/test_body_photos.py::test_photo_list_has_stable_cursor_pagination
+FAILED tests/integration/test_body_photos.py::test_comparison_uses_explicit_dates_and_calendar
+FAILED tests/integration/test_body_photos.py::test_delete_failure_hides_photo_and_retry_cleans_it
+FAILED tests/integration/test_body_photos.py::test_account_purge_removes_private_photos_and_summary
+FAILED tests/integration/test_body_photos.py::test_invalid_upload_rejected_before_any_private_file
+FAILED tests/integration/test_body_photos.py::test_comparison_rejects_foreign_photo
+10 failed, 3 passed, 15 warnings in 9.72s

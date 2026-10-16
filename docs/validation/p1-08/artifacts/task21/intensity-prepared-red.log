@@ -1,0 +1,20 @@
+F........                                                                [100%]
+================================== FAILURES ===================================
+_ test_prepared_reference_reuses_admission_and_matches_independent_summaries __
+
+weighted_90_60 = [NormalizedSetFact(workout_id=1, exercise_id=101, exercise_instance_id=1, set_id=1, set_number=1, exercise_order=1, st...t_basis":"full","model":"barbell","model_id":null,"rep_basis":null,"schema_version":1}', unavailable=(), e1rm_reps=12)]
+reference = [NormalizedSetFact(workout_id=2, exercise_id=101, exercise_instance_id=1, set_id=3, set_number=1, exercise_order=1, st...ut_basis":"full","model":"barbell","model_id":null,"rep_basis":null,"schema_version":1}', unavailable=(), e1rm_reps=1)]
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001B2D2E24E90>
+
+    def test_prepared_reference_reuses_admission_and_matches_independent_summaries(weighted_90_60, reference, monkeypatch):
+        from api.services.analytics import intensity
+        prepare = getattr(intensity, 'prepare_intensity', None)
+>       assert callable(prepare), 'Shared point/observation intensity must prepare historical candidates once'
+E       AssertionError: Shared point/observation intensity must prepare historical candidates once
+E       assert False
+E        +  where False = callable(None)
+
+tests\analytics\test_intensity.py:13: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/analytics/test_intensity.py::test_prepared_reference_reuses_admission_and_matches_independent_summaries
+1 failed, 8 passed in 2.19s

@@ -1,0 +1,1059 @@
+........................................................................ [  5%]
+........................................................................ [ 11%]
+.........................F.........EEEE.EEEEEE.......................... [ 17%]
+........................................................................ [ 23%]
+........................................................................ [ 29%]
+........................................................................ [ 35%]
+...........................................F........FFFF................ [ 41%]
+........................................................................ [ 47%]
+........................................................................ [ 53%]
+........................................................................ [ 59%]
+........................................................................ [ 65%]
+........................................................................ [ 71%]
+........................................................................ [ 77%]
+F..F.................................................................... [ 83%]
+.....E..............F................................................... [ 88%]
+........................................................................ [ 94%]
+..............................................................           [100%]
+=================================== ERRORS ====================================
+________ ERROR at setup of test_owner_can_upload_list_read_and_delete _________
+
+self = <Coroutine test_owner_can_upload_list_read_and_delete>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_owner_can_upload_list_read_and_delete>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+______________ ERROR at setup of test_upload_uuid_is_idempotent _______________
+
+self = <Coroutine test_upload_uuid_is_idempotent>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_upload_uuid_is_idempotent>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___ ERROR at setup of test_parallel_upload_same_uuid_keeps_one_object_pair ____
+
+self = <Coroutine test_parallel_upload_same_uuid_keeps_one_object_pair>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_parallel_upload_same_uuid_keeps_one_object_pair>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__________ ERROR at setup of test_other_users_photo_is_not_revealed ___________
+
+self = <Coroutine test_other_users_photo_is_not_revealed>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_other_users_photo_is_not_revealed>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+_______ ERROR at setup of test_photo_list_has_stable_cursor_pagination ________
+
+self = <Coroutine test_photo_list_has_stable_cursor_pagination>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_photo_list_has_stable_cursor_pagination>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+_____ ERROR at setup of test_comparison_uses_explicit_dates_and_calendar ______
+
+self = <Coroutine test_comparison_uses_explicit_dates_and_calendar>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_comparison_uses_explicit_dates_and_calendar>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+____ ERROR at setup of test_delete_failure_hides_photo_and_retry_cleans_it ____
+
+self = <Coroutine test_delete_failure_hides_photo_and_retry_cleans_it>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_delete_failure_hides_photo_and_retry_cleans_it>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___ ERROR at setup of test_account_purge_removes_private_photos_and_summary ___
+
+self = <Coroutine test_account_purge_removes_private_photos_and_summary>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_account_purge_removes_private_photos_and_summary>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___ ERROR at setup of test_invalid_upload_rejected_before_any_private_file ____
+
+self = <Coroutine test_invalid_upload_rejected_before_any_private_file>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_invalid_upload_rejected_before_any_private_file>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________ ERROR at setup of test_comparison_rejects_foreign_photo ___________
+
+self = <Coroutine test_comparison_rejects_foreign_photo>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:458: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = <FixtureDef argname='tmp_path' scope='function' baseid=''>
+request = <SubRequest 'tmp_path' for <Coroutine test_comparison_rejects_foreign_photo>>
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -> object | None:
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+>               return (yield)
+                        ^^^^^
+E               PermissionError: [WinError 5] �������� � �������: 'C:\\Users\\Admin\\AppData\\Local\\Temp\\pytest-of-Admin'
+
+..\..\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:730: PermissionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__ ERROR at setup of test_sync_deletion_and_reorder_with_unique_order_index ___
+
+self = <sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_cursor object at 0x00000188185CE740>
+operation = 'CREATE UNIQUE INDEX IF NOT EXISTS ux_workout_session_exercises_session_order ON workout_session_exercises (workout_session_id, order_index)'
+parameters = ()
+
+    async def _prepare_and_execute(self, operation, parameters):
+        adapt_connection = self._adapt_connection
+    
+        async with adapt_connection._execute_mutex:
+            if not adapt_connection._started:
+                await adapt_connection._start_transaction()
+    
+            if parameters is None:
+                parameters = ()
+    
+            try:
+                prepared_stmt, attributes = await adapt_connection._prepare(
+                    operation, self._invalidate_schema_cache_asof
+                )
+    
+                if attributes:
+                    self.description = [
+                        (
+                            attr.name,
+                            attr.type.oid,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                        for attr in attributes
+                    ]
+                else:
+                    self.description = None
+    
+                if self.server_side:
+                    self._cursor = await prepared_stmt.cursor(*parameters)
+                    self.rowcount = -1
+                else:
+>                   self._rows = deque(await prepared_stmt.fetch(*parameters))
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:550: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\backend\.venv\Lib\site-packages\asyncpg\prepared_stmt.py:177: in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\backend\.venv\Lib\site-packages\asyncpg\prepared_stmt.py:268: in __bind_execute
+    data, status, _ = await self.__do_execute(
+..\..\backend\.venv\Lib\site-packages\asyncpg\prepared_stmt.py:257: in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E   asyncpg.exceptions.UniqueViolationError: could not create unique index "ux_workout_session_exercises_session_order"
+E   DETAIL:  Key (workout_session_id, order_index)=(2150, 0) is duplicated.
+
+asyncpg/protocol/protocol.pyx:205: UniqueViolationError
+
+The above exception was the direct cause of the following exception:
+
+self = <sqlalchemy.engine.base.Connection object at 0x0000018818248890>
+dialect = <sqlalchemy.dialects.postgresql.asyncpg.PGDialect_asyncpg object at 0x0000018810BB0830>
+context = <sqlalchemy.dialects.postgresql.asyncpg.PGExecutionContext_asyncpg object at 0x0000018817F92D50>
+statement = <sqlalchemy.dialects.postgresql.asyncpg.PGCompiler_asyncpg object at 0x00000188185C8E10>
+parameters = [()]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py:951: in do_execute
+    cursor.execute(statement, parameters)
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x000001881802E7B0>>
+error = UniqueViolationError('could not create unique index "ux_workout_session_exercises_session_order"')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.IntegrityError: <class 'asyncpg.exceptions.UniqueViolationError'>: could not create unique index "ux_workout_session_exercises_session_order"
+E                   DETAIL:  Key (workout_session_id, order_index)=(2150, 0) is duplicated.
+
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:797: IntegrityError
+
+The above exception was the direct cause of the following exception:
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x00000188185CC4D0>
+
+    @pytest_asyncio.fixture
+    async def production_order_index(db):
+        # Production has this legacy index even though it is not declared by the ORM.
+>       await db.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "ux_workout_session_exercises_session_order "
+            "ON workout_session_exercises (workout_session_id, order_index)"
+        ))
+
+tests\integration\test_sync_exercise_order.py:18: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py:449: in execute
+    result = await greenlet_spawn(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:201: in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py:2351: in execute
+    return self._execute_internal(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py:2258: in _execute_internal
+    result = conn.execute(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1419: in execute
+    return meth(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1641: in _execute_clauseelement
+    ret = self._execute_context(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1846: in _execute_context
+    return self._exec_single_context(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1986: in _exec_single_context
+    self._handle_dbapi_exception(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:2355: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py:1967: in _exec_single_context
+    self.dialect.do_execute(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py:951: in do_execute
+    cursor.execute(statement, parameters)
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x000001881802E7B0>>
+error = UniqueViolationError('could not create unique index "ux_workout_session_exercises_session_order"')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.exc.IntegrityError: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.UniqueViolationError'>: could not create unique index "ux_workout_session_exercises_session_order"
+E                   DETAIL:  Key (workout_session_id, order_index)=(2150, 0) is duplicated.
+E                   [SQL: CREATE UNIQUE INDEX IF NOT EXISTS ux_workout_session_exercises_session_order ON workout_session_exercises (workout_session_id, order_index)]
+E                   (Background on this error at: https://sqlalche.me/e/20/gkpj)
+
+..\..\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:797: IntegrityError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+================================== FAILURES ===================================
+____________________ test_naive_cascade_would_have_failed _____________________
+
+client = <httpx.AsyncClient object at 0x0000018814BB8690>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x00000188147027A0>
+test_user = <api.services.models.AppUser object at 0x0000018814BD1B50>
+
+    async def test_naive_cascade_would_have_failed(client, db, test_user):
+        """�������������, ������ purge_user ������� �������.
+    
+        ������ DELETE FROM app_users ������: ����������� workout_session_exercises
+        ������ ��������� ���������� ����� ON DELETE RESTRICT.
+        """
+        await _seed_workout(client)
+        user_id = test_user.id
+    
+        # ��������� ����� ��, ��� ������ ������: ������ ������ ����������.
+        await db.execute(
+            text("DELETE FROM workout_sessions WHERE app_user_id = :uid"),
+            {"uid": user_id},
+        )
+        await db.commit()
+    
+        orphans = await db.scalar(
+            text(
+                "SELECT count(*) FROM workout_session_exercises e "
+                "WHERE NOT EXISTS (SELECT 1 FROM workout_sessions s WHERE s.id = e.workout_session_id) "
+                "AND e.exercise_id IN (SELECT id FROM exercises WHERE app_user_id = :uid)"
+            ),
+            {"uid": user_id},
+        )
+        # ������ ������������� �������� � FK �� workout_sessions � �� ���.
+>       assert orphans >= 1
+E       assert 0 >= 1
+
+tests\integration\test_account_lifecycle.py:158: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________ test_load_exercise_stats_computes_sessions_e1rm_median ____________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001881687AD50>
+test_user = <api.services.models.AppUser object at 0x00000188179C47E0>
+
+    async def test_load_exercise_stats_computes_sessions_e1rm_median(db, test_user):
+        """sessions/best_e1rm/median_weight_kg ��������� �� ������� normal-��������;
+        warmup � ��� ���������� �������� ����������� � ����� ���� ������
+        ��������� �� �������������� ������� ��� ��������� ��������."""
+        exercise = await _get_catalog_exercise(db)
+    
+        # ������ 1: ������� ������ (100��/10) + ���������� (999��), ������� ������
+        # ���� �������� (����� ��������� ������� �� � e1rm, � �������).
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 100, "reps": 10},
+                {"weight": 999, "reps": 10, "is_anomalous": True},
+            ],
+        )
+        # ������ 2: ������� ������ (120��/8, ��� ������ e1rm=152) + ��������
+        # (200��/20), ������� ���� ������� ���� ���������.
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 120, "reps": 8},
+                {"weight": 200, "reps": 20, "set_type": "warmup"},
+            ],
+        )
+        # ������ 3: ������� ������ (110��/5).
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 110, "reps": 5},
+            ],
+        )
+        await db.commit()
+    
+        stats = await load_exercise_stats(db, test_user.id, exercise.id)
+    
+        assert stats.sessions == 3
+        # best_e1rm = max(100*(1+10/30), 120*(1+8/30), 110*(1+5/30)) = 152.0 (������ 2).
+        # ���� �� ��������/�������� �� �����������, �������� ���� �� � 999 ��� 200 ��.
+>       assert stats.best_e1rm == pytest.approx(152.0)
+E       assert 147.73732960138994 == 152.0 � 1.5e-04
+E         
+E         comparison failed
+E         Obtained: 147.73732960138994
+E         Expected: 152.0 � 1.5e-04
+
+tests\integration\test_p001_integrity.py:153: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__________________ test_analytics_history_excludes_anomalous __________________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x00000188163B10D0>
+test_user = <api.services.models.AppUser object at 0x000001881673C520>
+
+    async def test_analytics_history_excludes_anomalous(db, test_user):
+        """get_exercise_analytics_history �� ������ �������� ���������� ������� �
+        ������ e1RM/������ (����� �5.3): ��� ���������� ����� � e1rm �� ���� ���� ��
+        �������� ��������� �����."""
+        exercise = await _get_catalog_exercise(db)
+    
+        session = await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 100, "reps": 10},
+                {"weight": ABSURD_BUT_SCHEMA_VALID_WEIGHT, "reps": 5, "is_anomalous": True},
+            ],
+        )
+        session.finished_at = datetime.now(timezone.utc)
+        await db.commit()
+    
+        history = await ExerciseSearchService.get_exercise_analytics_history(
+            db, test_user.id, exercise.id
+        )
+    
+>       assert history is not None
+E       assert None is not None
+
+tests\integration\test_p001_integrity.py:504: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__________ test_add_exercise_populates_recommended_weight_with_basis __________
+
+client = <httpx.AsyncClient object at 0x0000018814B29C10>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001881647A7B0>
+test_user = <api.services.models.AppUser object at 0x0000018816399E90>
+
+    async def test_add_exercise_populates_recommended_weight_with_basis(client, db, test_user):
+        """POST /workouts/{id}/exercises ������ ���������� � ���������
+        recommended_weight, ���� � ������������ ��� ���� ����������� ���������� �
+        ���� ����������� (���� ��� ��������������)."""
+        exercise = await _get_catalog_exercise(db)
+    
+        # ����������� ������ � �������� ��������� � ���� ��� ��������������.
+        await _make_finished_session_with_sets(
+            db, test_user.id, exercise.id,
+            [
+                {"weight": 100, "reps": 10},
+                {"weight": 105, "reps": 8},
+            ],
+        )
+    
+        workout = await _make_active_session(db, test_user.id)
+        workout_id = workout.id
+        await db.commit()
+    
+        resp = await client.post(
+            f"/workouts/{workout_id}/exercises",
+            json={"exercise_id": exercise.id},
+        )
+>       assert resp.status_code == 200, resp.text
+E       AssertionError: {"detail":"Exercise not found"}
+E       assert 404 == 200
+E        +  where 404 = <Response [404 Not Found]>.status_code
+
+tests\integration\test_p001_integrity.py:541: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________ test_add_exercise_recommended_weight_null_without_basis ___________
+
+client = <httpx.AsyncClient object at 0x000001880E61E510>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x00000188161FADB0>
+test_user = <api.services.models.AppUser object at 0x00000188163981B0>
+
+    async def test_add_exercise_recommended_weight_null_without_basis(client, db, test_user):
+        """��� ���������� ����������� ���������� � ���� ����������� ���� ���
+        �������������� ��� � recommended_weight ������ �������� null (�� 0 � ��
+        ���������� ��������)."""
+        exercise = await _get_catalog_exercise(db)
+    
+        workout = await _make_active_session(db, test_user.id)
+        workout_id = workout.id
+        await db.commit()
+    
+        resp = await client.post(
+            f"/workouts/{workout_id}/exercises",
+            json={"exercise_id": exercise.id},
+        )
+>       assert resp.status_code == 200, resp.text
+E       AssertionError: {"detail":"Exercise not found"}
+E       assert 404 == 200
+E        +  where 404 = <Response [404 Not Found]>.status_code
+
+tests\integration\test_p001_integrity.py:572: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+___________ test_readiness_muscle_keys_are_system_keys_not_russian ____________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x00000188167AB2F0>
+test_user = <api.services.models.AppUser object at 0x00000188179C60A0>
+
+    async def test_readiness_muscle_keys_are_system_keys_not_russian(db, test_user):
+        """Exercise.main_muscle_group �������� ��-������, �� ������ ������ �������
+        ���������� ���������� �������: �� ��� ������ ������ ����� ����.
+    
+        ���������: ������ ����� ������� �������� (������� ������ �chest�), ����������
+        ������� �� ������� ���������� � ��� ����� ���������� �����.
+        """
+        from api.services.fatigue.service import compute_readiness
+        from api.services.muscle_keys import to_system_key
+    
+        # ���� ���������� � �������������� ��������� ������ ������.
+        exercises = (await db.execute(select(Exercise).limit(200))).scalars().all()
+        exercise = next(
+            (e for e in exercises if to_system_key(e.main_muscle_group) is not None),
+            None,
+        )
+        assert exercise is not None, "� ����������� ��� ���������� � ��������� ������"
+        expected_key = to_system_key(exercise.main_muscle_group)
+    
+        await _make_finished_session_with_sets(
+            db,
+            test_user.id,
+            exercise.id,
+            [{"weight": 100, "reps": 8}, {"weight": 100, "reps": 8}],
+        )
+        await db.commit()
+    
+        report = await compute_readiness(db, test_user.id)
+    
+        assert report.muscular, "������ �� ������� �� ����� �������� ������"
+        # �������: ���� � ���������, � ����� ������� ��� ����� ������ �� �����������.
+        assert expected_key in report.muscular, (
+            f"������� ��������� ���� {expected_key!r}, �������� {list(report.muscular)}"
+        )
+>       assert exercise.main_muscle_group not in report.muscular, (
+            f"����� ������� ��� {exercise.main_muscle_group!r} ����������� � �����"
+        )
+E       AssertionError: ����� ������� ��� 'chest' ����������� � �����
+E       assert 'chest' not in {'chest': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=9.462962962962962e-08), 'triceps': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=9.462962962962962e-08)}
+E        +  where 'chest' = <api.services.models.Exercise object at 0x0000018817A10F50>.main_muscle_group
+E        +  and   {'chest': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=9.462962962962962e-08), 'triceps': Readiness(z=None, band='unknown', recovery_hours=None, days_since_load=9.462962962962962e-08)} = ReadinessReport(model_version='fatigue-v0.2-gym-1', computed_at=datetime.datetime(2026, 10, 16, 3, 50, 46, 513821, tzi...n=Progression(ratio=None, wow_change_pct=None, chronic_level=0.0, flag='ok'), effort_labeled_pct=0.0, imported_pct=0.0).muscular
+
+tests\integration\test_p001_integrity.py:626: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+________________________ test_wipe_keeps_completed_day ________________________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x000001881685FA70>
+test_user = <api.services.models.AppUser object at 0x0000018818544050>
+active_block = <api.services.models.TrainingBlock object at 0x00000188166B3110>
+
+    async def test_wipe_keeps_completed_day(db, test_user, active_block):
+        today = utc_today()
+        done = await _day(db, test_user.id, active_block.id, today, status="completed")
+        plain = await _day(db, test_user.id, active_block.id, today + timedelta(days=1))
+    
+        await _wipe_future_calendar(db, test_user.id, active_block, today)
+        await db.commit()
+    
+        survived = await _surviving_dates(db, test_user.id)
+        assert done.target_date in survived
+>       assert plain.target_date not in survived
+E       assert datetime.date(2026, 10, 17) not in {datetime.date(2026, 10, 16), datetime.date(2026, 10, 17)}
+E        +  where datetime.date(2026, 10, 17) = <api.services.models.UserCalendarDay object at 0x000001881653DE10>.target_date
+
+tests\integration\test_regeneration_preserves_fact.py:54: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+__________________ test_wipe_still_removes_untouched_future ___________________
+
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x0000018817F11A90>
+test_user = <api.services.models.AppUser object at 0x00000188184CB8B0>
+active_block = <api.services.models.TrainingBlock object at 0x0000018817F6A6C0>
+
+    async def test_wipe_still_removes_untouched_future(db, test_user, active_block):
+        today = utc_today()
+        for offset in range(1, 5):
+            await _day(db, test_user.id, active_block.id, today + timedelta(days=offset))
+    
+        await _wipe_future_calendar(db, test_user.id, active_block, today)
+        await db.commit()
+    
+>       assert await _surviving_dates(db, test_user.id) == set()
+E       assert {datetime.dat...2026, 10, 20)} == set()
+E         
+E         Extra items in the left set:
+E         datetime.date(2026, 10, 18)
+E         datetime.date(2026, 10, 19)
+E         datetime.date(2026, 10, 17)
+E         datetime.date(2026, 10, 20)
+E         Use -v to get more diff
+
+tests\integration\test_regeneration_preserves_fact.py:90: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+______________ test_snapshot_rejects_invalid_refs[too_many_reps] ______________
+
+client = <httpx.AsyncClient object at 0x0000018816482D50>
+case = 'too_many_reps'
+
+    @pytest.mark.parametrize("case", ["version", "group", "duplicate_order", "negative_weight", "too_many_reps"])
+    async def test_snapshot_rejects_invalid_refs(client, case):
+        payload = await payload_fixture(client)
+        await push(client, payload)
+        exercise = payload["exercises"][0]
+        del exercise["warmup_group"]  # Validate against saved group too.
+        row = exercise["sets"][0]
+        if case == "version": row["warmup_snapshot"]["calculation_version"] = str(uuid4())
+        if case == "group": row["warmup_snapshot"]["group_id"] = str(uuid4())
+        if case == "duplicate_order": exercise["sets"][1]["warmup_snapshot"]["order"] = 1
+        if case == "negative_weight": row["weight"] = -1
+        if case == "too_many_reps": row["reps"] = 1001
+        response = await client.post("/sync/workouts", json=payload)
+>       assert response.status_code == 422, response.text
+E       AssertionError: {"deleted":false,"id_map":{"088373bd-d6a2-4b50-88a0-19106cd1a670":4869,"ex-088373bd-d6a2-4b50-88a0-19106cd1a670":8169,"e484f651-4e47-4a4c-b3f2-a25776cc7b51":34492,"44007303-0ff5-4525-a342-fce8c738f4a3":34493,"0c417fb6-063a-4d9d-80d5-4fc0481bf74c":34494},"sync_version":2,"workout":{"analytics_snapshot":null,"sync_version":2,"child_tombstones":{"sets":[],"exercises":[]},"id":4869,"client_uuid":"088373bd-d6a2-4b50-88a0-19106cd1a670","source":"free","status":"active","entry_mode":"live","revision":0,"edited_at":null,"split_day_id":null,"plan_id":null,"gym_profile_id":null,"gym_snapshot":null,"routine_id":null,"app_user_periodization_id":null,"periodization_week":null,"items":[],"notes":null,"session_rpe":null,"volume_targets":null,"started_at":"2026-10-16T04:06:05.834059Z","finished_at":null,"updated_at":"2026-10-16T04:06:05.989096Z","exercises":[{"analytics_load_defaults":null,"id":8169,"client_uuid":"ex-088373bd-d6a2-4b50-88a0-19106cd1a670","order_index":0,"superset_group":null,"notes":null,"active_load_mode":null,"active_setup_id":null,"warmup_group":{"id":"d5d981ca-91a8-4053-986f-dd684fbb1cf9","active_version":"8b764693-af2c-4edc-99bf-f4aa7682fd2f","versions":[{"version":"8b764693-af2c-4edc-99bf-f4aa7682fd2f","calculated_at":"2026-10-09T00:00:00Z","algorithm_version":1,"source":{"set_client_uuid":"d225539f-2339-4f5b-a1c1-4ed17872389c","weight_kg":80.0,"reps":8,"rir":2.0,"load_context":{"kind":"step","gym_profile_id":null,"setup_id":null,"load_mode":null,"loading_sides":1,"weight_basis":"displayed","base_weight_kg":null,"bar":null,"collar":null,"step":{"value":2.5,"unit":"kg"},"inventory":{"mode":"unlimited","items":[]}}},"source_e1rm_kg":106.6666667,"settings":{"count":3,"between_seconds":0,"before_work":{"mode":"working"},"category":"unknown","count_origin":"preview","warnings":["unknown_category"]},"equipment":{"kind":"step","gym_profile_id":null,"setup_id":null,"load_mode":null,"loading_sides":1,"weight_basis":"displayed","base_weight_kg":null,"bar":null,"collar":null,"step":{"value":2.5,"unit":"kg"},"inventory":{"mode":"unlimited","items":[]}}}],"updated_at":"2026-10-09T00:00:00Z"},"updated_at":"2026-10-16T04:06:05.838359Z","exercise":{"id":2999,"name":"�������� 96e3c7b1","fatigue_tier":2,"category":"�����������","equipment_needed":[],"main_muscle_group":"�����","secondary_muscle_groups":[],"muscle_key":"chest","secondary_muscle_keys":[]},"sets":[{"analytics_load_snapshot":null,"anomaly_review":{"rules_version":"p1-08-v1","reason_codes":[],"confirmed":false,"confirmed_at":null},"id":34492,"client_uuid":"e484f651-4e47-4a4c-b3f2-a25776cc7b51","set_number":1,"set_type":"warmup","weight":"20.00","reps":1001,"effort_level":null,"notes":null,"parent_set_id":null,"superset_round":null,"is_completed":true,"is_max_reps":false,"is_anomalous":false,"load_mode":null,"gym_profile_id":null,"setup_id":null,"load_snapshot":null,"shown_target_snapshot":null,"warmup_snapshot":{"group_id":"d5d981ca-91a8-4053-986f-dd684fbb1cf9","calculation_version":"8b764693-af2c-4edc-99bf-f4aa7682fd2f","order":1,"fraction":0.25,"raw_weight_kg":20.0,"manually_edited":false},"updated_at":"2026-10-16T04:06:05.989096Z"},{"analytics_load_snapshot":null,"anomaly_review":{"rules_version":"p1-08-v1","reason_codes":[],"confirmed":false,"confirmed_at":null},"id":34493,"client_uuid":"44007303-0ff5-4525-a342-fce8c738f4a3","set_number":2,"set_type":"warmup","weight":"40.00","reps":10,"effort_level":null,"notes":null,"parent_set_id":null,"superset_round":null,"is_completed":true,"is_max_reps":false,"is_anomalous":false,"load_mode":null,"gym_profile_id":null,"setup_id":null,"load_snapshot":null,"shown_target_snapshot":null,"warmup_snapshot":{"group_id":"d5d981ca-91a8-4053-986f-dd684fbb1cf9","calculation_version":"8b764693-af2c-4edc-99bf-f4aa7682fd2f","order":2,"fraction":0.5,"raw_weight_kg":40.0,"manually_edited":false},"updated_at":"2026-10-16T04:06:05.838359Z"},{"analytics_load_snapshot":null,"anomaly_review":{"rules_version":"p1-08-v1","reason_codes":[],"confirmed":false,"confirmed_at":null},"id":34494,"client_uuid":"0c417fb6-063a-4d9d-80d5-4fc0481bf74c","set_number":3,"set_type":"warmup","weight":"60.00","reps":10,"effort_level":null,"notes":null,"parent_set_id":null,"superset_round":null,"is_completed":true,"is_max_reps":false,"is_anomalous":false,"load_mode":null,"gym_profile_id":null,"setup_id":null,"load_snapshot":null,"shown_target_snapshot":null,"warmup_snapshot":{"group_id":"d5d981ca-91a8-4053-986f-dd684fbb1cf9","calculation_version":"8b764693-af2c-4edc-99bf-f4aa7682fd2f","order":3,"fraction":0.75,"raw_weight_kg":60.0,"manually_edited":false},"updated_at":"2026-10-16T04:06:05.838359Z"}],"recommended_rir":null,"recommended_rep_min":null,"recommended_rep_max":null,"target_sets":null,"recommended_weight":null,"prescription":null}]}}
+E       assert 200 == 422
+E        +  where 200 = <Response [200 OK]>.status_code
+
+tests\integration\test_sync_warmup_snapshots.py:106: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+============================== warnings summary ===============================
+api\schemas\�nboarding.py:17
+  D:\Eurith\worktrees\p1-08-backend\api\schemas\�nboarding.py:17: PydanticDeprecatedSince20: Pydantic V1 style `@root_validator` validators are deprecated. You should migrate to Pydantic V2 style `@model_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @root_validator(pre=False, skip_on_failure=True)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: 11 warnings
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+tests/integration/test_goal_autopilot_endpoint.py::test_history_weekly_points_returns_empty_without_history
+  tests\integration\test_goal_autopilot_endpoint.py:340: PytestWarning: The test <Function test_history_weekly_points_returns_empty_without_history> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_history_weekly_points_returns_empty_without_history():
+
+tests/integration/test_goal_autopilot_endpoint.py::test_history_weekly_points_buckets_weekly_before_today
+  tests\integration\test_goal_autopilot_endpoint.py:346: PytestWarning: The test <Function test_history_weekly_points_buckets_weekly_before_today> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_history_weekly_points_buckets_weekly_before_today():
+
+tests/integration/test_goal_autopilot_endpoint.py::test_timeline_milestones_past_and_future_meet_at_today_without_overlap
+  tests\integration\test_goal_autopilot_endpoint.py:369: PytestWarning: The test <Function test_timeline_milestones_past_and_future_meet_at_today_without_overlap> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_timeline_milestones_past_and_future_meet_at_today_without_overlap():
+
+tests/integration/test_milestone_conditions_reach_the_generator.py::test_accents_reader_tolerates_empty_settings
+  tests\integration\test_milestone_conditions_reach_the_generator.py:51: PytestWarning: The test <Function test_accents_reader_tolerates_empty_settings> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_accents_reader_tolerates_empty_settings():
+
+tests/integration/test_milestone_conditions_reach_the_generator.py::test_accents_reader_ignores_a_milestone_of_a_stale_goal
+  tests\integration\test_milestone_conditions_reach_the_generator.py:58: PytestWarning: The test <Function test_accents_reader_ignores_a_milestone_of_a_stale_goal> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_accents_reader_ignores_a_milestone_of_a_stale_goal():
+
+tests/integration/test_milestone_conditions_reach_the_generator.py::test_explicit_choice_beats_the_milestone
+  tests\integration\test_milestone_conditions_reach_the_generator.py:114: PytestWarning: The test <Function test_explicit_choice_beats_the_milestone> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_explicit_choice_beats_the_milestone():
+
+tests/integration/test_milestone_conditions_reach_the_generator.py::test_milestone_beats_profile_focus_muscles
+  tests\integration\test_milestone_conditions_reach_the_generator.py:132: PytestWarning: The test <Function test_milestone_beats_profile_focus_muscles> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_milestone_beats_profile_focus_muscles():
+
+tests/integration/test_milestone_conditions_reach_the_generator.py::test_without_a_milestone_nothing_changes_for_the_profile
+  tests\integration\test_milestone_conditions_reach_the_generator.py:143: PytestWarning: The test <Function test_without_a_milestone_nothing_changes_for_the_profile> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_without_a_milestone_nothing_changes_for_the_profile():
+
+tests/integration/test_milestone_conditions_reach_the_generator.py::test_accents_are_capped_at_two
+  tests\integration\test_milestone_conditions_reach_the_generator.py:152: PytestWarning: The test <Function test_accents_are_capped_at_two> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_accents_are_capped_at_two():
+
+tests/integration/test_milestone_conditions_reach_the_generator.py::test_milestone_accent_stops_applying_once_the_goal_is_no_longer_primary
+  tests\integration\test_milestone_conditions_reach_the_generator.py:162: PytestWarning: The test <Function test_milestone_accent_stops_applying_once_the_goal_is_no_longer_primary> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_milestone_accent_stops_applying_once_the_goal_is_no_longer_primary():
+
+tests/integration/test_volume_window_rows.py::test_build_rows_merges_three_sources
+  tests\integration\test_volume_window_rows.py:134: PytestWarning: The test <Function test_build_rows_merges_three_sources> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_build_rows_merges_three_sources():
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/integration/test_account_lifecycle.py::test_naive_cascade_would_have_failed
+FAILED tests/integration/test_p001_integrity.py::test_load_exercise_stats_computes_sessions_e1rm_median
+FAILED tests/integration/test_p001_integrity.py::test_analytics_history_excludes_anomalous
+FAILED tests/integration/test_p001_integrity.py::test_add_exercise_populates_recommended_weight_with_basis
+FAILED tests/integration/test_p001_integrity.py::test_add_exercise_recommended_weight_null_without_basis
+FAILED tests/integration/test_p001_integrity.py::test_readiness_muscle_keys_are_system_keys_not_russian
+FAILED tests/integration/test_regeneration_preserves_fact.py::test_wipe_keeps_completed_day
+FAILED tests/integration/test_regeneration_preserves_fact.py::test_wipe_still_removes_untouched_future
+FAILED tests/integration/test_sync_warmup_snapshots.py::test_snapshot_rejects_invalid_refs[too_many_reps]
+ERROR tests/integration/test_body_photos.py::test_owner_can_upload_list_read_and_delete
+ERROR tests/integration/test_body_photos.py::test_upload_uuid_is_idempotent
+ERROR tests/integration/test_body_photos.py::test_parallel_upload_same_uuid_keeps_one_object_pair
+ERROR tests/integration/test_body_photos.py::test_other_users_photo_is_not_revealed
+ERROR tests/integration/test_body_photos.py::test_photo_list_has_stable_cursor_pagination
+ERROR tests/integration/test_body_photos.py::test_comparison_uses_explicit_dates_and_calendar
+ERROR tests/integration/test_body_photos.py::test_delete_failure_hides_photo_and_retry_cleans_it
+ERROR tests/integration/test_body_photos.py::test_account_purge_removes_private_photos_and_summary
+ERROR tests/integration/test_body_photos.py::test_invalid_upload_rejected_before_any_private_file
+ERROR tests/integration/test_body_photos.py::test_comparison_rejects_foreign_photo
+ERROR tests/integration/test_sync_exercise_order.py::test_sync_deletion_and_reorder_with_unique_order_index
+9 failed, 1194 passed, 26 warnings, 11 errors in 1418.66s (0:23:38)

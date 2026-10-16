@@ -1,0 +1,20 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_______ test_benchmark_rejects_non_benchmark_database_before_connecting _______
+
+    def test_benchmark_rejects_non_benchmark_database_before_connecting():
+        root = Path(__file__).resolve().parents[1]
+        env = dict(os.environ, TEST_DATABASE_URL='postgresql+asyncpg://unused:unused@127.0.0.1:9/eurith_p108_test_acceptance')
+        env.pop('P108_TEST_DATABASE_URL_FILE', None)
+        result = subprocess.run([sys.executable, 'scripts/benchmark_analytics.py', '--sizes', '100',
+            '--requests', '1', '--runs', '1', '--output', '.pytest_tmp/guard-must-not-exist.json'],
+            cwd=root, env=env, capture_output=True, text=True, timeout=30)
+        assert result.returncode != 0
+>       assert 'Refused benchmark: use only eurith_p108_test_benchmark' in result.stderr
+E       assert 'Refused benchmark: use only eurith_p108_test_benchmark' in 'Traceback (most recent call last):\n  File "D:\\Eurith\\worktrees\\p1-08-backend\\scripts\\benchmark_analytics.py", l...()\n    ~~~~~~~~~~~~^^\nConnectionRefusedError: [WinError 1225] ��������� ��������� �������� ��� ������� �����������\n'
+E        +  where 'Traceback (most recent call last):\n  File "D:\\Eurith\\worktrees\\p1-08-backend\\scripts\\benchmark_analytics.py", l...()\n    ~~~~~~~~~~~~^^\nConnectionRefusedError: [WinError 1225] ��������� ��������� �������� ��� ������� �����������\n' = CompletedProcess(args=['D:\\Eurith\\backend\\.venv\\Scripts\\python.exe', 'scripts/benchmark_analytics.py', '--sizes',...)\n    ~~~~~~~~~~~~^^\nConnectionRefusedError: [WinError 1225] ��������� ��������� �������� ��� ������� �����������\n').stderr
+
+tests\test_p108_benchmark_guard.py:16: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_p108_benchmark_guard.py::test_benchmark_rejects_non_benchmark_database_before_connecting
+1 failed in 7.70s

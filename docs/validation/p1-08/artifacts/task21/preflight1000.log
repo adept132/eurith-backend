@@ -1,0 +1,7 @@
+Fixture ready: 1000 selected sets / 100 workouts / one exercise
+Warmup 1000/1/legacy: 1768.3 ms; 107 SELECTs; 34215 bytes
+Measured 1000/1/legacy: 1 requests
+Warmup 1000/1/exercise: 6177.3 ms; 12 SELECTs; 622924 bytes
+Measured 1000/1/exercise: 1 requests
+Warmup 1000/1/comparison: 5039.5 ms; 18 SELECTs; 1211665 bytes
+Measured 1000/1/comparison: 1 requests

@@ -1,0 +1,46 @@
+..........................................................F............. [ 31%]
+........................................................................ [ 62%]
+........................................................................ [ 93%]
+................                                                         [100%]
+================================== FAILURES ===================================
+_________ test_legacy_client_cutover_keeps_formula_channels_separate __________
+
+client = <httpx.AsyncClient object at 0x00000187B801A8D0>
+db = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x00000187B8247DD0>
+test_user = <api.services.models.AppUser object at 0x00000187B78CFB70>
+fresh_exercise = <api.services.models.Exercise object at 0x00000187B82A3310>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000187B7A00050>
+
+    async def test_legacy_client_cutover_keeps_formula_channels_separate(client, db, test_user, fresh_exercise, monkeypatch):
+        for offset, weight in enumerate((100, 110)):
+            body = history_body(fresh_exercise.id, weight=str(weight))
+            start = datetime.now(timezone.utc)-timedelta(days=4-offset)
+            body.update(client_uuid=str(uuid4()), started_at=start.isoformat(), finished_at=(start+timedelta(hours=1)).isoformat())
+            body['exercises'][0].update(client_uuid=str(uuid4()), analytics_load_defaults=LOAD)
+            body['exercises'][0]['sets'][0].update(client_uuid=str(uuid4()), analytics_load_snapshot=LOAD, reps=8)
+>           assert (await client.post('/workouts/history', json=body)).status_code == 201
+E           assert 409 == 201
+E            +  where 409 = <Response [409 Conflict]>.status_code
+
+tests\integration\test_p108_acceptance.py:35: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[init_db] DB schema synced (create tables + add missing columns + sync indexes + sequences)
+============================== warnings summary ===============================
+api\schemas\�nboarding.py:17
+  D:\Eurith\worktrees\p1-08-backend\api\schemas\�nboarding.py:17: PydanticDeprecatedSince20: Pydantic V1 style `@root_validator` validators are deprecated. You should migrate to Pydantic V2 style `@model_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    @root_validator(pre=False, skip_on_failure=True)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+..\..\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\_internal\_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+..\..\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: 11 warnings
+  D:\Eurith\backend\.venv\Lib\site-packages\pydantic\fields.py:1093: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/integration/test_p108_acceptance.py::test_legacy_client_cutover_keeps_formula_channels_separate
+1 failed, 231 passed, 15 warnings in 160.01s (0:02:40)
