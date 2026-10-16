@@ -1,0 +1,12 @@
+{
+  "kind": "diagnostic-profile-only",
+  "selected_sets": 100000,
+  "results": [
+    {
+      "case": "exercise",
+      "seconds_not_acceptance": 38.15401179995388,
+      "profiled": true,
+      "response_bytes": 10908466
+    }
+  ]
+}

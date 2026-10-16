@@ -1,0 +1,41 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+__ test_publication_classifies_types_without_repeated_model_metaclass_checks __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001C2E3397BB0>
+
+    def test_publication_classifies_types_without_repeated_model_metaclass_checks(monkeypatch):
+        from pydantic import BaseModel
+        from api.services.analytics.publication import _models
+        class Node(BaseModel):
+            data_revision: int
+        class Child(Node):
+            pass
+        class Mapping(dict):
+            pass
+        class Sequence(list):
+            pass
+        class Tuple(tuple):
+            pass
+        nodes = [Node(data_revision=4) for _ in range(100)]
+        stale = Child(data_revision=3)
+        graph = Mapping(items=Sequence(nodes + [Tuple((stale, {'baseline': nodes[0]}))]))
+        meta = type(BaseModel)
+        original = meta.__instancecheck__
+        calls = []
+        def counted(cls, value):
+            calls.append(type(value))
+            return original(cls, value)
+        monkeypatch.setattr(meta, '__instancecheck__', counted)
+        found = list(_models(graph))
+        assert [id(node) for node in found] == [id(node) for node in nodes] + [id(stale)]
+>       assert len(calls) <= len(set(calls))
+E       AssertionError: assert 311 <= 7
+E        +  where 311 = len([<class 'analytics.test_prepared_work.test_publication_classifies_types_without_repeated_model_metaclass_checks.<local...red_work.test_publication_classifies_types_without_repeated_model_metaclass_checks.<locals>.Node'>, <class 'int'>, ...])
+E        +  and   7 = len({<class 'dict'>, <class 'analytics.test_prepared_work.test_publication_classifies_types_without_repeated_model_metacla...tics.test_prepared_work.test_publication_classifies_types_without_repeated_model_metaclass_checks.<locals>.Node'>, ...})
+E        +    where {<class 'dict'>, <class 'analytics.test_prepared_work.test_publication_classifies_types_without_repeated_model_metacla...tics.test_prepared_work.test_publication_classifies_types_without_repeated_model_metaclass_checks.<locals>.Node'>, ...} = set([<class 'analytics.test_prepared_work.test_publication_classifies_types_without_repeated_model_metaclass_checks.<local...red_work.test_publication_classifies_types_without_repeated_model_metaclass_checks.<locals>.Node'>, <class 'int'>, ...])
+
+tests\analytics\test_prepared_work.py:83: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/analytics/test_prepared_work.py::test_publication_classifies_types_without_repeated_model_metaclass_checks
+1 failed in 1.12s

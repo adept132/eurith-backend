@@ -59,7 +59,9 @@ async def main(args):
         async with AsyncClient(transport=ASGITransport(app=app),base_url='http://localhost',timeout=None) as client:
             cases=[('exercise',f'/progress/analytics/exercises/{exercises[0]}?period=all'),('comparison',f'/progress/analytics/blocks/compare?block_a_id={blocks[0]}&block_b_id={blocks[1]}')]
             if args.unprofiled:cases.insert(0,('legacy',f'/progress/exercise-history/{exercises[0]}'))
+            if args.case:cases=[case for case in cases if case[0]==args.case]
             for name,path in cases:
+                if args.compact:path+='&encoding=compact-v1'
                 profile=cProfile.Profile();start=time.perf_counter()
                 if not args.unprofiled:profile.enable()
                 response=await client.get(path)
@@ -68,8 +70,8 @@ async def main(args):
                     with open(f'{args.output}.{name}.profile.txt','w') as log:pstats.Stats(profile,stream=log).sort_stats('cumulative').print_stats(100)
                 assert response.status_code==200
                 data=response.json()
-                if name != 'legacy':assert data['state']=='ready'
-                output['results'].append({'case':name,'seconds_not_acceptance':elapsed,'profiled':not args.unprofiled,'response_bytes':len(response.content),**({} if args.unprofiled else field_accounting(data,name))})
+                if name != 'legacy':assert (data['payload'] if args.compact else data)['state']=='ready'
+                output['results'].append({'case':name,'seconds_not_acceptance':elapsed,'profiled':not args.unprofiled,'response_bytes':len(response.content),**({} if args.unprofiled or args.skip_accounting else field_accounting(data,name))})
                 Path(args.output).write_text(json.dumps(output,indent=2))
                 print(json.dumps(output['results'][-1]),flush=True)
                 del data,response;gc.collect()
@@ -80,6 +82,9 @@ async def main(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--owner-id',type=int,required=True);parser.add_argument('--output',required=True)
     parser.add_argument('--unprofiled',action='store_true')
+    parser.add_argument('--case',choices=['exercise','comparison'])
+    parser.add_argument('--compact',action='store_true')
+    parser.add_argument('--skip-accounting',action='store_true')
     args=parser.parse_args();configure()
     if urlparse(os.environ['DATABASE_URL']).path!='/eurith_p108_test_benchmark':raise SystemExit('Dedicated local benchmark DB required')
     asyncio.run(main(args))

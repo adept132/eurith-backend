@@ -5,26 +5,37 @@ from api.schemas.analytics import AnalyticsEnvelope, AnalyticsUnavailable
 from . import state
 
 
-def _models(value, seen=None):
-    if seen is None:
-        seen = set()
-    if id(value) in seen:
-        return
-    seen.add(id(value))
-    if isinstance(value, BaseModel):
-        yield value
-        children = (getattr(value, name) for name in type(value).model_fields)
-    elif isinstance(value, dict):
-        children = value.values()
-    elif isinstance(value, (list, tuple)):
-        children = value
-    else:
-        return
-    for child in children:
-        # Primitive leaves cannot contain a revision or envelope. Avoid a
-        # recursive generator call for every scalar in large observation DTOs.
-        if isinstance(child, (BaseModel, dict, list, tuple)):
-            yield from _models(child, seen)
+def _models(value):
+    seen, kinds = set(), {}
+
+    def kind(item):
+        cls = type(item)
+        result = kinds.get(cls)
+        if result is None:
+            # Exact runtime class dispatch, including subclasses. Cache only
+            # within this traversal; never skip fields based on their schema.
+            result = (1 if issubclass(cls, BaseModel) else 2 if issubclass(cls, dict)
+                      else 3 if issubclass(cls, (list, tuple)) else 0)
+            kinds[cls] = result
+        return result
+
+    def walk(item, category):
+        if not category or id(item) in seen:
+            return
+        seen.add(id(item))
+        if category == 1:
+            yield item
+            children = (getattr(item, name) for name in type(item).model_fields)
+        elif category == 2:
+            children = item.values()
+        else:
+            children = item
+        for child in children:
+            child_kind = kind(child)
+            if child_kind:
+                yield from walk(child, child_kind)
+
+    yield from walk(value, kind(value))
 
 
 async def coherent_read(db, user_id, assemble):

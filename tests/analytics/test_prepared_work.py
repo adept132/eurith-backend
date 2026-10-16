@@ -53,3 +53,39 @@ def test_publication_visits_each_identity_but_not_equal_distinct_models():
     shared = [first, {'baseline': equal}]
     graph = {'a': shared, 'b': (shared, {'nested': stale})}
     assert [id(node) for node in _models(graph)] == [id(first), id(equal), id(stale)]
+
+
+def test_publication_classifies_types_without_repeated_model_metaclass_checks(monkeypatch):
+    from collections import Counter
+    from api.services.analytics import publication
+    from pydantic import BaseModel
+    from api.services.analytics.publication import _models
+    class Node(BaseModel):
+        data_revision: int
+    class Child(Node):
+        pass
+    class Mapping(dict):
+        pass
+    class Sequence(list):
+        pass
+    class Tuple(tuple):
+        pass
+    nodes = [Node(data_revision=4) for _ in range(100)]
+    stale = Child(data_revision=3)
+    graph = Mapping(items=Sequence(nodes + [Tuple((stale, {'baseline': nodes[0]}))]))
+    meta = type(BaseModel)
+    original = meta.__instancecheck__
+    calls = []
+    def counted(cls, value):
+        calls.append(type(value))
+        return original(cls, value)
+    monkeypatch.setattr(meta, '__instancecheck__', counted)
+    classify = []
+    def classify_type(cls, base):
+        classify.append(cls)
+        return issubclass(cls, base)
+    monkeypatch.setattr(publication, 'issubclass', classify_type, raising=False)
+    found = list(_models(graph))
+    assert [id(node) for node in found] == [id(node) for node in nodes] + [id(stale)]
+    assert len(calls) <= len(set(calls))
+    assert classify and max(Counter(classify).values()) <= 3

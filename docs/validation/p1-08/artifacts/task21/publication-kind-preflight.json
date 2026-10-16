@@ -1,0 +1,12 @@
+{
+  "kind": "diagnostic-single-request-no-percentiles",
+  "selected_sets": 100000,
+  "results": [
+    {
+      "case": "exercise",
+      "seconds_not_acceptance": 14.73695030005183,
+      "profiled": false,
+      "response_bytes": 10908466
+    }
+  ]
+}
