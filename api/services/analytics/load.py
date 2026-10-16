@@ -19,7 +19,7 @@ def lombardi(weight_kg: float, reps: int) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def normalize_set(raw: RawSetFact) -> NormalizedSetFact:
+def normalize_set(raw: RawSetFact, *, comparison_cache: dict | None = None) -> NormalizedSetFact:
     context = raw.load_context or {}
     reasons = []
     weight = None
@@ -108,7 +108,17 @@ def normalize_set(raw: RawSetFact) -> NormalizedSetFact:
     comparison_context['body_mass_kg'] = ((raw.session_context or {}).get('body_mass') or {}).get('weight_kg')
     for key in ('base_weight_kg','implement_count','added_load_kg','assistance_kg','body_mass_kg'):
         comparison_context[key] = finite_number(comparison_context[key])
-    comparison_key = json.dumps(comparison_context, sort_keys=True, separators=(',',':'), default=str)
+    # Cache only the canonical key, after the existing numeric normalization.
+    # Exact types and float.hex preserve bool/int and signed-zero distinctions.
+    # Unexpected nested/custom values retain the original encoder path.
+    token = None
+    if comparison_cache is not None and all(type(v) in (str, int, float, bool, type(None)) for v in comparison_context.values()):
+        token = tuple((type(v), v.hex() if type(v) is float else v) for v in comparison_context.values())
+    comparison_key = comparison_cache.get(token) if token is not None else None
+    if comparison_key is None:
+        comparison_key = json.dumps(comparison_context, sort_keys=True, separators=(',',':'), default=str)
+        if token is not None:
+            comparison_cache[token] = comparison_key
     return NormalizedSetFact(**{name:getattr(raw,name) for name in _RAW_FIELD_NAMES},
         e1rm_weight_kg=weight, tonnage_kg=tonnage,
         rir=EFFORT_TO_RIR.get(raw.effort_level), comparison_key=comparison_key,

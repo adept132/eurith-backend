@@ -1,0 +1,68 @@
+FFFF                                                                     [100%]
+================================== FAILURES ===================================
+_______________ test_lombardi_prepared_once_per_immutable_fact ________________
+
+raw = <function raw.<locals>.make at 0x000001C64712CF40>
+
+    def test_lombardi_prepared_once_per_immutable_fact(raw):
+        row = load.normalize_set(raw())
+        with patch.object(strength, 'lombardi', wraps=load.lombardi) as calculate:
+            assert strength._e1rm(row) == strength._e1rm(row)
+            strength.session_points([row])
+            strength.record_history([row])
+>           assert calculate.call_count == 1
+E           AssertionError: assert 4 == 1
+E            +  where 4 = <MagicMock name='lombardi' id='1951106426464'>.call_count
+
+tests\analytics\test_prepared_work.py:14: AssertionError
+_________ test_equal_records_do_not_allocate_or_compare_every_source __________
+
+raw = <function raw.<locals>.make at 0x000001C64712D300>
+
+    def test_equal_records_do_not_allocate_or_compare_every_source(raw):
+        rows = [load.normalize_set(raw(set_id=i)) for i in range(1, 101)]
+        with patch.object(strength, 'strictly_greater', wraps=strength.strictly_greater) as compare:
+            history = strength.record_history(rows[::-1])
+>           assert compare.call_count == 0
+E           AssertionError: assert 396 == 0
+E            +  where 396 = <MagicMock name='strictly_greater' id='1951106427808'>.call_count
+
+tests\analytics\test_prepared_work.py:24: AssertionError
+________________ test_context_cache_is_request_local_and_exact ________________
+
+raw = <function raw.<locals>.make at 0x000001C64712D1C0>
+
+    def test_context_cache_is_request_local_and_exact(raw):
+        cache = {}
+        with patch.object(load.json, 'dumps', wraps=load.json.dumps) as encode:
+>           a = load.normalize_set(raw(), comparison_cache=cache)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: normalize_set() got an unexpected keyword argument 'comparison_cache'
+
+tests\analytics\test_prepared_work.py:33: TypeError
+_____ test_publication_visits_each_identity_but_not_equal_distinct_models _____
+
+    def test_publication_visits_each_identity_but_not_equal_distinct_models():
+        from pydantic import BaseModel
+        from api.services.analytics.publication import _models
+    
+        class Node(BaseModel):
+            data_revision: int
+    
+        first, equal, stale = Node(data_revision=4), Node(data_revision=4), Node(data_revision=3)
+        shared = [first, {'baseline': equal}]
+        graph = {'a': shared, 'b': (shared, {'nested': stale})}
+>       assert [id(node) for node in _models(graph)] == [id(first), id(equal), id(stale)]
+E       assert [195110755833...1951146031888] == [195110755833...1951146031888]
+E         
+E         At index 2 diff: 1951107558336 != 1951146031888
+E         Left contains 2 more items, first extra item: 1951146031088
+E         Use -v to get more diff
+
+tests\analytics\test_prepared_work.py:53: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/analytics/test_prepared_work.py::test_lombardi_prepared_once_per_immutable_fact
+FAILED tests/analytics/test_prepared_work.py::test_equal_records_do_not_allocate_or_compare_every_source
+FAILED tests/analytics/test_prepared_work.py::test_context_cache_is_request_local_and_exact
+FAILED tests/analytics/test_prepared_work.py::test_publication_visits_each_identity_but_not_equal_distinct_models
+4 failed in 1.11s

@@ -1,0 +1,30 @@
+[
+  {
+    "Path": "D:\\Eurith\\worktrees\\p1-08-backend\\api\\services\\analytics\\load.py",
+    "Hash": "7DF8140D3BC84E7908E5129E9C1B0F4827BC27EEFF70D25C62793E4C8BDBFA73"
+  },
+  {
+    "Path": "D:\\Eurith\\worktrees\\p1-08-backend\\api\\services\\analytics\\strength.py",
+    "Hash": "94AFDE1C31F9CA4880CDA729D4353649B09A758E20483704A345DB4E4D90B153"
+  },
+  {
+    "Path": "D:\\Eurith\\worktrees\\p1-08-backend\\api\\services\\analytics\\types.py",
+    "Hash": "9F312BBC0567EA5B251581D03102A25E4F7F5E2A7AA693E35CC979518A1FB375"
+  },
+  {
+    "Path": "D:\\Eurith\\worktrees\\p1-08-backend\\api\\services\\analytics\\publication.py",
+    "Hash": "73E6314922BF7D4A1C3A8EEE421101440C95262B8DB798C86CBEE9B5B2F765C0"
+  },
+  {
+    "Path": "D:\\Eurith\\worktrees\\p1-08-backend\\api\\services\\analytics\\repository.py",
+    "Hash": "EBD7ECD4C6B5CA7E2D971F2F86B2BA47EDBE42340BE3E7B5E579036264A4481A"
+  },
+  {
+    "Path": "D:\\Eurith\\worktrees\\p1-08-backend\\api\\services\\analytics\\service.py",
+    "Hash": "ECC6A55810484049DD8EC1D1C8CC4A91354613EE6440F5188AA79D53D0992658"
+  },
+  {
+    "Path": "D:\\Eurith\\worktrees\\p1-08-backend\\api\\services\\analytics\\intensity.py",
+    "Hash": "5ECC678435F60B82480414BBEAD606472AE6C8869FC9260BEB3A15D03AA732CF"
+  }
+]

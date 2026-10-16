@@ -1,0 +1,24 @@
+{
+  "kind": "diagnostic-single-request-no-percentiles",
+  "selected_sets": 100000,
+  "results": [
+    {
+      "case": "legacy",
+      "seconds_not_acceptance": 4.962765499949455,
+      "profiled": false,
+      "response_bytes": 2509413
+    },
+    {
+      "case": "exercise",
+      "seconds_not_acceptance": 15.337008800008334,
+      "profiled": false,
+      "response_bytes": 50415756
+    },
+    {
+      "case": "comparison",
+      "seconds_not_acceptance": 25.60713930008933,
+      "profiled": false,
+      "response_bytes": 100797780
+    }
+  ]
+}

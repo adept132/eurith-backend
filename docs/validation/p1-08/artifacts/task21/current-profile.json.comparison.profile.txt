@@ -1,0 +1,108 @@
+         91761797 function calls (89148343 primitive calls) in 65.688 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1600 to 100 due to restriction <100>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1081    0.043    0.000  133.901    0.124 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py:1970(_run_once)
+     1121    0.003    0.000  133.301    0.119 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py:87(_run)
+1123/1122    0.002    0.000  133.298    0.119 {method 'run' of '_contextvars.Context' objects}
+       34    0.000    0.000  127.664    3.755 D:\Eurith\backend\.venv\Lib\site-packages\httpx\_client.py:1751(get)
+       34    0.000    0.000  127.664    3.755 D:\Eurith\backend\.venv\Lib\site-packages\httpx\_client.py:1485(request)
+       34    0.000    0.000  127.663    3.755 D:\Eurith\backend\.venv\Lib\site-packages\httpx\_client.py:1594(send)
+       34    0.000    0.000  127.661    3.755 D:\Eurith\backend\.venv\Lib\site-packages\httpx\_client.py:1645(_send_handling_auth)
+       34    0.000    0.000  127.661    3.755 D:\Eurith\backend\.venv\Lib\site-packages\httpx\_client.py:1679(_send_handling_redirects)
+       34    0.000    0.000  127.660    3.755 D:\Eurith\backend\.venv\Lib\site-packages\httpx\_client.py:1717(_send_single_request)
+       33    0.000    0.000  127.660    3.868 D:\Eurith\worktrees\p1-08-backend\docs\validation\p1-08\artifacts\task21\profile_retained_history.py:40(main)
+       34    0.000    0.000  127.659    3.755 D:\Eurith\backend\.venv\Lib\site-packages\httpx\_transports\asgi.py:99(handle_async_request)
+       34    0.001    0.000  127.657    3.755 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\applications.py:1157(__call__)
+       34    0.000    0.000   62.293    1.832 D:\Eurith\backend\.venv\Lib\site-packages\starlette\applications.py:92(__call__)
+       34    0.000    0.000   62.292    1.832 D:\Eurith\backend\.venv\Lib\site-packages\starlette\middleware\errors.py:149(__call__)
+       34    0.000    0.000   62.292    1.832 D:\Eurith\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py:47(__call__)
+    68/34    0.138    0.002   62.292    1.832 D:\Eurith\backend\.venv\Lib\site-packages\starlette\_exception_handler.py:31(wrapped_app)
+       34    0.033    0.001   25.479    0.749 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:15(__call__)
+       34    2.218    0.065   25.444    0.748 D:\Eurith\backend\.venv\Lib\site-packages\starlette\routing.py:672(__call__)
+       14    0.035    0.003   21.550    1.539 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\service.py:228(compare_blocks)
+        2    0.017    0.008   21.511   10.756 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\service.py:191(_block)
+        2    0.055    0.028   17.128    8.564 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\service.py:101(_exercise)
+2806003/200569    4.347    0.000   13.924    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\publication.py:8(_models)
+   200000    4.091    0.000   11.017    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\load.py:22(normalize_set)
+13228248/13228246    4.981    0.000    8.848    0.000 {built-in method builtins.isinstance}
+  7107504    4.524    0.000    6.717    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\policy.py:12(finite_number)
+        2    0.917    0.459    6.394    3.197 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\strength.py:83(record_history)
+     1022    0.018    0.000    5.633    0.006 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\proactor_events.py:276(_loop_reading)
+     1022    1.641    0.002    5.517    0.005 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\proactor_events.py:251(_data_received)
+   996000    0.487    0.000    5.168    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\strength.py:25(_e1rm)
+       25    1.203    0.048    5.041    0.202 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\repository.py:23(_rows)
+        2    1.127    0.564    4.692    2.346 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\service.py:51(_points)
+   996000    1.257    0.000    4.680    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\load.py:11(lombardi)
+   100104    0.868    0.000    4.205    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\intensity.py:31(summary)
+        4    0.004    0.001    4.058    1.015 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\service.py:33(_volume)
+        4    0.509    0.127    4.055    1.014 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\volume.py:28(volume_summary)
+   907702    1.472    0.000    4.041    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\policy.py:27(strictly_greater)
+  5912212    2.369    0.000    3.917    0.000 D:\Eurith\backend\.venv\Lib\site-packages\pydantic\_internal\_model_construction.py:277(__instancecheck__)
+   400208    0.417    0.000    3.875    0.000 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:1224(_jsonb_decoder)
+  1596000    1.256    0.000    3.617    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\policy.py:22(positive_reps)
+   400208    0.473    0.000    3.333    0.000 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\json\__init__.py:299(loads)
+       34    0.000    0.000    3.187    0.094 D:\Eurith\backend\.venv\Lib\site-packages\starlette\routing.py:678(app)
+       34    0.000    0.000    3.187    0.094 D:\Eurith\backend\.venv\Lib\site-packages\starlette\routing.py:273(handle)
+       34    0.000    0.000    3.186    0.094 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\routing.py:106(app)
+       34    0.100    0.003    3.185    0.094 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\routing.py:109(app)
+       33    0.000    0.000    3.084    0.093 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\routing.py:378(app)
+  8013605    1.902    0.000    2.845    0.000 {built-in method builtins.getattr}
+   400208    1.426    0.000    2.689    0.000 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\json\decoder.py:340(decode)
+   200000    0.436    0.000    2.657    0.000 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\json\__init__.py:183(dumps)
+        1    0.000    0.000    2.534    2.534 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\routing.py:273(serialize_response)
+        1    0.000    0.000    2.534    2.534 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\_compat\v2.py:202(serialize_json)
+        1    0.000    0.000    2.534    2.534 D:\Eurith\backend\.venv\Lib\site-packages\pydantic\type_adapter.py:588(dump_json)
+        1    2.534    2.534    2.534    2.534 {method 'to_json' of 'pydantic_core._pydantic_core.SchemaSerializer' objects}
+   200017    1.013    0.000    2.426    0.000 {built-in method builtins.any}
+       50    0.000    0.000    2.421    0.048 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:167(greenlet_spawn)
+       40    0.000    0.000    2.420    0.060 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py:424(execute)
+    66/20    0.001    0.000    2.418    0.121 {method 'switch' of 'greenlet.greenlet' objects}
+       18    0.000    0.000    2.417    0.134 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py:2291(execute)
+       18    0.000    0.000    2.417    0.134 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py:2136(_execute_internal)
+       18    0.000    0.000    2.417    0.134 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\orm\context.py:296(orm_execute_statement)
+       16    0.000    0.000    2.410    0.151 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\orm\context.py:581(orm_setup_cursor_result)
+       16    0.044    0.003    2.410    0.151 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\orm\loading.py:79(instances)
+       32    1.571    0.049    2.365    0.074 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\orm\loading.py:208(chunks)
+  3806991    1.324    0.000    2.235    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\publication.py:11(<genexpr>)
+        4    0.000    0.000    2.205    0.551 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\intensity.py:59(prepare_intensity)
+        4    0.246    0.061    2.205    0.551 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\intensity.py:15(__init__)
+   200000    0.356    0.000    2.119    0.000 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\json\encoder.py:183(encode)
+        2    0.000    0.000    2.012    1.006 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\intensity.py:63(intensity_summary)
+   200000    1.600    0.000    1.600    0.000 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\json\encoder.py:205(iterencode)
+  6115167    1.332    0.000    1.594    0.000 {built-in method builtins.hasattr}
+  5250000    1.413    0.000    1.413    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\repository.py:144(<genexpr>)
+        2    0.182    0.091    1.363    0.681 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\strength.py:29(session_points)
+        3    0.078    0.026    1.349    0.450 {built-in method builtins.all}
+   200000    0.526    0.000    1.302    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\volume\measure.py:42(contribution)
+  4804041    1.192    0.000    1.193    0.000 {method 'get' of 'dict' objects}
+  7203504    1.165    0.000    1.165    0.000 {built-in method math.isfinite}
+   200569    0.079    0.000    1.161    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\publication.py:36(<genexpr>)
+      124    0.268    0.002    1.156    0.009 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\volume.py:8(_tonnage)
+   200280    0.615    0.000    1.119    0.000 {built-in method builtins.sorted}
+   200000    0.582    0.000    0.979    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\volume\measure.py:120(accumulate)
+   200561    0.417    0.000    0.943    0.000 D:\Eurith\backend\.venv\Lib\site-packages\pydantic\main.py:961(__getattr__)
+   200206    0.104    0.000    0.883    0.000 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\engine\row.py:387(keys)
+       16    0.788    0.049    0.794    0.050 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\engine\result.py:537(_raw_all_rows)
+   200206    0.121    0.000    0.779    0.000 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\engine\result.py:106(keys)
+   200206    0.658    0.000    0.658    0.000 D:\Eurith\backend\.venv\Lib\site-packages\sqlalchemy\engine\result.py:219(__init__)
+      142    0.000    0.000    0.653    0.005 D:\Eurith\backend\.venv\Lib\site-packages\pydantic\main.py:243(__init__)
+      144    0.603    0.004    0.652    0.005 {method 'validate_python' of 'pydantic_core._pydantic_core.SchemaValidator' objects}
+     1081    0.002    0.000    0.554    0.001 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\windows_events.py:444(select)
+     1081    0.008    0.000    0.552    0.001 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\asyncio\windows_events.py:762(_poll)
+   400208    0.545    0.000    0.545    0.000 C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\json\decoder.py:351(raw_decode)
+       16    0.000    0.000    0.543    0.034 D:\Eurith\backend\.venv\Lib\site-packages\fastapi\routing.py:316(run_endpoint_function)
+       16    0.000    0.000    0.543    0.034 D:\Eurith\worktrees\p1-08-backend\api\routers\analytics.py:64(compare)
+       16    0.001    0.000    0.543    0.034 D:\Eurith\worktrees\p1-08-backend\api\routers\analytics.py:30(_read)
+       16    0.046    0.003    0.542    0.034 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\publication.py:25(coherent_read)
+     2134    0.538    0.000    0.538    0.000 {built-in method _overlapped.GetQueuedCompletionStatus}
+   400004    0.338    0.000    0.520    0.000 D:\Eurith\worktrees\p1-08-backend\api\services\muscle_keys.py:48(to_system_key)
+        8    0.002    0.000    0.510    0.064 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\volume.py:17(_channel)
+        4    0.274    0.068    0.508    0.127 D:\Eurith\worktrees\p1-08-backend\api\services\analytics\service.py:84(_exclusions)
+   799996    0.507    0.000    0.507    0.000 <string>:2(__init__)
+   601728    0.215    0.000    0.480    0.000 <frozen abc>:117(__instancecheck__)
+  1596000    0.472    0.000    0.472    0.000 {method 'is_integer' of 'float' objects}
+
+

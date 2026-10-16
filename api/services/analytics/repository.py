@@ -111,6 +111,7 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
         statement = statement.where(S.gym_profile_id == query.gym_id)
     rows = await _rows(db, statement.order_by(W.finished_at, W.id, E.order_index, E.id, S.set_number, S.id))
     facts = []
+    comparison_cache = {}
     linked_block_workouts = set()
     for row in rows:
         # Context belongs to this joined observation, even if another session
@@ -133,7 +134,7 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             weight_kg=Decimal(str(row['weight'])) if row['weight'] is not None else None,
             reps=row['reps'], effort_level=row['effort_level'], load_context=context,
             session_context=w['analytics_snapshot'], is_deload=_deload(w, block_map, linked_days))
-        facts.append(normalize_set(raw))
+        facts.append(normalize_set(raw, comparison_cache=comparison_cache))
     window = [f for f in facts if period.start_at <= f.finished_at < period.end_exclusive] if period else [
         f for f in facts if f.workout_id in linked_block_workouts]
     # Graph targets always retain full chronology, even during an active preview.

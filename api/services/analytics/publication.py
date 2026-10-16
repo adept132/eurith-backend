@@ -5,7 +5,12 @@ from api.schemas.analytics import AnalyticsEnvelope, AnalyticsUnavailable
 from . import state
 
 
-def _models(value):
+def _models(value, seen=None):
+    if seen is None:
+        seen = set()
+    if id(value) in seen:
+        return
+    seen.add(id(value))
     if isinstance(value, BaseModel):
         yield value
         children = (getattr(value, name) for name in type(value).model_fields)
@@ -19,7 +24,7 @@ def _models(value):
         # Primitive leaves cannot contain a revision or envelope. Avoid a
         # recursive generator call for every scalar in large observation DTOs.
         if isinstance(child, (BaseModel, dict, list, tuple)):
-            yield from _models(child)
+            yield from _models(child, seen)
 
 
 async def coherent_read(db, user_id, assemble):
