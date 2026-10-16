@@ -2833,8 +2833,9 @@
   "limitations": [
     "Two actual process segments with real exits1/0; no forged single-run success",
     "ASGI in-process timings exclude native fetch/device/network/memory; native acceptance is separate",
-    "7 of8 analytics p95 ratios exceed2x same-run legacy; diagnosis trigger remains for parent/reviewer disposition, no unilateral waiver",
+    "7 of8 analytics p95 ratios exceed2x same-run legacy; same-seat review and parent F54 accept completed diagnosis/removal for source handoff; residual latency and release acceptance remain open",
     "Counts from source tests overlap and are not a new broad suite run",
     "No production migrations/deploy/push/merge performed"
-  ]
+  ],
+  "review_disposition": "Final same-seat evidence review and parent F54: measurement/SQL/source/diagnosis obligations accepted; no favorable latency SLA or full release approval"
 }
