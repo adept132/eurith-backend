@@ -1,0 +1,28 @@
+Fixture ready: 10000 selected sets / 100 workouts / one exercise
+Warmup 10000/1/legacy: 742.7 ms; 107 SELECTs; 259312 bytes
+Measured 10000/1/legacy: 30 requests
+Warmup 10000/1/exercise: 1823.3 ms; 12 SELECTs; 5143130 bytes
+Measured 10000/1/exercise: 30 requests
+Warmup 10000/1/comparison: 3384.9 ms; 18 SELECTs; 10252545 bytes
+Measured 10000/1/comparison: 30 requests
+Warmup 10000/2/legacy: 669.2 ms; 107 SELECTs; 259312 bytes
+Measured 10000/2/legacy: 30 requests
+Warmup 10000/2/exercise: 1743.3 ms; 12 SELECTs; 5143130 bytes
+Measured 10000/2/exercise: 30 requests
+Warmup 10000/2/comparison: 3186.0 ms; 18 SELECTs; 10252545 bytes
+Measured 10000/2/comparison: 30 requests
+Retained synthetic fixture owner id 9 for local inspection
+Fixture ready: 100000 selected sets / 100 workouts / one exercise
+Warmup 100000/1/legacy: 5011.6 ms; 107 SELECTs; 2509413 bytes
+Measured 100000/1/legacy: 30 requests
+Warmup 100000/1/exercise: 17963.6 ms; 12 SELECTs; 50415756 bytes
+Measured 100000/1/exercise: 30 requests
+Warmup 100000/1/comparison: 31720.1 ms; 18 SELECTs; 100797780 bytes
+Measured 100000/1/comparison: 30 requests
+Warmup 100000/2/legacy: 5643.0 ms; 107 SELECTs; 2509413 bytes
+Measured 100000/2/legacy: 30 requests
+Warmup 100000/2/exercise: 14620.4 ms; 12 SELECTs; 50415756 bytes
+Measured 100000/2/exercise: 30 requests
+Warmup 100000/2/comparison: 29150.5 ms; 18 SELECTs; 100797780 bytes
+Measured 100000/2/comparison: 30 requests
+Retained synthetic fixture owner id 10 for local inspection

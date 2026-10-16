@@ -1,0 +1,23 @@
+{
+  "transport": "Actual loopback HTTP; Node HTTP fetch adapter, actual analytics/shared client. Firebase claims fixture; real app-user lookup.",
+  "deadline_ms": 90000,
+  "deadline_scope": "headers only; shared helper removes timer/caller listener at headers. No body-in-flight cancellation guarantee.",
+  "measurements": [
+    {
+      "path": "/progress/analytics/exercises/10",
+      "headers_ms": 17224,
+      "body_ms": 17407,
+      "bytes": 50415756,
+      "parsed_ms": 17841,
+      "observations": 100000
+    },
+    {
+      "path": "/progress/analytics/blocks/compare",
+      "headers_ms": 30157,
+      "body_ms": 30555,
+      "bytes": 100797780,
+      "parsed_ms": 31316,
+      "observations": 100000
+    }
+  ]
+}
