@@ -23,6 +23,13 @@ def payload_profile(data, case):
     """Untimed structural accounting; lists are retained, never truncated."""
     def size(value):
         return len(json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+    if isinstance(data, dict) and data.get('encoding') == 'compact-v1':
+        points = data['points']
+        return {'encoding':'compact-v1', 'points':len(points),
+                'observations':sum(len(p['details']['observations']) for p in points),
+                'contexts':len(data['contexts']), 'metrics':len(data['metrics']),
+                'registry_points_bytes':size(points), 'payload_bytes':size(data['payload']),
+                'context_registry_bytes':size(data['contexts']), 'metric_registry_bytes':size(data['metrics'])}
     def exercise(value):
         points = value['points']
         return {'points':len(points), 'observations':sum(len(p['details']['observations']) for p in points),
@@ -36,6 +43,44 @@ def payload_profile(data, case):
                       'exercises':{eid:exercise(value) for eid,value in data[side]['exercises'].items()}}
                 for side in ('a', 'b')}
     return {'top_level_type':type(data).__name__}
+
+
+def validate_compact(data, case, owner, selected_sets, workouts):
+    """Check every selected fact and comparison half outside request timing."""
+    assert data['encoding'] == 'compact-v1' and data['owner_uid'] == owner
+    payload = data['payload']
+    assert data['resource'] == case and payload['state'] == 'ready'
+    assert data['rules_version'] == payload['rules_version'] == 'p1-08-v1'
+    assert data['data_revision'] == payload['data_revision']
+    points = data['points']
+    ids = []
+    for point in points:
+        for row in point['details']['observations']:
+            assert isinstance(row, list) and len(row) == 18
+            ids.append(row[0])
+            for index, registry in ((14, data['metrics']), (15, data['contexts']), (16, data['contexts'])):
+                ref = row[index]
+                assert ref is None or (type(ref) is int and 0 <= ref < len(registry))
+    assert len(ids) == len(set(ids)) == selected_sets
+    assert len({point['workout_id'] for point in points}) == workouts
+    def selected(resource):
+        refs = resource['points']
+        assert all(type(ref) is int and 0 <= ref < len(points) for ref in refs)
+        assert len(refs) == len(set(refs))
+        return set(refs)
+    if case == 'exercise':
+        assert selected(payload) == set(range(len(points)))
+    else:
+        halves = []
+        for side in ('a', 'b'):
+            block = payload[side]
+            assert block['state'] == 'ready' and len(block['exercises']) == 1
+            refs = selected(next(iter(block['exercises'].values())))
+            assert sum(len(points[ref]['details']['observations']) for ref in refs) == selected_sets // 2
+            assert len({points[ref]['workout_id'] for ref in refs}) == workouts // 2
+            halves.append(refs)
+        assert not halves[0] & halves[1]
+        assert halves[0] | halves[1] == set(range(len(points)))
 
 
 async def main(args):
@@ -53,6 +98,7 @@ async def main(args):
             'source_dirty':bool(subprocess.check_output(['git','status','--porcelain'],text=True).strip()),
             'analytics_source_sha256':{str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(Path('api/services/analytics').glob('*.py'))},
             'transport':'HTTP ASGI in-process; real routing, serialization, DB and app-user lookup; external Firebase claims only replaced',
+            'encoding':'compact-v1' if args.compact else 'full',
             'fixture':f'One owned exercise; {args.workouts} finished workouts spread over 100 days (half per closed block), all selected sets use saved full-barbell context. All-history exercise and legacy both see every set; comparison union sees every set.',
             'sql_definition':'All SELECT statements including authentication; sequential warmup then measured requests; no concurrency', 'results':[]}
     for size in args.sizes:
@@ -79,6 +125,8 @@ async def main(args):
             app.dependency_overrides[get_current_firebase_claims]=lambda:{'uid':marker,'email':marker+'@example.invalid'}
             print(f'Fixture ready: {size} selected sets / {args.workouts} workouts / one exercise',flush=True)
             cases=[('legacy',f'/progress/exercise-history/{eid}',None),('exercise',f'/progress/analytics/exercises/{eid}?period=all',12),('comparison',f'/progress/analytics/blocks/compare?block_a_id={bids[0]}&block_b_id={bids[1]}',20)]
+            if args.compact:
+                cases=[(name,path+'&encoding=compact-v1' if limit else path,limit) for name,path,limit in cases]
             async with AsyncClient(transport=ASGITransport(app=app),base_url='http://localhost',timeout=None) as client:
                 for run in range(1,args.runs+1):
                     for name,path,limit in cases:
@@ -99,12 +147,16 @@ async def main(args):
                                     with open(str(args.output)+'.profile.txt','w') as handle:pstats.Stats(profile,stream=handle).sort_stats('cumulative').print_stats(65)
                                 assert response.status_code==200,(name,response.status_code,response.text[:500])
                                 data=response.json()
-                                if limit:assert data['state']=='ready' and len(sql)<=limit,(name,len(sql))
+                                if limit:
+                                    ready_data=data['payload'] if args.compact else data
+                                    assert ready_data['state']=='ready' and len(sql)<=limit,(name,len(sql))
+                                    if args.compact:
+                                        validate_compact(data, name, marker, size, args.workouts)
                                 if index:samples.append({'ms':elapsed,'sql_count':len(sql),'response_bytes':len(response.content)})
                                 else:print(f'Warmup {size}/{run}/{name}: {elapsed:.1f} ms; {len(sql)} SELECTs; {len(response.content)} bytes',flush=True)
                         finally:event.remove(engine.sync_engine,'before_cursor_execute',capture)
                         times=sorted(s['ms'] for s in samples)
-                        output['results'].append({'fixture_size':size,'selected_sets':size,'selected_workouts':args.workouts,'sets_per_workout':size//args.workouts,'selected_exercises':1,'sets_per_comparison_side':size//2 if name=='comparison' else None,'run':run,'case':name,'requests':args.requests,'sql_count':max(s['sql_count'] for s in samples),'median_ms':statistics.median(times),'p95_ms':times[math.ceil(.95*len(times))-1],'response_bytes':max(s['response_bytes'] for s in samples),'rules_version':data.get('rules_version'),'source_revision':data.get('data_revision'),'samples':samples,'sql':list(sql)})
+                        output['results'].append({'fixture_size':size,'selected_sets':size,'selected_workouts':args.workouts,'sets_per_workout':size//args.workouts,'selected_exercises':1,'sets_per_comparison_side':size//2 if name=='comparison' else None,'run':run,'case':name,'requests':args.requests,'sql_count':max(s['sql_count'] for s in samples),'median_ms':statistics.median(times),'p95_ms':times[math.ceil(.95*len(times))-1],'response_bytes':max(s['response_bytes'] for s in samples),'rules_version':data.get('rules_version') if isinstance(data,dict) else None,'source_revision':data.get('data_revision') if isinstance(data,dict) else None,'samples':samples,'sql':list(sql)})
                         output['results'][-1]['payload_sections'] = payload_profile(data, name)
                         Path(args.output).write_text(json.dumps(output,indent=2),encoding='utf-8')
                         print(f'Measured {size}/{run}/{name}: {args.requests} requests',flush=True)
@@ -126,6 +178,7 @@ async def main(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--sizes',nargs='+',type=int,default=[10000,100000]);parser.add_argument('--requests',type=int,default=30);parser.add_argument('--runs',type=int,default=2);parser.add_argument('--output',required=True)
     parser.add_argument('--profile',action='store_true')
+    parser.add_argument('--compact',action='store_true',help='Request compact-v1 only for analytics; legacy remains unchanged')
     parser.add_argument('--workouts',type=int,default=100)
     parser.add_argument('--keep-fixtures',action='store_true')
     args=parser.parse_args()
