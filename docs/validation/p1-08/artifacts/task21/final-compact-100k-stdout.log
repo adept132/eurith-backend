@@ -1,0 +1,14 @@
+Fixture ready: 100000 selected sets / 100 workouts / one exercise
+Warmup 100000/1/legacy: 5960.7 ms; 107 SELECTs; 2509413 bytes
+Measured 100000/1/legacy: 30 requests
+Warmup 100000/1/exercise: 17207.8 ms; 12 SELECTs; 10908466 bytes
+Measured 100000/1/exercise: 30 requests
+Warmup 100000/1/comparison: 20195.0 ms; 13 SELECTs; 10920704 bytes
+Measured 100000/1/comparison: 30 requests
+Warmup 100000/2/legacy: 6516.6 ms; 107 SELECTs; 2509413 bytes
+Measured 100000/2/legacy: 30 requests
+Warmup 100000/2/exercise: 17880.9 ms; 12 SELECTs; 10908466 bytes
+Measured 100000/2/exercise: 30 requests
+Warmup 100000/2/comparison: 18878.0 ms; 13 SELECTs; 10920704 bytes
+Measured 100000/2/comparison: 30 requests
+Retained synthetic fixture owner id 12 for local inspection

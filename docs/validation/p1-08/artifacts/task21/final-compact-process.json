@@ -1,0 +1,1 @@
+{"pid": 25300, "command": "python -u scripts/benchmark_analytics.py --compact --sizes 10000 100000 --workouts 100 --runs 2 --requests 30 --output <ignored-W>/final-compact-performance.json", "guard": "exact local benchmark target checked before subprocess application/Firebase imports"}

@@ -1,0 +1,20 @@
+[
+  {
+    "id": 11,
+    "firebase_uid": "p108-benchmark-982dde881de3412da088dd21d1131218",
+    "workouts": 100,
+    "facts": 10000
+  },
+  {
+    "id": 10,
+    "firebase_uid": "p108-benchmark-924f2aa1d56f4240a8d34b744acf5fe6",
+    "workouts": 100,
+    "facts": 100000
+  },
+  {
+    "id": 9,
+    "firebase_uid": "p108-benchmark-9bc95276373544bbbc39a6d449a02552",
+    "workouts": 100,
+    "facts": 10000
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "pid": 20660,
+    "state": "idle",
+    "wait_event_type": "Client",
+    "wait_event": "ClientRead",
+    "query_seconds": 321.01293,
+    "operation": "OTHER",
+    "blocked_by": []
+  },
+  {
+    "pid": 23040,
+    "state": "active",
+    "wait_event_type": null,
+    "wait_event": null,
+    "query_seconds": 320.915115,
+    "operation": "DELETE",
+    "blocked_by": []
+  }
+]

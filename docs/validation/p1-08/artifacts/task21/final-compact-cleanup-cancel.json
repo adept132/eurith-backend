@@ -1,0 +1,9 @@
+{
+  "pid": 23040,
+  "state": "active",
+  "query": "DELETE FROM workout_session_sets WHERE workout_session_sets.workout_session_exercise_id IN (SELECT workout_session_exercises.id \nFROM workout_session_exercises JOIN workout_sessions ON workout_sessions.id = workout_session_exercises.workout_session_id \nWHERE workout_sessions.app_user_id = $1::BIGINT) RETURNING workout_session_sets.id",
+  "client_port": 54015,
+  "seconds": 462.402194,
+  "cancel_sent": true,
+  "ownership": "OS established connection belongs to benchmark worker10832; current runner only synthetic owner11; exact cleanup SQL; no backend termination"
+}

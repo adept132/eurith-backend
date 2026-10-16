@@ -1,0 +1,1 @@
+{"pid": 16592, "command": "python -u scripts/benchmark_analytics.py --compact --sizes 100000 --workouts 100 --runs 2 --requests 30 --keep-fixtures --output <ignored-W>/final-compact-100k-performance.json", "guard": "exact local benchmark target checked before application imports", "continuation": "F53 only remaining100k;10k preserved; source snapshot identical"}

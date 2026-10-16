@@ -1,0 +1,19 @@
+{
+  "outcome": "PASS",
+  "groups": 12,
+  "samples": 360,
+  "raw_exits": [
+    1,
+    0
+  ],
+  "raw_hashes_both_copies": "match",
+  "median_p95": "all recomputed exactly",
+  "sql": "exercise12/comparison13 constant, bounds12/20",
+  "observation_counts": [
+    10000,
+    100000
+  ],
+  "source": "before/after snapshots identical; both segments start same clean HEADs",
+  "secrets": "private credential material absent from new archived evidence",
+  "limits": "No native/full-app gate or performance residual waiver"
+}
