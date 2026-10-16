@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 import pytest
 from sqlalchemy import event, update
@@ -151,6 +151,113 @@ async def test_integrated_query_budgets(client, ready, fresh_exercise, db, test_
         counts.append((len(statements),limit))
     print('Full authenticated SELECT counts:',counts)
     assert all(count<=limit for count,limit in counts), counts
+
+async def test_comparison_select_count_does_not_grow_with_exercise_count(client, ready, db, test_user):
+    from api.deps import get_current_firebase_claims
+    from api.main import app
+    from api.services.models import WorkoutSessionExercise, WorkoutSessionSet
+
+    # Four completed sessions per side make common exercises eligible for comparison.
+    workouts = {}
+    for side, block in zip(('a', 'b'), ready):
+        workouts[side] = []
+        for offset in range(4):
+            start = datetime.combine(block.start_date, datetime.min.time(), timezone.utc)
+            start += timedelta(days=offset, hours=10)
+            workout = WorkoutSession(app_user_id=test_user.id, source='free', status='finished',
+                started_at=start, finished_at=start+timedelta(hours=1),
+                training_block_id=block.id, analytics_snapshot={'is_deload': False})
+            db.add(workout)
+            workouts[side].append(workout)
+    await db.flush()
+
+    exercises = []
+    expected_points = {'a': {}, 'b': {}}
+
+    async def add_exercise(sides):
+        index = len(exercises)
+        exercise = Exercise(name=f'comparison-scaling-{uuid4()}', category='base',
+            main_muscle_group='chest', secondary_muscle_groups=[], difficulty='beginner',
+            equipment_needed=[], source='custom', app_user_id=test_user.id)
+        db.add(exercise)
+        await db.flush()
+        exercises.append(exercise.id)
+        for side in sides:
+            points = []
+            for offset, workout in enumerate(workouts[side]):
+                instance = WorkoutSessionExercise(workout_session_id=workout.id,
+                    exercise_id=exercise.id, order_index=index)
+                db.add(instance)
+                await db.flush()
+                base = 100 + index*10 + (10 if side == 'b' else 0)
+                weight = base + ((3 if side == 'a' else 6) if offset >= 2 else 0)
+                row = WorkoutSessionSet(workout_session_exercise_id=instance.id, set_number=1,
+                    set_type='normal', weight=weight, reps=1, effort_level='medium',
+                    is_completed=True, analytics_load_snapshot={
+                        'schema_version': 1, 'model': 'barbell', 'input_basis': 'full'})
+                db.add(row)
+                await db.flush()
+                points.append((workout.id, row.id, weight))
+            expected_points[side][exercise.id] = points
+
+    async def compare():
+        statements = []
+
+        def capture(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith('SELECT'):
+                statements.append(statement)
+
+        event.listen(engine.sync_engine, 'before_cursor_execute', capture)
+        try:
+            response = await client.get(BASE+'/blocks/compare', params={
+                'block_a_id': ready[0].id, 'block_b_id': ready[1].id})
+        finally:
+            event.remove(engine.sync_engine, 'before_cursor_execute', capture)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data['state'] == 'ready' and data['data_revision'] == 3
+        for side in ('a', 'b'):
+            block = data[side]
+            assert block['state'] == 'ready' and block['data_revision'] == 3
+            assert set(map(int, block['exercises'])) == set(expected_points[side])
+            assert block['volume']['work_sets'] == 4*len(expected_points[side])
+            for exercise_id, expected in expected_points[side].items():
+                exercise = block['exercises'][str(exercise_id)]
+                assert exercise['summary']['volume']['work_sets'] == 4
+                assert exercise['summary']['best_e1rm']['value'] == expected[-1][2]
+                assert exercise['summary']['strength']['delta_pct'] == pytest.approx(
+                    (expected[-1][2]-expected[0][2])/expected[0][2]*100)
+                assert len(exercise['points']) == 4
+                assert [(point['workout_id'], point['source_set_id'], point['e1rm'])
+                        for point in exercise['points']] == expected
+                assert [[observation['set_id'] for observation in point['details']['observations']]
+                        for point in exercise['points']] == [[row[1]] for row in expected]
+        return data, len(statements)
+
+    # Keep actual account/profile guards as well as routing, assembly and serialization.
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_current_firebase_claims] = lambda: {
+        'uid': test_user.firebase_uid, 'email': test_user.email}
+    await add_exercise(('a', 'b'))
+    await add_exercise(('a',))
+    await db.commit()
+    small, small_count = await compare()
+    assert small['common_exercise_ids'] == [exercises[0]]
+    assert small['removed'] == [exercises[1]] and small['added'] == []
+
+    await add_exercise(('a', 'b'))
+    await add_exercise(('b',))
+    await db.commit()
+    large, large_count = await compare()
+    assert large['common_exercise_ids'] == sorted((exercises[0], exercises[2]))
+    assert large['removed'] == [exercises[1]] and large['added'] == [exercises[3]]
+    for data, count in ((small, 2), (large, 4)):
+        assert len(set(data['a']['exercises']) | set(data['b']['exercises'])) == count
+    assert large['a']['volume']['work_sets'] > small['a']['volume']['work_sets']
+    assert large['b']['volume']['work_sets'] > small['b']['volume']['work_sets']
+    print(f'Comparison SELECT counts: N=2 {small_count}, 2N=4 {large_count}')
+    assert 0 < small_count <= 20 and 0 < large_count <= 20
+    assert large_count <= small_count, (small_count, large_count)
 
 async def test_extreme_custom_dates_repository(db, test_user):
     from api.services.analytics.repository import load_facts
