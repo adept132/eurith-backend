@@ -307,3 +307,18 @@ async def test_last_performance_keeps_origin_mass(client, db, test_user, seeded_
     else:
         assert rows[0]['source_analytics_snapshot'] == saved['workout']['analytics_snapshot']
         assert rows[0]['source_analytics_snapshot']['body_mass'] is None
+
+async def test_disabled_add_set_replays_established_load_without_new_mode(client, seeded_history, monkeypatch):
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+    data = snapshot(seeded_history.id)
+    saved = await push(client, data)
+    context = saved['workout']['exercises'][0]['analytics_load_defaults']
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'false')
+    added = {'client_uuid':str(uuid4()), 'set_number':2, 'reps':6, 'analytics_load_snapshot':context}
+    data['exercises'][0]['sets'].append(added)
+    result = await push(client, data)
+    assert result['workout']['exercises'][0]['sets'][1]['analytics_load_snapshot'] == context
+    added['client_uuid'] = str(uuid4())
+    added['analytics_load_snapshot'] = {**context, 'assistance_kg':20}
+    response = await client.post('/sync/workouts', json=data)
+    assert response.status_code == 409

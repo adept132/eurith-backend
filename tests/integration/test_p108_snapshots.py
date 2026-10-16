@@ -222,3 +222,15 @@ async def test_proven_calendar_phase_fallback(test_user, db):
     unlinked = await workout(db, test_user.id)
     unlinked.calendar_day_id = day.id
     assert (await capture_workout_snapshot(db, unlinked, explicit_mass=None)).is_deload is None
+
+@pytest.mark.asyncio
+async def test_omitted_body_does_not_erase_canonical_snapshot(test_user, db, monkeypatch):
+    from types import SimpleNamespace
+    from api.schemas.analytics_context import WorkoutAnalyticsSnapshot
+    from api.services.analytics.writes import apply_session_context
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+    row = await workout(db, test_user.id)
+    before = await capture_workout_snapshot(db, row, explicit_mass=manual())
+    await apply_session_context(db, row, SimpleNamespace(analytics_snapshot=WorkoutAnalyticsSnapshot(),
+        model_fields_set={'analytics_snapshot'}))
+    assert row.analytics_snapshot == before.model_dump(mode='json')

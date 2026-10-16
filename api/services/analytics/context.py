@@ -140,7 +140,7 @@ def adherence_summary(calendar: list[dict], workouts: list[dict], *, today: date
         unresolved_due += int(bool(inferred) and not done)
         observations.append(metadata)
     extras = sum(1 for wid, w in finished.items() if wid not in linked_ids and
-                 in_period(w['finished_at'].astimezone(zone).date(), w.get('training_block_id')))
+                 (period is None or period.start <= w['finished_at'].astimezone(zone).date() <= period.end))
     return dict(scope='block_context', planned_days=planned, completed_days=completed,
                 missed_days=planned-completed-unresolved_due, percent=round(100*completed/planned) if planned and not incomplete else None,
                 reason='incomplete_calendar' if incomplete else None, obligations=observations,

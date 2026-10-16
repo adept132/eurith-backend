@@ -402,3 +402,52 @@ async def test_empty_intersection_keeps_global_context(p108_seed):
     assert result.a.volume.work_sets==result.b.volume.work_sets==0
     assert result.a.body.metrics['weight'].delta==result.b.body.metrics['weight'].delta==1
     assert result.a.adherence.percent==result.b.adherence.percent==100
+
+@pytest.mark.asyncio
+async def test_body_only_context_preserves_deload_in_strength_and_reference(p108_seed, monkeypatch):
+    from types import SimpleNamespace
+    from api.schemas.analytics_context import WorkoutAnalyticsSnapshot, BodyMassSnapshot
+    from api.services.analytics.writes import apply_session_context
+    db, uid, exercises, blocks, _, workouts = p108_seed
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+    blocks[0].phases = [{'phase_number': 1, 'effort_tier': 'deload'}]
+    first = workouts[0]
+    first.analytics_snapshot = None
+    first.mesocycle_phase = 1
+    async def apply(weight):
+        body = BodyMassSnapshot(weight_kg=weight, measured_on=first.started_at.date(),
+            source='manual', captured_at=first.started_at)
+        await apply_session_context(db, first, SimpleNamespace(
+            analytics_snapshot=WorkoutAnalyticsSnapshot(body_mass=body),
+            model_fields_set={'analytics_snapshot'}), is_new=weight == 80)
+    for weight in (80, 81):
+        await apply(weight)
+        result = await exercise_analytics(db, uid, exercises[1].id,
+            AnalyticsQuery(period='block', block_id=blocks[0].id))
+        assert result.summary.strength.delta_pct is None
+        assert result.points[0].is_deload is True
+        assert result.points[1].details.intensity.value is None
+        assert first.analytics_snapshot['phase_source'] == 'training_block'
+        assert first.analytics_snapshot['body_mass']['weight_kg'] == weight
+        blocks[0].phases = [{'phase_number': 1, 'effort_tier': 'hard'}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('linkage', [None, 'other'])
+async def test_block_extras_follow_actual_dates_without_changing_obligations(p108_seed, linkage):
+    db, uid, exercises, blocks, _, _ = p108_seed
+    start = datetime(2026, 8, 5, 10, tzinfo=UTC)
+    extra = WorkoutSession(app_user_id=uid, source='free', status='finished', started_at=start,
+        finished_at=start+timedelta(hours=1), training_block_id=blocks[1].id if linkage else None)
+    db.add(extra)
+    await db.flush()
+    instance = WorkoutSessionExercise(workout_session_id=extra.id, exercise_id=exercises[1].id, order_index=0)
+    db.add(instance)
+    await db.flush()
+    db.add(WorkoutSessionSet(workout_session_exercise_id=instance.id, set_number=1,
+        weight=100, reps=1, is_completed=True, analytics_load_snapshot=CTX))
+    await db.flush()
+    result = await block_analytics(db, uid, blocks[0].id, None)
+    assert result.volume.work_sets == 17
+    assert result.adherence.extra_workouts == 1
+    assert (result.adherence.planned_days, result.adherence.completed_days, result.adherence.percent) == (4, 4, 100)

@@ -37,6 +37,17 @@ def field_accounting(data,case):
             'note':'Counts exercise observation lists once; comparison muscle duplicates excluded from these field totals but retained in response bytes.'}
 
 
+def request_cases(args, exercise_id, blocks):
+    cases = [('exercise', f'/progress/analytics/exercises/{exercise_id}?period=all'),
+             ('comparison', f'/progress/analytics/blocks/compare?block_a_id={blocks[0]}&block_b_id={blocks[1]}')]
+    if args.unprofiled:
+        cases.insert(0, ('legacy', f'/progress/exercise-history/{exercise_id}'))
+    if args.case:
+        cases = [case for case in cases if case[0] == args.case]
+    return [(name, path + ('&encoding=compact-v1' if args.compact and name != 'legacy' else ''))
+            for name, path in cases]
+
+
 async def main(args):
     from httpx import ASGITransport,AsyncClient
     from sqlalchemy import select,func
@@ -57,11 +68,7 @@ async def main(args):
     output={'kind':'diagnostic-single-request-no-percentiles' if args.unprofiled else 'diagnostic-profile-only','selected_sets':count,'results':[]}
     try:
         async with AsyncClient(transport=ASGITransport(app=app),base_url='http://localhost',timeout=None) as client:
-            cases=[('exercise',f'/progress/analytics/exercises/{exercises[0]}?period=all'),('comparison',f'/progress/analytics/blocks/compare?block_a_id={blocks[0]}&block_b_id={blocks[1]}')]
-            if args.unprofiled:cases.insert(0,('legacy',f'/progress/exercise-history/{exercises[0]}'))
-            if args.case:cases=[case for case in cases if case[0]==args.case]
-            for name,path in cases:
-                if args.compact:path+='&encoding=compact-v1'
+            for name,path in request_cases(args, exercises[0], blocks):
                 profile=cProfile.Profile();start=time.perf_counter()
                 if not args.unprofiled:profile.enable()
                 response=await client.get(path)

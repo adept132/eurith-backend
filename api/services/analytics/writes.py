@@ -34,7 +34,9 @@ def apply_set_context(target, payload, exercise, *, is_new=False):
                                   'set_id': target.id, 'weight': str(target.weight) if target.weight is not None else None,
                                   'reps': target.reps,
                                   'analytics_load_snapshot': deepcopy(current)})
-    if is_new and 'analytics_load_snapshot' not in payload.model_fields_set:
+    if is_new and ('analytics_load_snapshot' not in payload.model_fields_set
+                   or json_value(payload.analytics_load_snapshot) == exercise.analytics_load_defaults):
+        # Reusing the established exercise mode is an ordinary set addition.
         target.analytics_load_snapshot = deepcopy(exercise.analytics_load_defaults)
     else:
         apply_field(target, payload, 'analytics_load_snapshot')
@@ -67,8 +69,14 @@ async def apply_session_context(db, workout, payload, *, is_new=False):
         if value != workout.analytics_snapshot and value is not None and not analytics_enabled():
             raise HTTPException(409, {'error': 'analytics_disabled'})
         # Validate owner-linked mass even when caller merely substitutes a snapshot.
-        if supplied and supplied.body_mass:
-            await capture_workout_snapshot(db, workout, explicit_mass=supplied.body_mass)
+        if supplied is not None:
+            canonical = await capture_workout_snapshot(db, workout, explicit_mass=supplied.body_mass)
+            # Phase belongs to the saved server context, never optional client defaults.
+            value = canonical.model_dump(mode='json')
+            if 'body_mass' in supplied.model_fields_set:
+                value['body_mass'] = json_value(supplied.body_mass)
+            if established_replay:
+                value['body_mass'] = established_mass
         workout.analytics_snapshot = value
     if intent is not None:
         old = (workout.analytics_snapshot or {}).get('body_mass') or {}

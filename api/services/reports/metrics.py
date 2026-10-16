@@ -430,7 +430,7 @@ def from_analytics(resource, period_type: str, level: str | None, names: dict[in
     records.sort(key=lambda r: (r.achieved_on, r.exercise_id))
     return ReportMetrics(period_type=period_type, period_start=period.start, period_end=period.end,
         adherence=AdherenceMetric(adherence.planned_days, adherence.completed_days, adherence.missed_days,
-            None if adherence.reason else adherence.completed_days / adherence.planned_days if adherence.planned_days else 0.),
+            None if adherence.reason else adherence.completed_days / adherence.planned_days if adherence.planned_days else None),
         volume=VolumeMetric(volume.work_sets, volume.tonnage.value, by_muscle),
         intensity=IntensityMetric(resource.intensity.value / 100 if resource.intensity.value is not None else None,
             sum(o.actual_reps <= HEAVY_REPS_MAX for o in known_reps) / len(known_reps) if known_reps else None),

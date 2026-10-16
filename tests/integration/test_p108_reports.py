@@ -211,3 +211,18 @@ async def test_service_does_not_commit_snapshots(db,test_user,history,monkeypatc
     assert await service.ensure_reports(db,test_user.id,TODAY)>0
     await db.rollback()
     assert await report(db,test_user.id) is None
+
+@pytest.mark.asyncio
+async def test_rest_only_calendar_report_keeps_unavailable_adherence(db, test_user, history, monkeypatch):
+    from api.services.models import UserCalendarDay
+    monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')
+    for offset in range(7):
+        db.add(UserCalendarDay(app_user_id=test_user.id, target_date=START+timedelta(days=offset), is_rest_day=True))
+    await db.commit()
+    await rebuild_user(db, test_user.id)
+    await service.ensure_reports(db, test_user.id, TODAY)
+    await db.commit()
+    row = await report(db, test_user.id)
+    assert row.rules_version == 3
+    assert row.payload['metrics']['time']['sessions'] == 2
+    assert row.payload['metrics']['adherence'] == dict(planned_days=0, completed_days=0, missed_days=0, rate=None)
