@@ -9,6 +9,8 @@ from api.services.app_user_service import get_current_app_user
 from api.services.analytics import service, state
 from api.services.analytics.config import analytics_enabled
 from api.services.analytics.publication import coherent_read
+from api.services.analytics.compact import pack_resource
+from api.schemas.analytics_compact import AnalyticsCompactV1
 from api.schemas.analytics import (AnalyticsCapabilities, AnalyticsUnavailable, ExerciseAnalytics,
     MuscleAnalytics, BlockAnalytics, BlockComparison, PeriodQuery, GymQuery, CompareQuery)
 
@@ -50,22 +52,26 @@ async def capabilities(request: Request, user: User, db: DB):
                                  data_revision=current['data_revision'], timezone=zone)
 
 
-@router.get('/exercises/{exercise_id}', response_model=ExerciseAnalytics | AnalyticsUnavailable)
+@router.get('/exercises/{exercise_id}', response_model=ExerciseAnalytics | AnalyticsUnavailable | AnalyticsCompactV1)
 async def exercise(exercise_id: PositiveID, params: Annotated[PeriodQuery, Query()], user: User, db: DB):
-    return await _read(db, user.id, lambda: service.exercise_analytics(db, user.id, exercise_id, params.to_query()))
+    result = await _read(db, user.id, lambda: service.exercise_analytics(db, user.id, exercise_id, params.to_query()))
+    return pack_resource(result, 'exercise', user.firebase_uid) if params.encoding else result
 
 
-@router.get('/muscles', response_model=MuscleAnalytics | AnalyticsUnavailable)
+@router.get('/muscles', response_model=MuscleAnalytics | AnalyticsUnavailable | AnalyticsCompactV1)
 async def muscles(params: Annotated[PeriodQuery, Query()], user: User, db: DB):
-    return await _read(db, user.id, lambda: service.muscle_analytics(db, user.id, params.to_query()))
+    result = await _read(db, user.id, lambda: service.muscle_analytics(db, user.id, params.to_query()))
+    return pack_resource(result, 'muscles', user.firebase_uid) if params.encoding else result
 
 
 # Static route must precede the integer block route: validation does not fall through.
-@router.get('/blocks/compare', response_model=BlockComparison | AnalyticsUnavailable)
+@router.get('/blocks/compare', response_model=BlockComparison | AnalyticsUnavailable | AnalyticsCompactV1)
 async def compare(params: Annotated[CompareQuery, Query()], user: User, db: DB):
-    return await _read(db, user.id, lambda: service.compare_blocks(db, user.id, params.block_a_id, params.block_b_id, params.gym_filter))
+    result = await _read(db, user.id, lambda: service.compare_blocks(db, user.id, params.block_a_id, params.block_b_id, params.gym_filter))
+    return pack_resource(result, 'comparison', user.firebase_uid) if params.encoding else result
 
 
-@router.get('/blocks/{block_id}', response_model=BlockAnalytics | AnalyticsUnavailable)
+@router.get('/blocks/{block_id}', response_model=BlockAnalytics | AnalyticsUnavailable | AnalyticsCompactV1)
 async def block(block_id: PositiveID, params: Annotated[GymQuery, Query()], user: User, db: DB):
-    return await _read(db, user.id, lambda: service.block_analytics(db, user.id, block_id, params.gym_filter))
+    result = await _read(db, user.id, lambda: service.block_analytics(db, user.id, block_id, params.gym_filter))
+    return pack_resource(result, 'block', user.firebase_uid) if params.encoding else result

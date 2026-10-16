@@ -317,6 +317,7 @@ class AnalyticsUnavailable(DTO):
 
 
 class AnalyticsCapabilities(DTO):
+    read_encodings: list[Literal['compact-v1']] = Field(default_factory=lambda: ['compact-v1'])
     timezone: str
     write_enabled: bool
     context_schema_version: Literal[1] = 1
@@ -327,6 +328,7 @@ class AnalyticsCapabilities(DTO):
 
 
 class GymQuery(DTO):
+    encoding: Literal['compact-v1'] | None = None
     gym_id: UUID | Literal['unknown'] | None = None
 
     @property

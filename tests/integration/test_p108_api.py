@@ -8,6 +8,24 @@ from app.database import engine, SessionLocal
 BASE = '/progress/analytics'
 pytestmark = pytest.mark.asyncio
 
+async def test_compact_is_opt_in_owned_and_advertised(client, ready, p108_seed, test_user):
+    seed = await p108_seed()
+    paths = [(f'/exercises/{seed.exercise_id}?period=all', 'exercise'),
+             ('/muscles?period=all', 'muscles'),
+             (f'/blocks/{ready[0].id}?', 'block'),
+             (f'/blocks/compare?block_a_id={ready[0].id}&block_b_id={ready[1].id}', 'comparison')]
+    assert (await client.get(BASE+'/capabilities')).json()['read_encodings'] == ['compact-v1']
+    for path, kind in paths:
+        full = await client.get(BASE+path)
+        compact = await client.get(BASE+path+'&encoding=compact-v1')
+        assert full.status_code == compact.status_code == 200
+        assert 'encoding' not in full.json()
+        data = compact.json()
+        assert data['encoding'] == 'compact-v1' and data['resource'] == kind
+        assert data['owner_uid'] == test_user.firebase_uid
+        assert data['payload']['state'] == 'ready' and data['data_revision'] == 3
+        assert compact.headers['cache-control'] == 'private, no-store'
+
 @pytest.fixture
 async def ready(db, test_user, monkeypatch):
     monkeypatch.setenv('P108_ANALYTICS_ENABLED', 'true')

@@ -8,7 +8,7 @@ from api.schemas.analytics import (AnalyticsScope, ExerciseAnalytics, ExercisePo
     BodyContext, AdherenceContext, ComparisonDifferences, Difference, Exclusion, VolumeSummary,
     MuscleProgress, MuscleContribution)
 from .types import AnalyticsQuery, AnalyticsFacts, Coverage, Metric, StrengthChange
-from .repository import load_facts
+from .repository import load_facts, load_comparison_facts
 from .strength import session_points, strength_change, record_history
 from .intensity import intensity_summary, prepare_intensity
 from .effort import effort_summary
@@ -228,8 +228,7 @@ def _adherence_ratio(context):
 async def compare_blocks(db, user_id: int, block_a_id: int, block_b_id: int, gym_id: str | None) -> BlockComparison:
     qa = AnalyticsQuery(period='block',block_id=block_a_id,gym_id=gym_id)
     qb = AnalyticsQuery(period='block',block_id=block_b_id,gym_id=gym_id)
-    fa = await load_facts(db,user_id,qa,allow_unresolved_period=True)
-    fb = await load_facts(db,user_id,qb,allow_unresolved_period=True)
+    fa, fb = await load_comparison_facts(db, user_id, qa, qb)
     a,b = _block(fa,qa),_block(fb,qb)
     if a.block.status != 'closed' or b.block.status != 'closed':
         raise ValueError('comparison_requires_closed_blocks')

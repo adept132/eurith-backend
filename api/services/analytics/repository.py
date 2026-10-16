@@ -4,6 +4,7 @@ All set channels contain NormalizedSetFact (a RawSetFact subclass). Consumers us
 its e1rm_reps and normalized loads, and must not apply load conversion again.
 Sidecars retain owner-wide history for calendar chains and period comparisons.
 """
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -41,9 +42,23 @@ def _deload(workout, blocks, days):
     return None
 
 
-async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
-                     exercise_ids: set[int] | None = None,
-                     allow_unresolved_period: bool = False) -> AnalyticsFacts:
+@dataclass(frozen=True)
+class _HistorySnapshot:
+    user_id: int
+    gym_id: str | None
+    exercise_ids: frozenset[int] | None
+    preview_workout_id: int | None
+    header: dict
+    blocks: list[dict]
+    workouts: list[dict]
+    calendar: list[dict]
+    facts: list
+    block_membership: dict
+    catalog: list[dict]
+    as_of: datetime
+
+
+async def _load_history(db, user_id, query, exercise_ids):
     # One owner-anchored metadata read retains native date/UUID types and
     # still returns a row when the owner has no blocks or preview. Scalar
     # subqueries avoid multiplying blocks by profile/state rows.
@@ -61,35 +76,13 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             WorkoutSession, and_(WorkoutSession.app_user_id == owner.c.id,
                                  WorkoutSession.id == query.preview_workout_id))))
     header = metadata[0]
-    zone_name = header['_timezone'] or 'UTC'
-    zone = ZoneInfo(zone_name)
-    now = datetime.now(timezone.utc)
-    today = now.astimezone(zone).date()
-    revision = header['_revision'] or 0
     blocks = [{column.name: row[column.name] for column in TrainingBlock.__table__.columns}
               for row in metadata if row['id'] is not None]
-    block_map = {b['id']:b for b in blocks}
-    if query.block_id is not None and query.block_id not in block_map:
-        raise ValueError('block_not_found')
-    preview = None
-    if query.preview_workout_id is not None:
-        if header['_preview_id'] is None or header['_preview_start'] is None:
-            raise ValueError('preview_workout_not_found')
-        if query.require_active_preview and header['_preview_status'] != 'active':
-            raise ValueError('preview_workout_not_active')
-        preview = dict(id=header['_preview_id'], started_at=header['_preview_start'])
+    block_map = {b['id']: b for b in blocks}
+    now = datetime.now(timezone.utc)
     workouts = await _rows(db, select(WorkoutSession.__table__).where(
         WorkoutSession.app_user_id == user_id, WorkoutSession.status == 'finished',
         WorkoutSession.finished_at.is_not(None)).order_by(WorkoutSession.finished_at, WorkoutSession.id))
-    history_dates = [w['finished_at'].astimezone(zone).date() for w in workouts
-                     if w['finished_at'].astimezone(zone).date() <= today]
-    try:
-        period = resolve_period(query, timezone=zone_name, today=today,
-            block=block_map.get(query.block_id), history_start=min(history_dates, default=None))
-    except ValueError as exc:
-        if not allow_unresolved_period or str(exc) != 'unknown_block_end':
-            raise
-        period = None
     calendar = await _rows(db, select(UserCalendarDay.__table__).where(UserCalendarDay.app_user_id == user_id))
     linked_days = {}
     for day in calendar:
@@ -112,14 +105,13 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
     rows = await _rows(db, statement.order_by(W.finished_at, W.id, E.order_index, E.id, S.set_number, S.id))
     facts = []
     comparison_cache = {}
-    linked_block_workouts = set()
+    block_membership = {}
     for row in rows:
         # Context belongs to this joined observation, even if another session
         # finished between the independent global-workout and set batches.
         w = {name: row['session_' + name] for name in session_fields}
         w['id'] = row['workout_id']
-        if w['training_block_id'] == query.block_id:
-            linked_block_workouts.add(w['id'])
+        block_membership[w['id']] = w['training_block_id']
         saved_load = row['load_snapshot'] or {}
         context = row['analytics_load_snapshot']
         if context is None:
@@ -135,6 +127,50 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             reps=row['reps'], effort_level=row['effort_level'], load_context=context,
             session_context=w['analytics_snapshot'], is_deload=_deload(w, block_map, linked_days))
         facts.append(normalize_set(raw, comparison_cache=comparison_cache))
+    catalog = await _rows(db, select(Exercise.id.label('exercise_id'), Exercise.name, Exercise.main_muscle_group,
+        Exercise.secondary_muscle_groups).where(or_(Exercise.app_user_id.is_(None), Exercise.app_user_id == user_id)))
+    for row in catalog:
+        row['main_muscle_group'] = to_system_key(row['main_muscle_group'])
+        row['secondary_muscle_groups'] = sorted({key for item in (row['secondary_muscle_groups'] or [])
+            if (key := to_system_key(item)) is not None and key != row['main_muscle_group']})
+    return _HistorySnapshot(user_id, query.gym_id,
+        frozenset(exercise_ids) if exercise_ids is not None else None,
+        query.preview_workout_id, header, blocks, workouts, calendar, facts,
+        block_membership, catalog, now)
+
+
+async def _project_facts(db, history, query, *, allow_unresolved_period=False):
+    if query.gym_id != history.gym_id or query.preview_workout_id != history.preview_workout_id:
+        raise ValueError('history_scope_mismatch')
+    user_id = history.user_id
+    workouts, calendar, facts, catalog = history.workouts, history.calendar, history.facts, history.catalog
+    linked_block_workouts = {wid for wid, bid in history.block_membership.items() if bid == query.block_id}
+    header = history.header
+    zone_name = header['_timezone'] or 'UTC'
+    zone = ZoneInfo(zone_name)
+    now = history.as_of
+    today = now.astimezone(zone).date()
+    revision = header['_revision'] or 0
+    blocks = history.blocks
+    block_map = {b['id']:b for b in blocks}
+    if query.block_id is not None and query.block_id not in block_map:
+        raise ValueError('block_not_found')
+    preview = None
+    if query.preview_workout_id is not None:
+        if header['_preview_id'] is None or header['_preview_start'] is None:
+            raise ValueError('preview_workout_not_found')
+        if query.require_active_preview and header['_preview_status'] != 'active':
+            raise ValueError('preview_workout_not_active')
+        preview = dict(id=header['_preview_id'], started_at=header['_preview_start'])
+    history_dates = [w['finished_at'].astimezone(zone).date() for w in workouts
+                     if w['finished_at'].astimezone(zone).date() <= today]
+    try:
+        period = resolve_period(query, timezone=zone_name, today=today,
+            block=block_map.get(query.block_id), history_start=min(history_dates, default=None))
+    except ValueError as exc:
+        if not allow_unresolved_period or str(exc) != 'unknown_block_end':
+            raise
+        period = None
     window = [f for f in facts if period.start_at <= f.finished_at < period.end_exclusive] if period else [
         f for f in facts if f.workout_id in linked_block_workouts]
     # Graph targets always retain full chronology, even during an active preview.
@@ -183,13 +219,25 @@ async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
             for key in ('weight', 'height', 'body_fat'):
                 if key in (row['submitted_fields'] or []) and row[key] is not None:
                     measurements.append(dict(common, metric_key=key, value=Decimal(str(row[key]))))
-    catalog = await _rows(db, select(Exercise.id.label('exercise_id'), Exercise.name, Exercise.main_muscle_group,
-        Exercise.secondary_muscle_groups).where(or_(Exercise.app_user_id.is_(None), Exercise.app_user_id == user_id)))
-    for row in catalog:
-        row['main_muscle_group'] = to_system_key(row['main_muscle_group'])
-        row['secondary_muscle_groups'] = sorted({key for item in (row['secondary_muscle_groups'] or [])
-            if (key := to_system_key(item)) is not None and key != row['main_muscle_group']})
     return AnalyticsFacts(period=period, window_sets=window, reference_sets=reference, record_sets=records,
         calendar=calendar, measurements=measurements, blocks=blocks, source_revision=revision,
         catalog_mappings=catalog, global_workouts=workouts, timezone=zone_name,
         as_of=now, preview_start=preview["started_at"] if preview else None, graph_sets=facts)
+
+
+async def load_facts(db, user_id: int, query: AnalyticsQuery, *,
+                     exercise_ids: set[int] | None = None,
+                     allow_unresolved_period: bool = False) -> AnalyticsFacts:
+    history = await _load_history(db, user_id, query, exercise_ids)
+    return await _project_facts(db, history, query, allow_unresolved_period=allow_unresolved_period)
+
+
+async def load_comparison_facts(db, user_id: int, qa: AnalyticsQuery, qb: AnalyticsQuery):
+    """One request-owned joined history, independently projected block windows."""
+    if (qa.period != 'block' or qb.period != 'block' or qa.gym_id != qb.gym_id
+            or qa.preview_workout_id is not None or qb.preview_workout_id is not None):
+        raise ValueError('comparison_history_scope_mismatch')
+    history = await _load_history(db, user_id, qa, None)
+    a = await _project_facts(db, history, qa, allow_unresolved_period=True)
+    b = await _project_facts(db, history, qb, allow_unresolved_period=True)
+    return a, b

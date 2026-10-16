@@ -1,0 +1,10 @@
+(node:22420) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS src/offline/__tests__/analyticsHttpAcceptance.test.ts
+  √ actual serializer -> HTTP -> canonical ACK -> module restart -> replay (193 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        2.232 s, estimated 3 s
+Ran all test suites within paths "src/offline/__tests__/analyticsHttpAcceptance.test.ts".

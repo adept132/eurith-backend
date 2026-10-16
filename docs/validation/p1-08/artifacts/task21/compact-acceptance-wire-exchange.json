@@ -1,0 +1,612 @@
+{
+  "measurement": "ebe82023-3ac6-4b59-9b83-8424798946db",
+  "initial": {
+    "client_uuid": "6ed5a119-01a1-4002-830b-44584dcd055f",
+    "base_version": null,
+    "analytics_snapshot": {
+      "schema_version": 1,
+      "body_mass": {
+        "schema_version": 1,
+        "weight_kg": 80,
+        "source": "manual",
+        "measured_on": "2026-08-20",
+        "captured_at": "2026-08-20T10:00:00Z"
+      }
+    },
+    "analytics_mass_intent": {
+      "client_uuid": "ebe82023-3ac6-4b59-9b83-8424798946db",
+      "weight_kg": 80,
+      "measured_on": "2026-08-20"
+    },
+    "source": "free",
+    "status": "active",
+    "split_day_id": null,
+    "plan_id": null,
+    "gym_profile_id": null,
+    "gym_snapshot": null,
+    "notes": null,
+    "session_rpe": null,
+    "volume_targets": null,
+    "started_at": "2026-10-16T10:53:20.205Z",
+    "finished_at": null,
+    "exercises": [
+      {
+        "client_uuid": "2882c2b6-01a1-4003-aa9c-44584dd02a7e",
+        "exercise_id": 421,
+        "order_index": 0,
+        "superset_group": null,
+        "notes": null,
+        "recommended_rir": null,
+        "recommended_rep_min": null,
+        "recommended_rep_max": null,
+        "recommended_weight": null,
+        "prescription": null,
+        "live_prescription": null,
+        "target_sets": null,
+        "analytics_load_defaults": {
+          "schema_version": 1,
+          "model": "bodyweight",
+          "input_basis": "body_components",
+          "added_load_kg": 5,
+          "assistance_kg": 0
+        },
+        "active_load_mode": null,
+        "active_setup_id": null,
+        "updated_at": "2026-10-16T10:53:20.210Z",
+        "sets": [
+          {
+            "client_uuid": "77b85936-01a1-4004-aff7-44584dd15fe6",
+            "set_number": 1,
+            "set_type": "normal",
+            "weight": 0,
+            "reps": 8,
+            "effort_level": null,
+            "notes": null,
+            "parent_client_uuid": null,
+            "superset_round": null,
+            "is_completed": true,
+            "is_max_reps": false,
+            "analytics_load_snapshot": {
+              "schema_version": 1,
+              "model": "bodyweight",
+              "input_basis": "body_components",
+              "added_load_kg": 5,
+              "assistance_kg": 0
+            },
+            "load_mode": null,
+            "gym_profile_id": null,
+            "setup_id": null,
+            "load_snapshot": null,
+            "shown_target_snapshot": null,
+            "updated_at": "2026-10-16T10:53:20.209Z"
+          }
+        ]
+      }
+    ]
+  },
+  "response": {
+    "deleted": false,
+    "id_map": {
+      "6ed5a119-01a1-4002-830b-44584dcd055f": 913,
+      "2882c2b6-01a1-4003-aa9c-44584dd02a7e": 2743,
+      "77b85936-01a1-4004-aff7-44584dd15fe6": 6728
+    },
+    "sync_version": 1,
+    "workout": {
+      "analytics_snapshot": {
+        "schema_version": 1,
+        "body_mass": {
+          "schema_version": 1,
+          "weight_kg": 80,
+          "measured_on": "2026-08-20",
+          "measurement_id": 320,
+          "measurement_client_uuid": "ebe82023-3ac6-4b59-9b83-8424798946db",
+          "source": "journal",
+          "captured_at": "2026-10-16T10:53:20.253048Z",
+          "import_provenance": null
+        },
+        "is_deload": null,
+        "phase_source": null
+      },
+      "sync_version": 1,
+      "child_tombstones": {
+        "sets": [],
+        "exercises": []
+      },
+      "id": 913,
+      "client_uuid": "6ed5a119-01a1-4002-830b-44584dcd055f",
+      "source": "free",
+      "status": "active",
+      "entry_mode": "live",
+      "revision": 0,
+      "edited_at": null,
+      "split_day_id": null,
+      "plan_id": null,
+      "gym_profile_id": null,
+      "gym_snapshot": null,
+      "routine_id": null,
+      "app_user_periodization_id": null,
+      "periodization_week": null,
+      "items": [],
+      "notes": null,
+      "session_rpe": null,
+      "volume_targets": null,
+      "started_at": "2026-10-16T10:53:20.205000Z",
+      "finished_at": null,
+      "updated_at": "2026-10-16T10:53:20.224329Z",
+      "exercises": [
+        {
+          "analytics_load_defaults": {
+            "schema_version": 1,
+            "model": "bodyweight",
+            "input_basis": "body_components",
+            "base_weight_kg": null,
+            "implement_count": null,
+            "rep_basis": null,
+            "left_reps": null,
+            "right_reps": null,
+            "added_load_kg": 5,
+            "assistance_kg": 0,
+            "model_id": null,
+            "source": null
+          },
+          "id": 2743,
+          "client_uuid": "2882c2b6-01a1-4003-aa9c-44584dd02a7e",
+          "order_index": 0,
+          "superset_group": null,
+          "notes": null,
+          "active_load_mode": null,
+          "active_setup_id": null,
+          "warmup_group": null,
+          "updated_at": "2026-10-16T10:53:20.224329Z",
+          "exercise": {
+            "id": 421,
+            "name": "\u0420\u045e\u0420\u00b5\u0421\u0403\u0421\u201a\u0420\u0455\u0420\u0406\u0420\u0455\u0420\u00b5 \u0421\u0453\u0420\u0457\u0421\u0402\u0420\u00b0\u0420\u00b6\u0420\u0405\u0420\u00b5\u0420\u0405\u0420\u0451\u0420\u00b5 \u0420\u00b1\u0420\u00b5\u0420\u00b7 \u0420\u0451\u0421\u0403\u0421\u201a\u0420\u0455\u0421\u0402\u0420\u0451\u0420\u0451 5b99a450",
+            "fatigue_tier": 2,
+            "category": "base",
+            "equipment_needed": [],
+            "main_muscle_group": "back",
+            "secondary_muscle_groups": [],
+            "muscle_key": null,
+            "secondary_muscle_keys": []
+          },
+          "sets": [
+            {
+              "analytics_load_snapshot": {
+                "schema_version": 1,
+                "model": "bodyweight",
+                "input_basis": "body_components",
+                "base_weight_kg": null,
+                "implement_count": null,
+                "rep_basis": null,
+                "left_reps": null,
+                "right_reps": null,
+                "added_load_kg": 5,
+                "assistance_kg": 0,
+                "model_id": null,
+                "source": null
+              },
+              "anomaly_review": {
+                "rules_version": "p1-08-v1",
+                "reason_codes": [],
+                "confirmed": false,
+                "confirmed_at": null
+              },
+              "id": 6728,
+              "client_uuid": "77b85936-01a1-4004-aff7-44584dd15fe6",
+              "set_number": 1,
+              "set_type": "normal",
+              "weight": "0.00",
+              "reps": 8,
+              "effort_level": null,
+              "notes": null,
+              "parent_set_id": null,
+              "superset_round": null,
+              "is_completed": true,
+              "is_max_reps": false,
+              "is_anomalous": false,
+              "load_mode": null,
+              "gym_profile_id": null,
+              "setup_id": null,
+              "load_snapshot": null,
+              "shown_target_snapshot": null,
+              "warmup_snapshot": null,
+              "updated_at": "2026-10-16T10:53:20.224329Z"
+            }
+          ],
+          "recommended_rir": null,
+          "recommended_rep_min": null,
+          "recommended_rep_max": null,
+          "target_sets": null,
+          "recommended_weight": null,
+          "prescription": null
+        }
+      ]
+    }
+  },
+  "replay": {
+    "client_uuid": "6ed5a119-01a1-4002-830b-44584dcd055f",
+    "server_id": 913,
+    "base_version": 1,
+    "analytics_snapshot": {
+      "schema_version": 1,
+      "body_mass": {
+        "schema_version": 1,
+        "weight_kg": 80,
+        "measured_on": "2026-08-20",
+        "measurement_id": 320,
+        "measurement_client_uuid": "ebe82023-3ac6-4b59-9b83-8424798946db",
+        "source": "journal",
+        "captured_at": "2026-10-16T10:53:20.253048Z",
+        "import_provenance": null
+      },
+      "is_deload": null,
+      "phase_source": null
+    },
+    "source": "free",
+    "status": "active",
+    "split_day_id": null,
+    "plan_id": null,
+    "gym_profile_id": null,
+    "gym_snapshot": null,
+    "notes": null,
+    "session_rpe": null,
+    "volume_targets": null,
+    "started_at": "2026-10-16T10:53:20.205Z",
+    "finished_at": null,
+    "exercises": [
+      {
+        "client_uuid": "2882c2b6-01a1-4003-aa9c-44584dd02a7e",
+        "exercise_id": 421,
+        "order_index": 0,
+        "superset_group": null,
+        "notes": null,
+        "recommended_rir": null,
+        "recommended_rep_min": null,
+        "recommended_rep_max": null,
+        "recommended_weight": null,
+        "prescription": null,
+        "live_prescription": null,
+        "target_sets": null,
+        "analytics_load_defaults": {
+          "schema_version": 1,
+          "model": "bodyweight",
+          "input_basis": "body_components",
+          "base_weight_kg": null,
+          "implement_count": null,
+          "rep_basis": null,
+          "left_reps": null,
+          "right_reps": null,
+          "added_load_kg": 5,
+          "assistance_kg": 0,
+          "model_id": null,
+          "source": null
+        },
+        "active_load_mode": null,
+        "active_setup_id": null,
+        "updated_at": "2026-10-16T10:53:20.210Z",
+        "sets": [
+          {
+            "client_uuid": "77b85936-01a1-4004-aff7-44584dd15fe6",
+            "set_number": 1,
+            "set_type": "normal",
+            "weight": 0,
+            "reps": 8,
+            "effort_level": null,
+            "notes": null,
+            "parent_client_uuid": null,
+            "superset_round": null,
+            "is_completed": true,
+            "is_max_reps": false,
+            "analytics_load_snapshot": {
+              "schema_version": 1,
+              "model": "bodyweight",
+              "input_basis": "body_components",
+              "base_weight_kg": null,
+              "implement_count": null,
+              "rep_basis": null,
+              "left_reps": null,
+              "right_reps": null,
+              "added_load_kg": 5,
+              "assistance_kg": 0,
+              "model_id": null,
+              "source": null
+            },
+            "anomaly_review": {
+              "rules_version": "p1-08-v1",
+              "reason_codes": [],
+              "confirmed": false,
+              "confirmed_at": null
+            },
+            "load_mode": null,
+            "gym_profile_id": null,
+            "setup_id": null,
+            "load_snapshot": null,
+            "shown_target_snapshot": null,
+            "updated_at": "2026-10-16T10:53:20.209Z"
+          }
+        ]
+      }
+    ]
+  },
+  "replayResponse": {
+    "deleted": false,
+    "id_map": {
+      "6ed5a119-01a1-4002-830b-44584dcd055f": 913,
+      "2882c2b6-01a1-4003-aa9c-44584dd02a7e": 2743,
+      "77b85936-01a1-4004-aff7-44584dd15fe6": 6728
+    },
+    "sync_version": 2,
+    "workout": {
+      "analytics_snapshot": {
+        "schema_version": 1,
+        "body_mass": {
+          "schema_version": 1,
+          "weight_kg": 80,
+          "measured_on": "2026-08-20",
+          "measurement_id": 320,
+          "measurement_client_uuid": "ebe82023-3ac6-4b59-9b83-8424798946db",
+          "source": "journal",
+          "captured_at": "2026-10-16T10:53:20.253048Z",
+          "import_provenance": null
+        },
+        "is_deload": null,
+        "phase_source": null
+      },
+      "sync_version": 2,
+      "child_tombstones": {
+        "sets": [],
+        "exercises": []
+      },
+      "id": 913,
+      "client_uuid": "6ed5a119-01a1-4002-830b-44584dcd055f",
+      "source": "free",
+      "status": "active",
+      "entry_mode": "live",
+      "revision": 0,
+      "edited_at": null,
+      "split_day_id": null,
+      "plan_id": null,
+      "gym_profile_id": null,
+      "gym_snapshot": null,
+      "routine_id": null,
+      "app_user_periodization_id": null,
+      "periodization_week": null,
+      "items": [],
+      "notes": null,
+      "session_rpe": null,
+      "volume_targets": null,
+      "started_at": "2026-10-16T10:53:20.205000Z",
+      "finished_at": null,
+      "updated_at": "2026-10-16T10:53:20.342391Z",
+      "exercises": [
+        {
+          "analytics_load_defaults": {
+            "schema_version": 1,
+            "model": "bodyweight",
+            "input_basis": "body_components",
+            "base_weight_kg": null,
+            "implement_count": null,
+            "rep_basis": null,
+            "left_reps": null,
+            "right_reps": null,
+            "added_load_kg": 5,
+            "assistance_kg": 0,
+            "model_id": null,
+            "source": null
+          },
+          "id": 2743,
+          "client_uuid": "2882c2b6-01a1-4003-aa9c-44584dd02a7e",
+          "order_index": 0,
+          "superset_group": null,
+          "notes": null,
+          "active_load_mode": null,
+          "active_setup_id": null,
+          "warmup_group": null,
+          "updated_at": "2026-10-16T10:53:20.224329Z",
+          "exercise": {
+            "id": 421,
+            "name": "\u0420\u045e\u0420\u00b5\u0421\u0403\u0421\u201a\u0420\u0455\u0420\u0406\u0420\u0455\u0420\u00b5 \u0421\u0453\u0420\u0457\u0421\u0402\u0420\u00b0\u0420\u00b6\u0420\u0405\u0420\u00b5\u0420\u0405\u0420\u0451\u0420\u00b5 \u0420\u00b1\u0420\u00b5\u0420\u00b7 \u0420\u0451\u0421\u0403\u0421\u201a\u0420\u0455\u0421\u0402\u0420\u0451\u0420\u0451 5b99a450",
+            "fatigue_tier": 2,
+            "category": "base",
+            "equipment_needed": [],
+            "main_muscle_group": "back",
+            "secondary_muscle_groups": [],
+            "muscle_key": null,
+            "secondary_muscle_keys": []
+          },
+          "sets": [
+            {
+              "analytics_load_snapshot": {
+                "schema_version": 1,
+                "model": "bodyweight",
+                "input_basis": "body_components",
+                "base_weight_kg": null,
+                "implement_count": null,
+                "rep_basis": null,
+                "left_reps": null,
+                "right_reps": null,
+                "added_load_kg": 5,
+                "assistance_kg": 0,
+                "model_id": null,
+                "source": null
+              },
+              "anomaly_review": {
+                "rules_version": "p1-08-v1",
+                "reason_codes": [],
+                "confirmed": false,
+                "confirmed_at": null
+              },
+              "id": 6728,
+              "client_uuid": "77b85936-01a1-4004-aff7-44584dd15fe6",
+              "set_number": 1,
+              "set_type": "normal",
+              "weight": "0.00",
+              "reps": 8,
+              "effort_level": null,
+              "notes": null,
+              "parent_set_id": null,
+              "superset_round": null,
+              "is_completed": true,
+              "is_max_reps": false,
+              "is_anomalous": false,
+              "load_mode": null,
+              "gym_profile_id": null,
+              "setup_id": null,
+              "load_snapshot": null,
+              "shown_target_snapshot": null,
+              "warmup_snapshot": null,
+              "updated_at": "2026-10-16T10:53:20.224329Z"
+            }
+          ],
+          "recommended_rir": null,
+          "recommended_rep_min": null,
+          "recommended_rep_max": null,
+          "target_sets": null,
+          "recommended_weight": null,
+          "prescription": null
+        }
+      ]
+    }
+  },
+  "lostAckReplay": {
+    "deleted": false,
+    "id_map": {
+      "6ed5a119-01a1-4002-830b-44584dcd055f": 913,
+      "2882c2b6-01a1-4003-aa9c-44584dd02a7e": 2743,
+      "77b85936-01a1-4004-aff7-44584dd15fe6": 6728
+    },
+    "sync_version": 3,
+    "workout": {
+      "analytics_snapshot": {
+        "schema_version": 1,
+        "body_mass": {
+          "schema_version": 1,
+          "weight_kg": 80,
+          "measured_on": "2026-08-20",
+          "measurement_id": 320,
+          "measurement_client_uuid": "ebe82023-3ac6-4b59-9b83-8424798946db",
+          "source": "journal",
+          "captured_at": "2026-10-16T10:53:20.253048Z",
+          "import_provenance": null
+        },
+        "is_deload": null,
+        "phase_source": null
+      },
+      "sync_version": 3,
+      "child_tombstones": {
+        "sets": [],
+        "exercises": []
+      },
+      "id": 913,
+      "client_uuid": "6ed5a119-01a1-4002-830b-44584dcd055f",
+      "source": "free",
+      "status": "active",
+      "entry_mode": "live",
+      "revision": 0,
+      "edited_at": null,
+      "split_day_id": null,
+      "plan_id": null,
+      "gym_profile_id": null,
+      "gym_snapshot": null,
+      "routine_id": null,
+      "app_user_periodization_id": null,
+      "periodization_week": null,
+      "items": [],
+      "notes": null,
+      "session_rpe": null,
+      "volume_targets": null,
+      "started_at": "2026-10-16T10:53:20.205000Z",
+      "finished_at": null,
+      "updated_at": "2026-10-16T10:53:20.369099Z",
+      "exercises": [
+        {
+          "analytics_load_defaults": {
+            "schema_version": 1,
+            "model": "bodyweight",
+            "input_basis": "body_components",
+            "base_weight_kg": null,
+            "implement_count": null,
+            "rep_basis": null,
+            "left_reps": null,
+            "right_reps": null,
+            "added_load_kg": 5,
+            "assistance_kg": 0,
+            "model_id": null,
+            "source": null
+          },
+          "id": 2743,
+          "client_uuid": "2882c2b6-01a1-4003-aa9c-44584dd02a7e",
+          "order_index": 0,
+          "superset_group": null,
+          "notes": null,
+          "active_load_mode": null,
+          "active_setup_id": null,
+          "warmup_group": null,
+          "updated_at": "2026-10-16T10:53:20.224329Z",
+          "exercise": {
+            "id": 421,
+            "name": "\u0420\u045e\u0420\u00b5\u0421\u0403\u0421\u201a\u0420\u0455\u0420\u0406\u0420\u0455\u0420\u00b5 \u0421\u0453\u0420\u0457\u0421\u0402\u0420\u00b0\u0420\u00b6\u0420\u0405\u0420\u00b5\u0420\u0405\u0420\u0451\u0420\u00b5 \u0420\u00b1\u0420\u00b5\u0420\u00b7 \u0420\u0451\u0421\u0403\u0421\u201a\u0420\u0455\u0421\u0402\u0420\u0451\u0420\u0451 5b99a450",
+            "fatigue_tier": 2,
+            "category": "base",
+            "equipment_needed": [],
+            "main_muscle_group": "back",
+            "secondary_muscle_groups": [],
+            "muscle_key": null,
+            "secondary_muscle_keys": []
+          },
+          "sets": [
+            {
+              "analytics_load_snapshot": {
+                "schema_version": 1,
+                "model": "bodyweight",
+                "input_basis": "body_components",
+                "base_weight_kg": null,
+                "implement_count": null,
+                "rep_basis": null,
+                "left_reps": null,
+                "right_reps": null,
+                "added_load_kg": 5,
+                "assistance_kg": 0,
+                "model_id": null,
+                "source": null
+              },
+              "anomaly_review": {
+                "rules_version": "p1-08-v1",
+                "reason_codes": [],
+                "confirmed": false,
+                "confirmed_at": null
+              },
+              "id": 6728,
+              "client_uuid": "77b85936-01a1-4004-aff7-44584dd15fe6",
+              "set_number": 1,
+              "set_type": "normal",
+              "weight": "0.00",
+              "reps": 8,
+              "effort_level": null,
+              "notes": null,
+              "parent_set_id": null,
+              "superset_round": null,
+              "is_completed": true,
+              "is_max_reps": false,
+              "is_anomalous": false,
+              "load_mode": null,
+              "gym_profile_id": null,
+              "setup_id": null,
+              "load_snapshot": null,
+              "shown_target_snapshot": null,
+              "warmup_snapshot": null,
+              "updated_at": "2026-10-16T10:53:20.224329Z"
+            }
+          ],
+          "recommended_rir": null,
+          "recommended_rep_min": null,
+          "recommended_rep_max": null,
+          "target_sets": null,
+          "recommended_weight": null,
+          "prescription": null
+        }
+      ]
+    }
+  }
+}

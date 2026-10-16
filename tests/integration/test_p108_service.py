@@ -12,6 +12,87 @@ UTC=timezone.utc
 CTX=dict(schema_version=1,model='barbell',input_basis='full')
 
 @pytest.mark.asyncio
+async def test_compact_transport_retains_all_observations_and_shared_points(p108_seed):
+    from api.services.analytics.compact import pack_resource
+    from api.schemas.analytics import SetObservation
+    db, uid, _, blocks, _, _ = p108_seed
+    full = await compare_blocks(db, uid, blocks[0].id, blocks[1].id, None)
+    from api.services.analytics.publication import _models
+    from api.schemas.analytics import AnalyticsEnvelope
+    for node in _models(full):
+        if isinstance(node, AnalyticsEnvelope):
+            node.state = 'ready'
+    packed = pack_resource(full, 'comparison', 'fixture-owner').model_dump(mode='json')
+    assert packed['encoding'] == 'compact-v1'
+    assert packed['owner_uid'] == 'fixture-owner'
+    point_ids = [ref for side in ('a', 'b') for ex in packed['payload'][side]['exercises'].values() for ref in ex['points']]
+    assert len(point_ids) == len(set(point_ids)) == len(packed['points'])
+    keys = tuple(SetObservation.model_fields)
+    actual = []
+    for point in packed['points']:
+        for values in point['details']['observations']:
+            assert len(values) == 18
+            row = dict(zip(keys, values))
+            row['load_context'] = packed['contexts'][row['load_context']] if row['load_context'] is not None else None
+            row['session_context'] = packed['contexts'][row['session_context']] if row['session_context'] is not None else None
+            metric = packed['metrics'][row['intensity']]
+            row['intensity'] = dict(value=metric[0], reason=metric[1], coverage=None if metric[2] is None else dict(used=metric[2][0], total=metric[2][1]))
+            actual.append(row)
+    expected = [o.model_dump(mode='json') for side in (full.a, full.b) for ex in side.exercises.values() for point in ex.points for o in point.details.observations]
+    assert actual == expected
+    assert len(packed['contexts']) < len(actual)
+    for side in ('a', 'b'):
+        for muscle in packed['payload'][side]['muscles']:
+            for contribution in muscle['contributions']:
+                assert all(ref in point_ids for ref in contribution['observations'])
+    import os, json
+    from pathlib import Path
+    if os.environ.get('P108_COMPACT_GOLDEN_OUT'):
+        Path(os.environ['P108_COMPACT_GOLDEN_OUT']).write_text(json.dumps({
+            'full': full.model_dump(mode='json'), 'compact': packed}, indent=2))
+
+@pytest.mark.asyncio
+async def test_comparison_loads_each_joined_fact_once(p108_seed, monkeypatch):
+    from api.services.analytics import repository
+    db, uid, _, blocks, _, _ = p108_seed
+    calls = []
+    original = repository.normalize_set
+    def counted(raw, **kwargs):
+        calls.append(raw.set_id)
+        return original(raw, **kwargs)
+    monkeypatch.setattr(repository, 'normalize_set', counted)
+    result = await compare_blocks(db, uid, blocks[0].id, blocks[1].id, None)
+    assert result.a.block.id != result.b.block.id
+    assert calls and len(calls) == len(set(calls))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('scope', ['all', 'unknown', 'gym'])
+async def test_shared_history_preserves_independent_block_projections(p108_seed, scope):
+    from api.services.analytics.repository import load_comparison_facts, load_facts
+    from api.services.analytics.service import _block
+    db, uid, _, blocks, gym, _ = p108_seed
+    gym_id = None if scope == 'all' else 'unknown' if scope == 'unknown' else str(gym)
+    qa = AnalyticsQuery(period='block', block_id=blocks[1].id, gym_id=gym_id)
+    qb = AnalyticsQuery(period='block', block_id=blocks[0].id, gym_id=gym_id)
+    shared = await load_comparison_facts(db, uid, qa, qb)
+    assert shared[0].as_of == shared[1].as_of
+    assert shared[0].graph_sets is shared[1].graph_sets
+    assert shared[0].window_sets is not shared[1].window_sets
+    def stable(value):
+        if isinstance(value, dict):
+            return {k: stable(v) for k, v in value.items() if k != 'computed_at'}
+        if isinstance(value, list):
+            return [stable(v) for v in value]
+        return value
+    for actual, query in zip(shared, (qa, qb)):
+        independent = await load_facts(db, uid, query, allow_unresolved_period=True)
+        from dataclasses import replace
+        independent = replace(independent, as_of=actual.as_of)
+        assert [r.set_id for r in actual.reference_sets] == [r.set_id for r in independent.reference_sets]
+        assert stable(_block(actual, query).model_dump(mode='json')) == stable(_block(independent, query).model_dump(mode='json'))
+
+@pytest.mark.asyncio
 async def test_identical_record_and_graph_inputs_fold_once(p108_seed, monkeypatch):
     from api.services.analytics import service
     db, uid, exercises, _, _, _ = p108_seed
@@ -181,7 +262,8 @@ async def test_query_budgets(p108_seed):
     event.listen(db.bind.sync_engine,'before_cursor_execute',track)
     try:
         await compare_blocks(db,uid,blocks[0].id,blocks[1].id,None)
-        assert len(statements)==12
+        # Five shared history batches plus each side's independent body window.
+        assert len(statements)==7
         statements.clear()
         await exercise_analytics(db,uid,ex[1].id,AnalyticsQuery(period='block',block_id=blocks[0].id))
         assert len(statements)==6
