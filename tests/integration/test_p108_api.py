@@ -79,6 +79,19 @@ async def test_capabilities_and_unavailable(client, ready, monkeypatch, db, test
     data=(await client.get(BASE+'/muscles')).json()
     assert data['state']=='rebuilding' and 'volume' not in data
 
+async def test_capabilities_profile_timezone_is_owned_and_defaults_to_utc(client, ready, db, test_user, p108_seed):
+    from api.services.models import AppUserProfile
+    seed = await p108_seed()
+    db.add(AppUserProfile(app_user_id=seed.active_owner_id, timezone='America/Los_Angeles'))
+    await db.commit()
+    assert (await client.get(BASE+'/capabilities')).json()['timezone'] == 'UTC'
+    db.add(AppUserProfile(app_user_id=test_user.id, timezone='Europe/Moscow'))
+    await db.commit()
+    response = await client.get(BASE+'/capabilities')
+    assert response.status_code == 200
+    assert response.json()['timezone'] == 'Europe/Moscow'
+    assert response.headers['cache-control'] == 'private, no-store'
+
 @pytest.mark.parametrize('phase', ['early', 'late'])
 async def test_read_during_generation_change(client, ready, test_user, monkeypatch, phase):
     from api.services.analytics import repository, service

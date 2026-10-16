@@ -317,6 +317,7 @@ class AnalyticsUnavailable(DTO):
 
 
 class AnalyticsCapabilities(DTO):
+    timezone: str
     write_enabled: bool
     context_schema_version: Literal[1] = 1
     rules_version: Literal['p1-08-v1'] = 'p1-08-v1'

@@ -2,6 +2,8 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from api.services.models import AppUserProfile
 from api.deps import get_db
 from api.services.app_user_service import get_current_app_user
 from api.services.analytics import service, state
@@ -43,8 +45,9 @@ async def capabilities(request: Request, user: User, db: DB):
     if request.query_params:
         raise HTTPException(422, detail='unexpected_query_parameter')
     current = await state.readiness(db, user.id)
+    zone = await db.scalar(select(AppUserProfile.timezone).where(AppUserProfile.app_user_id == user.id)) or 'UTC'
     return AnalyticsCapabilities(write_enabled=analytics_enabled(), state=current['state'],
-                                 data_revision=current['data_revision'])
+                                 data_revision=current['data_revision'], timezone=zone)
 
 
 @router.get('/exercises/{exercise_id}', response_model=ExerciseAnalytics | AnalyticsUnavailable)
