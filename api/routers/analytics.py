@@ -37,7 +37,7 @@ async def _read(db, user_id, assemble):
         if reason in {'exercise_not_found', 'block_not_found', 'preview_workout_not_found'}:
             raise HTTPException(404, detail=reason) from exc
         if reason in {'invalid_period', 'invalid_period_bounds', 'unknown_block_end',
-                      'comparison_requires_closed_blocks', 'preview_workout_not_active'}:
+                      'comparison_same_block', 'comparison_requires_started_blocks', 'preview_workout_not_active'}:
             raise HTTPException(422, detail=reason) from exc
         raise
 

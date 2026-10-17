@@ -230,8 +230,6 @@ async def compare_blocks(db, user_id: int, block_a_id: int, block_b_id: int, gym
     qb = AnalyticsQuery(period='block',block_id=block_b_id,gym_id=gym_id)
     fa, fb = await load_comparison_facts(db, user_id, qa, qb)
     a,b = _block(fa,qa),_block(fb,qb)
-    if a.block.status != 'closed' or b.block.status != 'closed':
-        raise ValueError('comparison_requires_closed_blocks')
     ids_a,ids_b = set(a.exercises),set(b.exercises)
     common = {eid for eid in ids_a & ids_b if a.exercises[eid].summary.strength.delta_pct is not None
               and b.exercises[eid].summary.strength.delta_pct is not None}

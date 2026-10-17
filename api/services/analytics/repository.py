@@ -155,6 +155,12 @@ async def _project_facts(db, history, query, *, allow_unresolved_period=False):
     block_map = {b['id']:b for b in blocks}
     if query.block_id is not None and query.block_id not in block_map:
         raise ValueError('block_not_found')
+    active_block = query.period == 'block' and block_map[query.block_id]['status'] == 'active'
+    if active_block:
+        # The period still describes inclusive local days, but observations must
+        # stop at this request's captured instant, including later on that day.
+        facts = [f for f in facts if f.finished_at <= now]
+        workouts = [w for w in workouts if w['finished_at'] <= now]
     preview = None
     if query.preview_workout_id is not None:
         if header['_preview_id'] is None or header['_preview_start'] is None:
@@ -210,6 +216,8 @@ async def _project_facts(db, history, query, *, allow_unresolved_period=False):
         source = combined['_source']
         row = {c.name: combined[c.name] for c in measurement_models[source].__table__.columns}
         day = row['measured_on'] or row['recorded_at'].astimezone(zone).date()
+        if active_block and (day > today or row['recorded_at'] > now):
+            continue
         common = dict(row, source=source, observation_date=day,
                       date_source='measured_on' if row['measured_on'] else 'recorded_at_local',
                       date_estimated=row['measured_on'] is None, estimated=False, value_estimated=False)
@@ -237,7 +245,18 @@ async def load_comparison_facts(db, user_id: int, qa: AnalyticsQuery, qb: Analyt
     if (qa.period != 'block' or qb.period != 'block' or qa.gym_id != qb.gym_id
             or qa.preview_workout_id is not None or qb.preview_workout_id is not None):
         raise ValueError('comparison_history_scope_mismatch')
+    if qa.block_id == qb.block_id:
+        raise ValueError('comparison_same_block')
     history = await _load_history(db, user_id, qa, None)
+    blocks = {b['id']: b for b in history.blocks}
+    # Resolve ownership for both sides before reporting eligibility. Future
+    # materialized blocks are plans, even when their stored status is active.
+    if qa.block_id not in blocks or qb.block_id not in blocks:
+        raise ValueError('block_not_found')
+    today = history.as_of.astimezone(ZoneInfo(history.header['_timezone'] or 'UTC')).date()
+    if any(blocks[bid]['status'] not in {'active', 'closed'} or blocks[bid]['start_date'] > today
+           for bid in (qa.block_id, qb.block_id)):
+        raise ValueError('comparison_requires_started_blocks')
     a = await _project_facts(db, history, qa, allow_unresolved_period=True)
     b = await _project_facts(db, history, qb, allow_unresolved_period=True)
     return a, b
