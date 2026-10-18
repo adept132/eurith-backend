@@ -36,6 +36,7 @@ from api.services.models import (
     WorkoutRoutine,
     WorkoutSessionExercise,
     WorkoutSessionSet,
+    WorkoutPlan,
 )
 from api.services.notification_service import create_notification
 from api.services.progression import repository as progression_repo
@@ -45,6 +46,8 @@ from api.services.progression.resolve import override_for
 from api.services.readiness import repository as readiness_repo
 from api.services.readiness.types import CheckinSignals
 from api.services.workout_set_context import CONTEXT_KEYS, resolve_set_context
+from api.services.workout_lifecycle import apply_snapshot
+from api.services.active_workout_guard import ActiveWorkoutExists, ensure_no_other_active_workout
 
 router = APIRouter(tags=["sync"])
 
@@ -252,16 +255,47 @@ async def _apply_snapshot(
 
     before_analytics = await fingerprint(db, workout.id) if workout is not None else None
     is_new = workout is None
+    if payload.status in ("active", "paused"):
+        try:
+            await ensure_no_other_active_workout(
+                db,
+                app_user_id,
+                exclude_workout_id=workout.id if workout is not None else None,
+            )
+        except ActiveWorkoutExists as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Active workout already exists",
+            ) from exc
     if is_new:
         workout = WorkoutSession(
             app_user_id=app_user_id,
             client_uuid=payload.client_uuid,
+            status="active",
+            paused_duration_seconds=0,
         )
         db.add(workout)
 
+    if payload.plan_id is not None and (
+        is_new or workout.plan_id != payload.plan_id
+    ):
+        plan_exists = await db.scalar(
+            select(
+                exists().where(
+                    WorkoutPlan.id == payload.plan_id,
+                    WorkoutPlan.app_user_id == app_user_id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+            )
+        )
+        if not plan_exists:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={"error": "invalid_plan_id"},
+            )
+
     # 4. Скалярные поля (клиент-авторитетно).
     workout.source = payload.source
-    workout.status = payload.status
     workout.split_day_id = payload.split_day_id
     workout.plan_id = payload.plan_id
     if payload.routine_id is not None:
@@ -304,7 +338,14 @@ async def _apply_snapshot(
     if "gym_snapshot" in payload.model_fields_set:
         workout.gym_snapshot = deepcopy(payload.gym_snapshot)
     workout.started_at = payload.started_at
-    workout.finished_at = payload.finished_at
+    apply_snapshot(
+        workout,
+        status=payload.status,
+        paused_at=payload.paused_at,
+        paused_duration_seconds=payload.paused_duration_seconds,
+        finished_at=payload.finished_at,
+        now=datetime.now(timezone.utc),
+    )
     await db.flush()
 
     id_map: dict[str, int] = {payload.client_uuid: workout.id}
@@ -832,7 +873,7 @@ async def sync_changes(
         # локально нужны незавершённая сессия и недавний контекст.
         stmt = stmt.where(
             or_(
-                WorkoutSession.status == "active",
+                WorkoutSession.status.in_(("active", "paused")),
                 WorkoutSession.updated_at > now - INITIAL_PULL_WINDOW,
             )
         )

@@ -64,7 +64,7 @@ async def test_start_routine_creates_free_session_with_current_prescription(
     assert unchanged.json() == routine
 
 
-async def test_start_routine_rejects_active_session(client, seeded_history):
+async def test_start_routine_rejects_active_or_paused_session(client, seeded_history):
     routine = await _create_routine(client, seeded_history.id)
     active = await client.post("/workouts/start", json={"source": "free"})
     assert active.status_code == 200, active.text
@@ -72,6 +72,10 @@ async def test_start_routine_rejects_active_session(client, seeded_history):
     conflict = await client.post(f"/workout-routines/{routine['id']}/start")
     assert conflict.status_code == 409
 
+    paused = await client.post(f"/workouts/{active.json()['id']}/pause")
+    assert paused.status_code == 200, paused.text
+    paused_conflict = await client.post(f"/workout-routines/{routine['id']}/start")
+    assert paused_conflict.status_code == 409
 
 
 async def test_each_routine_start_uses_fresh_session_exercise_uuid(

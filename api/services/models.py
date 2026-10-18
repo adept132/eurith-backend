@@ -648,8 +648,8 @@ class WorkoutSession(Base):
     analytics_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # Клиентский идемпотентный ключ для offline-синхронизации (см. /sync/workouts).
-    # Уникальность обеспечивается на уровне приложения в рамках app_user (как import_key):
-    # init_db добавляет колонку, но не создаёт констрейнты/индексы.
+    # Nullable нужен для совместимости с legacy-строками; ненулевые ключи
+    # уникальны в рамках пользователя на уровне базы данных.
     client_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     # Счётчик успешных синхронизаций — основа оптимистичной блокировки: клиент шлёт
     # base_version, сервер при расхождении отвечает 409 с актуальным состоянием.
@@ -727,6 +727,10 @@ class WorkoutSession(Base):
     history_request_fingerprint: Mapped[Optional[str]] = mapped_column(String(64))
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    paused_duration_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -751,8 +755,16 @@ class WorkoutSession(Base):
         }
 
     __table_args__ = (
+        UniqueConstraint(
+            "app_user_id",
+            "client_uuid",
+            name="uq_workout_sessions_user_client_uuid",
+        ),
         CheckConstraint("source IN ('free', 'split_day', 'plan')", name="ck_workout_sessions_source"),
-        CheckConstraint("status IN ('active', 'finished')", name="ck_workout_sessions_status"),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'finished')",
+            name="ck_workout_sessions_status",
+        ),
         CheckConstraint(
             "entry_mode IN ('live', 'manual', 'screenshot_import')",
             name="ck_workout_sessions_entry_mode",
@@ -807,6 +819,83 @@ class WorkoutSessionExercise(Base):
                                                            cascade="all, delete-orphan",
                                                            order_by="WorkoutSessionSet.set_number")
     exercise: Mapped["Exercise"] = relationship("Exercise")
+
+
+class WorkoutCarryOver(Base):
+    """Auditable carry-over proposal for one unfinished session exercise."""
+
+    __tablename__ = "workout_carry_overs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_session_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("workout_sessions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    source_exercise_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("workout_session_exercises.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    source_exercise_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    requested_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    placed_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    discarded_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    placements: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    discarded: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    microcycle_end: Mapped[date] = mapped_column(Date, nullable=False)
+    preview_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="draft", server_default="draft"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    applied_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_user_id",
+            "source_session_id",
+            "source_exercise_id",
+            name="uq_workout_carry_over_source",
+        ),
+        UniqueConstraint(
+            "app_user_id",
+            "idempotency_key",
+            name="uq_workout_carry_over_user_idempotency",
+        ),
+        CheckConstraint(
+            "requested_sets >= 0", name="ck_workout_carry_over_requested_sets"
+        ),
+        CheckConstraint(
+            "placed_sets >= 0", name="ck_workout_carry_over_placed_sets"
+        ),
+        CheckConstraint(
+            "discarded_sets >= 0", name="ck_workout_carry_over_discarded_sets"
+        ),
+        CheckConstraint(
+            "requested_sets = placed_sets + discarded_sets",
+            name="ck_workout_carry_over_counts_consistent",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'applied', 'dismissed', 'expired')",
+            name="ck_workout_carry_over_status",
+        ),
+    )
 
 
 class WorkoutSessionSet(Base):

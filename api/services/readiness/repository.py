@@ -12,13 +12,28 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.models import UserObservation
 from api.services.muscle_keys import to_system_key
 from api.services.readiness import params
 from api.services.readiness.types import CheckinSignals, ExerciseTarget
+
+
+def _user_safety_lock_key(app_user_id: int) -> int:
+    # User ids are positive BIGINT values. Mapping them to the negative BIGINT
+    # domain is one-to-one and keeps this lock family separate without using
+    # PostgreSQL's narrower pair-of-INT advisory-lock overload.
+    return -(int(app_user_id) + 1)
+
+
+async def lock_user_safety_context(
+    session: AsyncSession, app_user_id: int
+) -> None:
+    await session.execute(
+        select(func.pg_advisory_xact_lock(_user_safety_lock_key(app_user_id)))
+    )
 
 
 def checkin_enabled(settings: Optional[dict[str, Any]]) -> bool:
@@ -94,6 +109,7 @@ async def save_signals(
     чек-ина не должна множить наблюдения. Проверка на уровне приложения —
     init_db не создаёт индексов и констрейнтов на ALTER-колонках.
     """
+    await lock_user_safety_context(session, app_user_id)
     if client_uuid:
         existing = await session.execute(
             select(UserObservation.id).where(

@@ -41,6 +41,7 @@ from api.routers.reports import router as reports_router
 from api.routers.gym_profiles import router as gym_profiles_router
 from api.routers.releases import router as releases_router
 from api.routers.warmups import router as warmups_router
+from api.routers.carry_over import router as carry_over_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI):
     from api.services.push_service import push_worker
     from api.services.workout_recalculation import workout_recalculation_worker
     push_stop = asyncio.Event()
+    recalculation_stop = asyncio.Event()
     push_task = (
         asyncio.create_task(push_worker(push_stop))
         if os.getenv("PYTEST_CURRENT_TEST") is None
@@ -112,6 +114,7 @@ MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 app.include_router(exercises_router, prefix="/exercises", tags=["exercises"])
+app.include_router(exercise_aliases_router)
 app.include_router(auth_router)
 app.include_router(workout_center_router)
 app.include_router(workout_history_router)
@@ -126,7 +129,6 @@ app.include_router(plans_router)
 app.include_router(progress_router)
 app.include_router(analytics_router)
 app.include_router(exercises_router)
-app.include_router(exercise_aliases_router)
 app.include_router(profile_router)
 app.include_router(calendar_router)
 app.include_router(workout_supersets_router)
@@ -143,6 +145,7 @@ app.include_router(reports_router)
 app.include_router(gym_profiles_router)
 app.include_router(releases_router)
 app.include_router(warmups_router)
+app.include_router(carry_over_router)
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check(db: AsyncSession = Depends(get_db)):

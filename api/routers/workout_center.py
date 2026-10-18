@@ -35,6 +35,10 @@ from api.services.models import (
     WorkoutSessionExercise, AppUserMesocycle, Mesocycle, AppUserProfile, WorkoutPlan, AppUserMicrocycle,
     WorkoutSessionSet, UserCalendarDay, Exercise,
 )
+from api.services.workout_lifecycle import (
+    effective_duration_seconds,
+    finish as finish_workout_session,
+)
 from api.schemas.workout_center import (
     WorkoutCenterContextRead,
     WorkoutCenterSplitRead,
@@ -46,6 +50,7 @@ from api.schemas.workout_center import (
     StartWorkoutResponse, WorkoutCenterMesocycleRead,
 )
 from api.services.volume_service import VolumeService
+from api.services.active_workout_guard import ActiveWorkoutExists, ensure_no_other_active_workout
 
 router = APIRouter(prefix="", tags=["workout-center"])
 
@@ -90,7 +95,7 @@ async def get_active_workout(
         select(WorkoutSession)
         .where(
             WorkoutSession.app_user_id == app_user_id,
-            WorkoutSession.status == "active",
+            WorkoutSession.status.in_(("active", "paused")),
         )
         .order_by(WorkoutSession.started_at.desc())
     )
@@ -487,8 +492,9 @@ async def start_workout(
     if payload.source not in {"free", "by_parameters"}:
         raise HTTPException(status_code=400, detail="Invalid source")
 
-    existing = await get_active_workout(session, app_user.id)
-    if existing:
+    try:
+        await ensure_no_other_active_workout(session, app_user.id)
+    except ActiveWorkoutExists:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Active workout already exists",
@@ -531,6 +537,19 @@ async def start_workout(
 
         split_day_tag = slot.day.template_type.value if hasattr(slot.day.template_type, 'value') else str(
             slot.day.template_type)
+
+    if payload.plan_id is not None:
+        plan_exists = (
+            await session.execute(
+                select(WorkoutPlan.id).where(
+                    WorkoutPlan.id == payload.plan_id,
+                    WorkoutPlan.app_user_id == app_user.id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+            )
+        ).scalar_one_or_none()
+        if plan_exists is None:
+            raise HTTPException(status_code=404, detail="План не найден")
 
     # === ИНТЕЛЛЕКТУАЛЬНЫЙ ПОИСК КОНТЕКСТА ===
     meso_id = None
@@ -770,7 +789,7 @@ async def finish_workout(
         .where(
             WorkoutSession.id == workout_id,
             WorkoutSession.app_user_id == current_app_user.id,
-            WorkoutSession.status == "active",
+            WorkoutSession.status.in_(("active", "paused", "finished")),
         )
         .options(
             selectinload(WorkoutSession.exercises).selectinload(WorkoutSessionExercise.exercise),
@@ -788,8 +807,7 @@ async def finish_workout(
         )
 
     finished_at = datetime.now(timezone.utc)
-    workout.status = "finished"
-    workout.finished_at = finished_at
+    finish_workout_session(workout, finished_at)
 
     # P0-09: календарь запоминает факт. guarded() изолирует падение в
     # SAVEPOINT — учёт adherence это надстройка, и она не имеет права
@@ -889,7 +907,7 @@ async def finish_workout(
             )
         )
 
-    duration_seconds = int((workout.finished_at - workout.started_at).total_seconds())
+    duration_seconds = effective_duration_seconds(workout, workout.finished_at)
 
     # P0-08, Задача 13, Шаг 6 брифа: свежая сессия меняет и усталость, и
     # картину плато — пересчитываем предложения сразу, чтобы карточка
@@ -977,6 +995,19 @@ async def update_workout_center_plan(
 
     if not user_split:
         raise HTTPException(status_code=400, detail="Сплит не выбран. Невозможно привязать план.")
+
+    if payload.plan_id is not None:
+        selectable_plan = (
+            await session.execute(
+                select(WorkoutPlan.id).where(
+                    WorkoutPlan.id == payload.plan_id,
+                    WorkoutPlan.app_user_id == app_user.id,
+                    WorkoutPlan.is_archived.is_(False),
+                )
+            )
+        ).scalar_one_or_none()
+        if selectable_plan is None:
+            raise HTTPException(status_code=404, detail="План не найден")
 
     current_day_str = str(user_split.current_day)
 

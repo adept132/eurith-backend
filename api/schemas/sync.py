@@ -158,6 +158,8 @@ class SyncWorkoutSnapshot(BaseModel):
     gym_profile_id: uuid.UUID | None = None
     gym_snapshot: dict | None = None
     started_at: datetime
+    paused_at: datetime | None = None
+    paused_duration_seconds: int = Field(default=0, ge=0)
     finished_at: datetime | None = None
     deleted: bool = False
     exercises: list[SyncExerciseSnapshot] = []

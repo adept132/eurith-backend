@@ -33,6 +33,7 @@ from api.services.milestones.service import milestone_accents
 from api.services.models import GymProfile, GymExerciseSetup, ExerciseLoadPreference
 from api.services.gym_selection import eligible_for_gym
 from api.services.load_context import resolve_allowed_modes, resolve_load_context
+from api.services.active_workout_guard import ActiveWorkoutExists, ensure_no_other_active_workout
 from api.schemas.plan import (
     GeneratePlanRequest, GeneratePlanResponse, GeneratedDayOut, GeneratedExerciseOut,
     ConfirmPlanRequest, ConfirmPlanResponse, GenerationInputSummary,
@@ -1301,12 +1302,18 @@ async def apply_plan_to_calendar(
 ):
     """Применить план к календарю (создать тренировочную сессию)."""
 
+    try:
+        await ensure_no_other_active_workout(db, current_user.id)
+    except ActiveWorkoutExists as exc:
+        raise HTTPException(status_code=409, detail="Active workout already exists") from exc
+
     # 1. Достаем план вместе с его упражнениями
     stmt = (
         select(WorkoutPlan)
         .where(
             WorkoutPlan.id == plan_id,
-            WorkoutPlan.app_user_id == current_user.id
+            WorkoutPlan.app_user_id == current_user.id,
+            WorkoutPlan.is_archived.is_(False),
         )
         .options(selectinload(WorkoutPlan.exercises))
     )

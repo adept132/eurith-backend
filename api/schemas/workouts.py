@@ -14,8 +14,9 @@ from api.schemas.gym_profiles import LoadMode
 
 
 WorkoutSource = Literal["free", "split_day", "plan"]
-WorkoutStatus = Literal["active", "finished"]
+WorkoutStatus = Literal["active", "paused", "finished"]
 WorkoutSetType = Literal["normal", "warmup", "drop"]
+WorkoutEntryMode = Literal["live", "manual", "screenshot_import"]
 
 WorkoutEffortLevel = Literal[
     # Both existing client and server spellings are factual aliases, not set roles.
@@ -185,7 +186,7 @@ class WorkoutSessionDetailResponse(BaseModel):
     client_uuid: str | None = None
     source: WorkoutSource
     status: WorkoutStatus
-    entry_mode: str = "live"
+    entry_mode: WorkoutEntryMode = "live"
     revision: int = 0
     edited_at: datetime | None = None
 
@@ -193,6 +194,7 @@ class WorkoutSessionDetailResponse(BaseModel):
     plan_id: int | None = None
     gym_profile_id: uuid.UUID | None = None
     gym_snapshot: dict | None = None
+    # P1-13 provenance. Routine starts remain source='free'.
     routine_id: int | None = None
     app_user_periodization_id: int | None = None
     periodization_week: int | None = None
@@ -202,6 +204,8 @@ class WorkoutSessionDetailResponse(BaseModel):
     session_rpe: float | None = None
     volume_targets: Optional[Dict[str, MuscleVolumeTarget]] = None
     started_at: datetime
+    paused_at: datetime | None = None
+    paused_duration_seconds: int = Field(default=0, ge=0)
     finished_at: datetime | None = None
     updated_at: datetime
 
