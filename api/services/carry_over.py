@@ -603,6 +603,7 @@ async def preview_carry_over(
                 WorkoutSession.status == "finished",
                 WorkoutSessionSet.is_completed.is_(True),
                 WorkoutSessionSet.set_type == "normal",
+                WorkoutSessionSet.parent_set_id.is_(None),
             )
             .group_by(WorkoutSession.calendar_day_id, Exercise.id)
         )
@@ -902,7 +903,8 @@ async def _validate_unfinished_sets(
                 WorkoutSessionSet,
                 (WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id)
                 & WorkoutSessionSet.is_completed.is_(True)
-                & (WorkoutSessionSet.set_type == "normal"),
+                & (WorkoutSessionSet.set_type == "normal")
+                & WorkoutSessionSet.parent_set_id.is_(None),
             )
             .where(
                 WorkoutSessionExercise.workout_session_id == session_id,
@@ -1004,6 +1006,7 @@ async def _preview_state_token(
                 WorkoutSessionSet.workout_session_exercise_id.in_(source_exercise_ids),
                 WorkoutSessionSet.is_completed.is_(True),
                 WorkoutSessionSet.set_type == "normal",
+                WorkoutSessionSet.parent_set_id.is_(None),
             )
             .group_by(WorkoutSessionSet.workout_session_exercise_id)
             .order_by(WorkoutSessionSet.workout_session_exercise_id)
@@ -1031,6 +1034,7 @@ async def _preview_state_token(
                 WorkoutSession.status == "finished",
                 WorkoutSessionSet.is_completed.is_(True),
                 WorkoutSessionSet.set_type == "normal",
+                WorkoutSessionSet.parent_set_id.is_(None),
             )
             .group_by(
                 WorkoutSession.calendar_day_id,
