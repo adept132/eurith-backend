@@ -1,3 +1,4 @@
+from api.schemas.execution import ExecutionSettings
 from pydantic import BaseModel, Field, field_validator, root_validator
 from typing import Any, List, Literal, Dict, Optional
 
@@ -54,6 +55,7 @@ class VolumeBudget(BaseModel):
     weekly_targets: Dict[str, MuscleTarget]
 
 class UpdateSettingsRequest(BaseModel):
+    executable_session: ExecutionSettings | None = None
     warmup: Optional[WarmupDefaultsPatch] = None
     rest_timer_policy: RestTimerPolicyPatch | None = None
     language: Optional[Literal["ru", "en"]] = None

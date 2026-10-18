@@ -1,3 +1,5 @@
+from api.schemas.execution import ExecutionSettings
+from pydantic import ValidationError
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +22,10 @@ def _settings_with_defaults(settings: dict | None) -> dict:
     result = dict(settings or {})
     if result.get("language") not in ("ru", "en"):
         result["language"] = "ru"
+    try:
+        result["executable_session"] = ExecutionSettings.model_validate(result.get("executable_session") or {}).model_dump()
+    except ValidationError:
+        result["executable_session"] = ExecutionSettings().model_dump()
     result["warmup"] = warmup_defaults(result)
     result["rest_timer_policy"] = rest_timer_policy(result).model_dump(mode="json")
     return result
@@ -135,6 +141,8 @@ async def update_profile_settings(
 
     # Обновляем JSONB поле settings (частично — только переданные поля)
     current_settings = _settings_with_defaults(profile.settings)
+    if payload.executable_session is not None:
+        current_settings["executable_session"] = payload.executable_session.model_dump()
     if payload.warmup is not None:
         current_settings["warmup"] = merge_warmup_defaults(current_settings, payload.warmup)
     if payload.rest_timer_policy is not None:

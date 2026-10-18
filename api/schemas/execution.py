@@ -6,6 +6,12 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
 
+class ExecutionSettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    enabled: bool = False
+    preference_epoch: str = Field(default='legacy-default-v1', min_length=1, max_length=64)
+
+
 class ExecutionModeState(BaseModel):
     model_config = ConfigDict(extra='forbid')
     schema_version: Literal[1]
