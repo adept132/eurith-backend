@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import and_, or_, select
 from api.services.models import SyncTombstone
+from api.services.execution_state import retire_slots
 
 
 async def child_was_deleted(db, workout, entity_type, client_uuid, server_id=None, *, legacy_server_id=None):
@@ -27,6 +28,14 @@ async def child_was_deleted(db, workout, entity_type, client_uuid, server_id=Non
 
 
 async def record_child_deletion(db, workout, entity_type, client_uuid, server_id=None):
+    if entity_type == 'workout_set' and client_uuid is not None:
+        from api.services.models import WorkoutSessionExercise
+        exercises = (await db.scalars(select(WorkoutSessionExercise).where(
+            WorkoutSessionExercise.workout_session_id == workout.id,
+            WorkoutSessionExercise.execution_state.is_not(None),
+        ))).all()
+        for exercise in exercises:
+            exercise.execution_state = retire_slots(exercise.execution_state, {str(client_uuid)})
     if await child_was_deleted(db, workout, entity_type, client_uuid, server_id):
         return
     db.add(SyncTombstone(app_user_id=workout.app_user_id, workout_session_id=workout.id,

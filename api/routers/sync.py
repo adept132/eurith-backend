@@ -1,5 +1,5 @@
 from __future__ import annotations
-from api.services.execution_state import merge_mode, merge_exercise
+from api.services.execution_state import merge_mode, merge_exercise, retire_slots
 
 from api.services.analytics.writes import apply_field, apply_set_context, apply_session_context, fingerprint, json_value
 from api.services.analytics.state import mark_dirty
@@ -450,12 +450,19 @@ async def _apply_snapshot(
             state = ex_snap.execution_state.model_dump(mode='json')
             if state['exercise_id'] != ex_snap.exercise_id:
                 raise HTTPException(422, 'Execution state belongs to another exercise')
-            own_sets = {str(row.client_uuid) for row in exercise.sets} | {
+            deleted_uuids = {str(row.client_uuid) for row in ex_snap.sets if row.deleted}
+            with db.no_autoflush:
+                deleted_uuids.update(str(uuid) for uuid in (await db.scalars(select(SyncTombstone.client_uuid).where(
+                    SyncTombstone.app_user_id == app_user_id, SyncTombstone.workout_session_id == workout.id,
+                    SyncTombstone.entity_type == 'workout_set', SyncTombstone.client_uuid.is_not(None),
+                ))).all())
+            state = retire_slots(merge_exercise(exercise.execution_state, state, ex_snap.exercise_id), deleted_uuids)
+            own_sets = ({str(row.client_uuid) for row in exercise.sets} | {
                 str(row.client_uuid) for row in ex_snap.sets if not row.deleted
-            }
+            }) - deleted_uuids
             if any(slot['set_client_uuid'] not in own_sets for slot in state['slots'].values() if slot['state'] == 'draft'):
                 raise HTTPException(422, 'Execution slot references a foreign or missing set')
-            exercise.execution_state = merge_exercise(exercise.execution_state, state, ex_snap.exercise_id)
+            exercise.execution_state = state
         elif exercise.exercise_id != ex_snap.exercise_id:
             exercise.execution_state = None
         exercise.exercise_id = ex_snap.exercise_id

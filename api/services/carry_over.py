@@ -892,35 +892,18 @@ async def _validate_unfinished_sets(
     if owned is None:
         raise CarryOverSourceNotFound
 
-    rows = (
-        await db.execute(
-            select(
-                WorkoutSessionExercise.id,
-                WorkoutSessionExercise.target_sets,
-                func.count(WorkoutSessionSet.id),
-            )
-            .outerjoin(
-                WorkoutSessionSet,
-                (WorkoutSessionSet.workout_session_exercise_id == WorkoutSessionExercise.id)
-                & WorkoutSessionSet.is_completed.is_(True)
-                & (WorkoutSessionSet.set_type == "normal")
-                & WorkoutSessionSet.parent_set_id.is_(None),
-            )
-            .where(
-                WorkoutSessionExercise.workout_session_id == session_id,
-                WorkoutSessionExercise.id.in_(list(unfinished_sets)),
-            )
-            .group_by(
-                WorkoutSessionExercise.id,
-                WorkoutSessionExercise.target_sets,
-            )
-        )
-    ).all()
-    if len(rows) != len(unfinished_sets):
+    from sqlalchemy.orm import selectinload
+    from api.services.execution_state import prescribed_working_progress
+    exercises = (await db.scalars(select(WorkoutSessionExercise).where(
+        WorkoutSessionExercise.workout_session_id == session_id,
+        WorkoutSessionExercise.id.in_(list(unfinished_sets)),
+    ).options(selectinload(WorkoutSessionExercise.sets)))).all()
+    if len(exercises) != len(unfinished_sets):
         raise InvalidUnfinishedSets
-    for source_exercise_id, target_sets, completed_sets in rows:
-        actual = max(0, int(target_sets or 0) - int(completed_sets or 0))
-        if actual <= 0 or actual != int(unfinished_sets[source_exercise_id]):
+    for exercise in exercises:
+        target, completed = prescribed_working_progress(exercise)
+        actual = max(0, (target or 0) - completed)
+        if actual <= 0 or actual != int(unfinished_sets[exercise.id]):
             raise InvalidUnfinishedSets
 
 

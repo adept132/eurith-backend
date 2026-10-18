@@ -447,3 +447,17 @@ async def test_preview_hides_a_foreign_workout(client, db, test_user):
     assert response.json()["detail"]["error"] == "source_not_found"
     await db.execute(delete(AppUser).where(AppUser.id == foreign.id))
     await db.commit()
+
+async def test_carry_remainder_uses_prescription_and_bound_slots_not_extra_facts(client,db,test_user):
+    from api.services.models import WorkoutSessionSet
+    session,exercise,_,_=await _seed_carry_over(db,test_user.id)
+    exercise.target_sets=4
+    exercise.prescription={'basis':{'exercise_id':exercise.exercise_id},'sets':[{'set_number':n} for n in [1,2]]}
+    uuids=[str(uuid.uuid4()) for _ in range(3)]
+    db.add_all([WorkoutSessionSet(workout_session_exercise_id=exercise.id,client_uuid=u,set_number=n+1,set_type='normal',is_completed=n!=1,weight=60,reps=8) for n,u in enumerate(uuids)])
+    exercise.execution_state={'schema_version':1,'exercise_id':exercise.exercise_id,'slots':{'1':{'state':'draft','set_client_uuid':str(uuids[0]),'updated_at':'2026-10-18T12:00:00Z'},'2':{'state':'draft','set_client_uuid':str(uuids[1]),'updated_at':'2026-10-18T12:00:00Z'}}}
+    sid=session.id;eid=exercise.id
+    await db.commit()
+    response=await client.post(f'/workouts/{sid}/carry-over/preview',json={'idempotency_key':str(uuid.uuid4()),'unfinished_sets':[{'source_exercise_id':eid,'requested_sets':1}]})
+    assert response.status_code==200,response.text
+    assert sum(p['delta_sets'] for p in response.json()['items'][0]['placements'])==1
