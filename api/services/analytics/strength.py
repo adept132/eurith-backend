@@ -6,7 +6,7 @@ the entire scoped history for PRs, never before it.
 """
 from collections import defaultdict
 from statistics import mean, median
-from .load import lombardi
+from .load import lombardi, load_basis
 from .policy import finite_number, strictly_greater
 from .types import (Coverage, ExerciseSessionPoint, NormalizedSetFact,
                     PointDetails, StrengthChange)
@@ -40,9 +40,11 @@ def session_points(rows: list[NormalizedSetFact]) -> list[ExerciseSessionPoint]:
     for (workout_id, exercise_id), group in groups.items():
         group.sort(key=_order)
         normal = [row for row in group if row.set_type == 'normal']
+        mixed = len({load_basis(row.load_context) for row in group
+                     if row.e1rm_weight_kg is not None or row.tonnage_kg is not None}) > 1
         best, best_value = None, None
         used = 0
-        for row in normal:
+        for row in ([] if mixed else normal):
             value = _e1rm(row)
             if value is not None:
                 used += 1
@@ -52,13 +54,14 @@ def session_points(rows: list[NormalizedSetFact]) -> list[ExerciseSessionPoint]:
         volumes = [row.tonnage_kg for row in group if finite_number(row.tonnage_kg) is not None]
         points.append(ExerciseSessionPoint(workout_id=workout_id, exercise_id=exercise_id,
             at=source.finished_at, e1rm=best_value,
-            volume=sum(volumes) if volumes else None, work_sets=len(normal),
+            volume=sum(volumes) if volumes and not mixed else None, work_sets=len(normal),
             drop_sets=len(group)-len(normal), is_deload=source.is_deload,
             gym_id=source.gym_id, gym_label=source.gym_label,
             source_set_id=best.set_id if best else None,
             details=PointDetails(load_context=source.load_context,
                 session_context=source.session_context, coverage=Coverage(used, len(normal)),
-                reasons=tuple(sorted({reason for row in group for reason in row.unavailable})),
+                reasons=tuple(sorted({reason for row in group for reason in row.unavailable}
+                    | ({'incompatible_load_basis'} if mixed else set()))),
                 observation_dates=(source.finished_at.date(),))))
     return sorted(points, key=lambda point: (point.at, point.workout_id, point.exercise_id))
 
@@ -67,6 +70,9 @@ def strength_change(points: list[ExerciseSessionPoint]) -> StrengthChange:
     usable = sorted((point for point in points if point.is_deload is not True
         and finite_number(point.e1rm) is not None and point.e1rm > 0),
         key=lambda point: (point.at, point.workout_id))
+    if usable:
+        basis = load_basis(usable[-1].details.load_context if usable[-1].details else None)
+        usable = [p for p in usable if load_basis(p.details.load_context if p.details else None) == basis]
     if len(usable) < 4:
         return StrengthChange(None, None, None, None, None, ())
     size, aggregate = (3, median) if len(usable) >= 6 else (2, mean)
@@ -106,7 +112,10 @@ def record_history(rows: list[NormalizedSetFact]) -> dict:
     """
     initial = best = volume = None
     events, bands, weight_at_reps = [], {}, {}
-    for row in sorted((row for row in rows if _admitted(row)), key=_order):
+    ordered = sorted((row for row in rows if _admitted(row)), key=_order)
+    known = [row for row in ordered if _e1rm(row) is not None or finite_number(row.tonnage_kg) is not None]
+    basis = load_basis(known[-1].load_context) if known else None
+    for row in (row for row in ordered if load_basis(row.load_context) == basis):
         value = _e1rm(row)
         wins_best = wins_band = wins_weight = False
         if value is not None:

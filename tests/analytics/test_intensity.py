@@ -46,7 +46,7 @@ def test_prepared_reference_deduplicates_only_exact_boundary_equivalent_candidat
                    replace(prior,finished_at=target.started_at,set_id=1002),
                    replace(prior,e1rm_weight_kg=prior.e1rm_weight_kg+1e-9,set_id=1003)]
     prepared=prepare_intensity(candidates)
-    assert len(prepared.history[prior.exercise_id])==4
+    assert len(prepared.history[prior.exercise_id, 'normalized'])==4
     assert prepared.summary(weighted_90_60)==intensity_summary(weighted_90_60,reference)
 
 

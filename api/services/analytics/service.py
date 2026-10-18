@@ -16,6 +16,7 @@ from .volume import volume_summary, _tonnage
 from .muscles import muscle_progress
 from .context import body_changes, select_boundary_measurement, adherence_summary
 from .policy import eligible
+from .load import load_basis
 
 
 def _gym_scope(gym_id):
@@ -84,7 +85,8 @@ def _points(facts, rows, prepared_intensity, pure_points):
 def _exclusions(rows):
     result = []
     for row in rows:
-        reasons = list(row.unavailable)
+        # Recorded basis describes admitted legacy observations, not exclusion.
+        reasons = [reason for reason in row.unavailable if reason != 'recorded_load_basis']
         if row.is_anomalous:
             reasons.append('anomalous')
         if not row.is_completed:
@@ -107,8 +109,11 @@ def _exercise(facts, query, exercise_id):
     reason = ('unknown_block_end' if facts.period is None else
               'insufficient_sessions' if change.delta_pct is None else None)
     volume, intensity, effort = _volume(facts, rows), prepared_intensity.summary(rows), effort_summary(rows)
-    valid = [p.e1rm for p in points if p.e1rm is not None]
-    strength_coverage = Coverage(len(valid), len(points))
+    available = [p for p in points if p.e1rm is not None]
+    latest_basis = load_basis(available[-1].details.load_context) if available else None
+    valid = [p.e1rm for p in available if load_basis(p.details.load_context) == latest_basis]
+    strength_coverage = Coverage(len(available), len(points))
+    best_coverage = Coverage(len(valid), len(points))
     record_rows = [r for r in facts.record_sets if r.exercise_id == exercise_id]
     records = record_history(record_rows)
     # Preview baseline cutoff and graph fold are independent. Full graph input
@@ -129,7 +134,7 @@ def _exercise(facts, query, exercise_id):
     if reason:
         excluded.append(Exclusion(reason=reason, exercise_id=exercise_id))
     return ExerciseAnalytics(**_envelope(facts, query, exercise_id), points=points,
-        summary=ExerciseSummary(best_e1rm=Metric(max(valid) if valid else None, None if valid else 'no_data', strength_coverage),
+        summary=ExerciseSummary(best_e1rm=Metric(max(valid) if valid else None, None if valid else 'no_data', best_coverage),
             strength=change, strength_reason=reason, volume=volume, intensity=intensity, effort=effort),
         record_baseline=baseline, record_events=[e for e in events if e['set_id'] in visible_ids],
         coverage=dict(strength=strength_coverage, volume=volume.tonnage.coverage,
@@ -225,21 +230,38 @@ def _adherence_ratio(context):
     return 100*context.completed_days/context.planned_days if context.planned_days and context.reason is None else None
 
 
+def _strength_basis(exercise):
+    used = set(exercise.summary.strength.workout_ids)
+    return next((load_basis(p.details.load_context) for p in reversed(exercise.points)
+                 if p.workout_id in used), None)
+
+
+def _tonnage_bases(facts):
+    return {load_basis(row.load_context) for row in facts.window_sets
+            if row.tonnage_kg is not None and
+            (eligible(row, 'work_sets') or eligible(row, 'drop_sets'))}
+
+
 async def compare_blocks(db, user_id: int, block_a_id: int, block_b_id: int, gym_id: str | None) -> BlockComparison:
     qa = AnalyticsQuery(period='block',block_id=block_a_id,gym_id=gym_id)
     qb = AnalyticsQuery(period='block',block_id=block_b_id,gym_id=gym_id)
     fa, fb = await load_comparison_facts(db, user_id, qa, qb)
     a,b = _block(fa,qa),_block(fb,qb)
     ids_a,ids_b = set(a.exercises),set(b.exercises)
-    common = {eid for eid in ids_a & ids_b if a.exercises[eid].summary.strength.delta_pct is not None
+    candidates = {eid for eid in ids_a & ids_b if a.exercises[eid].summary.strength.delta_pct is not None
               and b.exercises[eid].summary.strength.delta_pct is not None}
+    incompatible = {eid for eid in candidates if _strength_basis(a.exercises[eid]) != _strength_basis(b.exercises[eid])}
+    common = candidates - incompatible
+    bases_a, bases_b = _tonnage_bases(fa), _tonnage_bases(fb)
+    incompatible_tonnage = bool(bases_a and bases_b and bases_a != bases_b)
     a.muscles,b.muscles = _muscles(fa,a.exercises,common),_muscles(fb,b.exercises,common)
     ma,mb = {m.muscle_key:m.delta_pct for m in a.muscles},{m.muscle_key:m.delta_pct for m in b.muscles}
     differences = ComparisonDifferences(
         muscles={k:_difference(ma.get(k),mb.get(k),'percentage_points',reason='no_common_exercises') for k in sorted(ma.keys()|mb.keys())},
         work_sets_per_7_days=_difference(a.volume.work_sets_per_7_days,b.volume.work_sets_per_7_days,'sets_per_7_days'),
         drop_sets_per_7_days=_difference(a.volume.drop_sets_per_7_days,b.volume.drop_sets_per_7_days,'sets_per_7_days'),
-        tonnage_per_7_days=_difference(a.volume.tonnage_per_7_days.value,b.volume.tonnage_per_7_days.value,'kg_per_7_days'),
+        tonnage_per_7_days=(_difference(None,None,'kg_per_7_days',reason='incompatible_load_basis')
+            if incompatible_tonnage else _difference(a.volume.tonnage_per_7_days.value,b.volume.tonnage_per_7_days.value,'kg_per_7_days')),
         intensity=_difference(a.intensity.value,b.intensity.value,'percentage_points'),
         mean_rir=_difference(a.effort.mean_rir.value,b.effort.mean_rir.value,'repetitions'),
         drift_rir=_difference(a.effort.drift_rir.value,b.effort.drift_rir.value,'repetitions'),
@@ -248,7 +270,8 @@ async def compare_blocks(db, user_id: int, block_a_id: int, block_b_id: int, gym
             b.body.metrics[k].delta if k in b.body.metrics else None,
             'kg' if k=='weight' else 'percentage_points' if k=='body_fat' else 'cm',scope='block_context')
             for k in sorted(a.body.metrics.keys()|b.body.metrics.keys())})
-    excluded = [Exclusion(exercise_id=eid,reason='insufficient_sessions') for eid in sorted((ids_a & ids_b)-common)]
+    excluded = [Exclusion(exercise_id=eid,reason='incompatible_load_basis' if eid in incompatible else 'insufficient_sessions')
+                for eid in sorted((ids_a & ids_b)-common)]
     if not common:
         excluded.append(Exclusion(reason='no_common_exercises'))
     for side in (a,b):

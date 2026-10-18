@@ -8,6 +8,11 @@ from .types import RawSetFact, NormalizedSetFact
 _RAW_FIELD_NAMES = tuple(field.name for field in fields(RawSetFact))
 
 
+def load_basis(context: dict | None) -> str:
+    """Recorded scalars cannot be compared with normalized resistance."""
+    return 'recorded' if (context or {}).get('model') == 'recorded_load' else 'normalized'
+
+
 def lombardi(weight_kg: float, reps: int) -> float | None:
     weight = finite_number(weight_kg)
     if weight is None or weight <= 0 or not positive_reps(reps):
@@ -30,6 +35,13 @@ def normalize_set(raw: RawSetFact, *, comparison_cache: dict | None = None) -> N
     recorded = finite_number(raw.weight_kg)
     if context.get('schema_version') != 1:
         reasons.append('unknown_load_context')
+    elif (model == 'recorded_load' and basis == 'recorded'
+          and context.get('source') == 'legacy_recorded_weight'):
+        reasons.append('recorded_load_basis')
+        if recorded is None or recorded < 0:
+            reasons.append('invalid_weight')
+        else:
+            weight = recorded
     elif model == 'partial_bodyweight':
         reasons.append('partial_bodyweight_model_unavailable')
     elif model == 'bodyweight' and basis == 'body_components':

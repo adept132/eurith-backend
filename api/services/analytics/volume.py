@@ -2,10 +2,13 @@
 from api.services.volume.measure import MuscleContribution, accumulate, contribution
 
 from .policy import eligible, finite_number
+from .load import load_basis
 from .types import Coverage, Metric, MuscleVolumeChannel, NormalizedSetFact, VolumeChannel
 
 
 def _tonnage(rows: list[NormalizedSetFact], scale: float = 1.) -> Metric:
+    if len({load_basis(row.load_context) for row in rows if finite_number(row.tonnage_kg) is not None}) > 1:
+        return Metric(None, 'incompatible_load_basis', Coverage(0, len(rows)))
     values = [value for row in rows
               if (value := finite_number(row.tonnage_kg)) is not None]
     # Empty channels are known zero; wholly unavailable loads are unknown.

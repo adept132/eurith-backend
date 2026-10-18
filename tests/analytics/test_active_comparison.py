@@ -148,3 +148,20 @@ async def test_active_scope_advances_at_profile_midnight_without_revision(monkey
     assert before.b.scope.period.end == date(2026, 10, 15)
     assert after.b.scope.period.end == date(2026, 10, 16)
     assert before.data_revision == after.data_revision
+
+
+@pytest.mark.asyncio
+async def test_comparison_does_not_subtract_recorded_and_normalized_load_bases(monkeypatch, history):
+    recorded = dict(schema_version=1, model='recorded_load', input_basis='recorded',
+                    source='legacy_recorded_weight')
+    history.facts[:] = [normalize_set(replace(row, load_context=recorded))
+                       if row.workout_id <= 4 else row for row in history.facts]
+    install_history(monkeypatch, history)
+    result = await service.compare_blocks(None, 7, 1, 2, None)
+    assert result.a.volume.tonnage_per_7_days.value is not None
+    assert result.b.volume.tonnage_per_7_days.value is not None
+    assert result.differences.tonnage_per_7_days.value is None
+    assert result.differences.tonnage_per_7_days.reason == 'incompatible_load_basis'
+    assert result.common_exercise_ids == []
+    assert result.differences.muscles['chest'].value is None
+    assert any(item.reason == 'incompatible_load_basis' for item in result.excluded)

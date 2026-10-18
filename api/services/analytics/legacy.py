@@ -5,6 +5,20 @@ from api.schemas.warmups import WarmupLoadContext
 from .policy import finite_number
 
 
+def recorded_load_context(*, analytics_snapshot, saved_snapshot, mode, setup_id, defaults):
+    """Read-only compatibility for scalar rows with no resistance evidence.
+
+    This describes the recorded number, never a reconstructed apparatus, full
+    resistance, body mass, implement count or plates-only conversion. Explicit
+    unknown/malformed snapshots must retain their original missingness.
+    """
+    if any(value is not None for value in
+           (analytics_snapshot, saved_snapshot, mode, setup_id, defaults)):
+        return None
+    return dict(schema_version=1, model='recorded_load', input_basis='recorded',
+                source='legacy_recorded_weight')
+
+
 def legacy_load_context(snapshot: dict | None, *, mode: str | None,
                         gym_id=None, setup_id=None) -> dict | None:
     if not isinstance(snapshot, dict):

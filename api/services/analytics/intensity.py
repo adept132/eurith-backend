@@ -2,6 +2,7 @@
 from collections import defaultdict
 from datetime import timedelta
 from .policy import positive_reps, strictly_greater
+from .load import load_basis
 from .strength import _admitted, _e1rm, _order
 from .types import Coverage, Metric, NormalizedSetFact
 
@@ -22,11 +23,12 @@ class PreparedIntensity:
             if value is not None:
                 # Identical candidates have identical boundary/owner exclusion
                 # behavior and cannot change the monotonic tolerance fold twice.
-                key = row.exercise_id, row.workout_id, row.finished_at, value
+                basis = load_basis(row.load_context)
+                key = row.exercise_id, basis, row.workout_id, row.finished_at, value
                 if key in seen:
                     continue
                 seen.add(key)
-                self.history[row.exercise_id].append((row, value))
+                self.history[row.exercise_id, basis].append((row, value))
 
     def summary(self, window):
         weighted, reps, used, total = 0., 0, 0, 0
@@ -36,11 +38,12 @@ class PreparedIntensity:
             total += 1
             if _e1rm(row) is None or not positive_reps(row.reps):
                 continue
-            key = row.workout_id, row.exercise_id, row.started_at
+            basis = load_basis(row.load_context)
+            key = row.workout_id, row.exercise_id, row.started_at, basis
             if key not in self.baselines:
                 best = None
                 lower = row.started_at - timedelta(days=56)
-                for candidate, value in self.history[row.exercise_id]:
+                for candidate, value in self.history[row.exercise_id, basis]:
                     if (candidate.workout_id != row.workout_id
                             and lower <= candidate.finished_at < row.started_at
                             and (best is None or (value > best and strictly_greater(value, best)))):

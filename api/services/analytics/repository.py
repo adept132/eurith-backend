@@ -16,7 +16,7 @@ from api.services.muscle_keys import to_system_key
 from .types import AnalyticsQuery, AnalyticsFacts, RawSetFact
 from .periods import resolve_period
 from .load import normalize_set
-from .legacy import legacy_load_context
+from .legacy import legacy_load_context, recorded_load_context
 from .policy import RULES_VERSION
 from .snapshots import saved_phase_deload
 
@@ -92,6 +92,7 @@ async def _load_history(db, user_id, query, exercise_ids):
     session_fields = ('started_at', 'finished_at', 'analytics_snapshot', 'gym_snapshot',
                       'training_block_id', 'mesocycle_phase')
     statement = select(S.__table__, E.exercise_id, E.id.label('exercise_instance_id'),
+                       E.analytics_load_defaults.label('exercise_load_defaults'),
                        E.order_index.label('exercise_order'), W.id.label('workout_id'),
                        *(getattr(W, name).label('session_' + name) for name in session_fields)).join(
         E, S.workout_session_exercise_id == E.id).join(W, E.workout_session_id == W.id).where(
@@ -116,6 +117,10 @@ async def _load_history(db, user_id, query, exercise_ids):
         context = row['analytics_load_snapshot']
         if context is None:
             context = legacy_load_context(saved_load, mode=row['load_mode'], gym_id=row['gym_profile_id'], setup_id=row['setup_id'])
+            if context is None:
+                context = recorded_load_context(analytics_snapshot=row['analytics_load_snapshot'],
+                    saved_snapshot=row['load_snapshot'], mode=row['load_mode'],
+                    setup_id=row['setup_id'], defaults=row['exercise_load_defaults'])
         raw = RawSetFact(workout_id=w['id'], exercise_id=row['exercise_id'], exercise_instance_id=row['exercise_instance_id'],
             set_id=row['id'], set_number=row['set_number'], exercise_order=row['exercise_order'],
             started_at=w['started_at'], finished_at=w['finished_at'],
