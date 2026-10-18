@@ -644,6 +644,7 @@ class AppUserMesocycle(Base):
 # --- МОБИЛЬНЫЕ СЕССИИ (ЛОГИ) ---
 
 class WorkoutSession(Base):
+    execution_state: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     __tablename__ = "workout_sessions"
     analytics_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -773,6 +774,7 @@ class WorkoutSession(Base):
 
 
 class WorkoutSessionExercise(Base):
+    execution_state: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     __tablename__ = "workout_session_exercises"
     analytics_load_defaults: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

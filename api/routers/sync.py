@@ -1,4 +1,5 @@
 from __future__ import annotations
+from api.services.execution_state import merge_mode, merge_exercise
 
 from api.services.analytics.writes import apply_field, apply_set_context, apply_session_context, fingerprint, json_value
 from api.services.analytics.state import mark_dirty
@@ -295,6 +296,8 @@ async def _apply_snapshot(
             )
 
     # 4. Скалярные поля (клиент-авторитетно).
+    if payload.execution_state is not None:
+        workout.execution_state = merge_mode(workout.execution_state, payload.execution_state.model_dump(mode="json"))
     workout.source = payload.source
     workout.split_day_id = payload.split_day_id
     workout.plan_id = payload.plan_id
@@ -443,6 +446,18 @@ async def _apply_snapshot(
                 detail="Cannot reassign an exercise with recorded sets",
             )
 
+        if ex_snap.execution_state is not None:
+            state = ex_snap.execution_state.model_dump(mode='json')
+            if state['exercise_id'] != ex_snap.exercise_id:
+                raise HTTPException(422, 'Execution state belongs to another exercise')
+            own_sets = {str(row.client_uuid) for row in exercise.sets} | {
+                str(row.client_uuid) for row in ex_snap.sets if not row.deleted
+            }
+            if any(slot['set_client_uuid'] not in own_sets for slot in state['slots'].values() if slot['state'] == 'draft'):
+                raise HTTPException(422, 'Execution slot references a foreign or missing set')
+            exercise.execution_state = merge_exercise(exercise.execution_state, state, ex_snap.exercise_id)
+        elif exercise.exercise_id != ex_snap.exercise_id:
+            exercise.execution_state = None
         exercise.exercise_id = ex_snap.exercise_id
         exercise.order_index = target_order_by_snapshot[id(ex_snap)]
         exercise.superset_group = ex_snap.superset_group

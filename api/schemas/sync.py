@@ -1,4 +1,5 @@
 from __future__ import annotations
+from api.schemas.execution import ExecutionModeState, ExecutionExerciseState
 
 import uuid
 from api.schemas.actual_numbers import ActualReps, ActualWeight
@@ -105,6 +106,7 @@ class SyncPrescriptionSnapshot(BaseModel):
 
 
 class SyncExerciseSnapshot(BaseModel):
+    execution_state: ExecutionExerciseState | None = None
     analytics_load_defaults: SetLoadSnapshot | None = None
     """Снимок упражнения сессии со всеми подходами."""
     client_uuid: str
@@ -137,6 +139,7 @@ class SyncExerciseSnapshot(BaseModel):
 
 
 class SyncWorkoutSnapshot(BaseModel):
+    execution_state: ExecutionModeState | None = None
     analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     analytics_mass_intent: AnalyticsMassIntent | None = None
     """Полный снимок тренировки для идемпотентного upsert по client_uuid."""

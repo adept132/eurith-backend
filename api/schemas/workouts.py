@@ -1,4 +1,5 @@
 from __future__ import annotations
+from api.schemas.execution import ExecutionModeState, ExecutionExerciseState
 
 import uuid
 from api.schemas.actual_numbers import ActualReps, ActualWeight
@@ -136,6 +137,7 @@ class WorkoutSessionSetResponse(BaseModel):
 
 
 class WorkoutSessionExerciseResponse(BaseModel):
+    execution_state: ExecutionExerciseState | None = None
     analytics_load_defaults: SetLoadSnapshot | None = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -177,6 +179,7 @@ class WorkoutChildTombstones(BaseModel):
 
 
 class WorkoutSessionDetailResponse(BaseModel):
+    execution_state: ExecutionModeState | None = None
     analytics_snapshot: WorkoutAnalyticsSnapshot | None = None
     sync_version: int = 0
     child_tombstones: WorkoutChildTombstones = Field(default_factory=WorkoutChildTombstones)
